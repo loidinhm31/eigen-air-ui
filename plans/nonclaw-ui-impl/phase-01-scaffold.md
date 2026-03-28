@@ -376,15 +376,15 @@ pnpm build   # Should complete (no packages have build scripts yet)
 
 ## Todo
 
-- [x]Create directory structure (apps/web, apps/native, packages/*)
-- [x]Write root package.json, pnpm-workspace.yaml, turbo.json
-- [x]Write .gitignore, .prettierrc, .prettierignore, CLAUDE.md
-- [x]Write packages/tsconfig/ (4 files)
-- [x]Write packages/eslint-config/ (3 files)
-- [x]Add .gitkeep stubs for apps/ and packages/ui, packages/shared
-- [x]git init + initial commit
-- [x]pnpm install — verify zero errors
-- [x]pnpm build — verify pipeline runs
+- [x] Create directory structure (apps/web, apps/native, packages/*)
+- [x] Write root package.json, pnpm-workspace.yaml, turbo.json
+- [x] Write .gitignore, .prettierrc, .prettierignore, CLAUDE.md
+- [x] Write packages/tsconfig/ (4 files)
+- [x] Write packages/eslint-config/ (3 files)
+- [x] Add .gitkeep stubs for apps/ and packages/ui, packages/shared
+- [x] git init + initial commit
+- [x] pnpm install — verify zero errors
+- [x] pnpm build — verify pipeline runs
 
 ## Success Criteria
 

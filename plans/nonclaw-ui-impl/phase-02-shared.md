@@ -10,8 +10,9 @@
 | Date | 2026-03-28 |
 | Priority | P1 |
 | Effort | ~2h |
-| Implementation | pending |
-| Review | pending |
+| Implementation | done |
+| Review | done |
+| Completed | 2026-03-28 |
 
 Build `packages/shared` — all TypeScript domain types, WS protocol frame types, HTTP API types, and constants used across the ui package and apps. Zero runtime dependencies beyond `clsx` and `tailwind-merge` for the `cn()` utility.
 

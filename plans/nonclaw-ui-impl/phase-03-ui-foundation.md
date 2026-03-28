@@ -10,8 +10,9 @@
 | Date | 2026-03-28 |
 | Priority | P1 |
 | Effort | ~3h |
-| Implementation | pending |
-| Review | pending |
+| Implementation | done |
+| Review | done |
+| Completed | 2026-03-28 |
 
 Create `packages/ui` with ServiceFactory (DI pattern), HTTP + WS adapters for all nonclaw daemon endpoints, Zustand stores, global Tailwind CSS v4 styles, and core atom components (Button, Input, Badge, Card, Spinner, ScrollArea, Tooltip, Avatar).
 
@@ -568,20 +569,20 @@ body {
 
 ## Todo
 
-- [ ] Write package.json, tsconfig.json, eslint.config.js for packages/ui
-- [ ] Write 5 service interfaces (IChatService, IMemoryService, IToolService, ISkillService, IConfigService)
-- [ ] Write ServiceFactory.ts (setters + getters)
-- [ ] Write WsClient.ts (low-level JSON-RPC)
-- [ ] Write WsChatAdapter.ts
-- [ ] Write HttpMemoryAdapter.ts
-- [ ] Write HttpToolAdapter.ts
-- [ ] Write HttpSkillAdapter.ts
-- [ ] Write HttpConfigAdapter.ts
-- [ ] Write connectionStore.ts, chatStore.ts, memoryStore.ts
-- [ ] Write globals.css (Tailwind v4 @theme)
-- [ ] Write atoms: Button, Input, Badge, Card, Spinner, ScrollArea, Tooltip, Avatar
-- [ ] Write barrel index files
-- [ ] `pnpm --filter @nonclaw-ui/ui type-check` → zero errors
+- [x] Write package.json, tsconfig.json, eslint.config.js for packages/ui
+- [x] Write 5 service interfaces (IChatService, IMemoryService, IToolService, ISkillService, IConfigService)
+- [x] Write ServiceFactory.ts (setters + getters)
+- [x] Write WsClient.ts (low-level JSON-RPC)
+- [x] Write WsChatAdapter.ts
+- [x] Write HttpMemoryAdapter.ts
+- [x] Write HttpToolAdapter.ts
+- [x] Write HttpSkillAdapter.ts
+- [x] Write HttpConfigAdapter.ts
+- [x] Write connectionStore.ts, chatStore.ts, memoryStore.ts
+- [x] Write globals.css (Tailwind v4 @theme)
+- [x] Write atoms: Button, Input, Badge, Card, Spinner, ScrollArea, Tooltip, Avatar
+- [x] Write barrel index files
+- [x] `pnpm --filter @nonclaw-ui/ui type-check` → zero errors
 
 ## Success Criteria
 

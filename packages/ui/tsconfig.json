@@ -1,0 +1,10 @@
+{
+  "extends": "@nonclaw-ui/tsconfig/react-library.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "baseUrl": ".",
+    "paths": { "@nonclaw-ui/ui/*": ["./src/*"] }
+  },
+  "include": ["src"]
+}

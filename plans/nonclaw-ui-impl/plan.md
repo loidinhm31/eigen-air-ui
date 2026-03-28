@@ -43,8 +43,8 @@ Standalone Turborepo monorepo delivering a desktop (Tauri v2) and web (Vite SPA)
 | # | Phase | Status | Effort | Description |
 |---|-------|--------|--------|-------------|
 | 1 | [Monorepo Scaffold](./phase-01-scaffold.md) | done | 2h | Root configs, tsconfig, eslint packages, git init |
-| 2 | [Shared Package](./phase-02-shared.md) | pending | 2h | Domain types, WS protocol types, HTTP types, constants |
-| 3 | [UI Foundation](./phase-03-ui-foundation.md) | pending | 3h | ServiceFactory, HTTP/WS adapters, Zustand stores, atoms |
+| 2 | [Shared Package](./phase-02-shared.md) | done | 2h | Domain types, WS protocol types, HTTP types, constants |
+| 3 | [UI Foundation](./phase-03-ui-foundation.md) | done | 3h | ServiceFactory, HTTP/WS adapters, Zustand stores, atoms |
 | 4 | [UI Components](./phase-04-ui-components.md) | pending | 4h | Molecules, organisms, AppShell template, 6 pages |
 | 5 | [Web App](./phase-05-web-app.md) | pending | 1.5h | Vite SPA wiring, adapter init, router, dev+build |
 | 6 | [Native App (Tauri)](./phase-06-native-app.md) | pending | 1.5h | Tauri v2 shell, src-tauri Rust config, build |
