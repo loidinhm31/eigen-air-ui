@@ -1,4 +1,9 @@
 export * from "./components/atoms/index.js";
+export * from "./components/molecules/index.js";
+export * from "./components/organisms/index.js";
+export * from "./components/templates/index.js";
+export * from "./components/pages/index.js";
+export * from "./embed/index.js";
 export * from "./stores/index.js";
 export {
   setChatService,

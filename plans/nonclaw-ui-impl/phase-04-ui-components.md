@@ -9,8 +9,8 @@
 | Date | 2026-03-28 |
 | Priority | P1 |
 | Effort | ~4h |
-| Implementation | pending |
-| Review | pending |
+| Implementation | done |
+| Review | done |
 
 Build all UI components in `packages/ui/src/components/`: molecules, organisms, AppShell template, and 6 pages (Chat, Memory, Tools, Skills, Settings, Sessions). Uses stores + adapters from Phase 3.
 
@@ -319,21 +319,21 @@ export function NonclawApp({ useRouter = true }: Props) {
 
 ## Todo
 
-- [ ] ChatBubble.tsx (user/assistant variants, streaming cursor)
-- [ ] ToolCallCard.tsx (collapsible, args + result)
-- [ ] MemoryItem.tsx (key-value + delete)
-- [ ] SkillCard.tsx (name + description + score badge)
-- [ ] StatusBadge.tsx (green/yellow/red dot + label)
-- [ ] ChatPanel.tsx (streaming, tool calls inline, scroll-to-bottom)
-- [ ] MemoryBrowser.tsx (search + list + delete)
-- [ ] ToolsPanel.tsx (list + invoke modal with JSON input)
-- [ ] SkillBrowser.tsx (BM25 search input + results)
-- [ ] ConnectionStatus.tsx (URL input + connect + status)
-- [ ] AppShell.tsx (sidebar nav + Outlet)
-- [ ] All 6 page components
-- [ ] NonclawApp.tsx embed entry
-- [ ] Barrel index.ts for each level
-- [ ] `pnpm --filter @nonclaw-ui/ui type-check` → zero errors
+- [x] ChatBubble.tsx (user/assistant variants, streaming cursor)
+- [x] ToolCallCard.tsx (collapsible, args + result)
+- [x] MemoryItem.tsx (key-value + delete)
+- [x] SkillCard.tsx (name + description + score badge)
+- [x] StatusBadge.tsx (green/yellow/red dot + label)
+- [x] ChatPanel.tsx (streaming, tool calls inline, scroll-to-bottom)
+- [x] MemoryBrowser.tsx (search + list + delete + error handling)
+- [x] ToolsPanel.tsx (list + invoke with JSON input)
+- [x] SkillBrowser.tsx (BM25 search input + results)
+- [x] ConnectionStatus.tsx (URL input + connect + status)
+- [x] AppShell.tsx (sidebar nav + Outlet)
+- [x] All 6 page components
+- [x] NonclawApp.tsx embed entry
+- [x] Barrel index.ts for each level
+- [x] `pnpm --filter @nonclaw-ui/ui type-check` → zero errors
 
 ## Success Criteria
 
