@@ -10,7 +10,7 @@ export const config = [
   pluginReact.configs.flat.recommended,
   {
     languageOptions: {
-      globals: { ...globals.browser },
+      globals: { ...globals.serviceworker, ...globals.browser },
     },
   },
   {

@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "files": ["base.js", "react-internal.js"],
   "exports": {
     "./base": "./base.js",
     "./react-internal": "./react-internal.js"

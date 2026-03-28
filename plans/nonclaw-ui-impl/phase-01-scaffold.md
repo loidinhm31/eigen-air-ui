@@ -11,8 +11,9 @@
 | Date | 2026-03-28 |
 | Priority | P1 — blocks all other phases |
 | Effort | ~2h |
-| Implementation | pending |
-| Review | pending |
+| Implementation | done |
+| Review | done |
+| Completed | 2026-03-28 |
 
 Bootstrap the nonclaw-ui Turborepo monorepo: pnpm workspaces, shared TypeScript + ESLint configs, Prettier, CLAUDE.md, and directory stubs for all packages. After this phase `pnpm install` and `pnpm build` run without errors.
 
@@ -375,15 +376,15 @@ pnpm build   # Should complete (no packages have build scripts yet)
 
 ## Todo
 
-- [ ] Create directory structure (apps/web, apps/native, packages/*)
-- [ ] Write root package.json, pnpm-workspace.yaml, turbo.json
-- [ ] Write .gitignore, .prettierrc, .prettierignore, CLAUDE.md
-- [ ] Write packages/tsconfig/ (4 files)
-- [ ] Write packages/eslint-config/ (3 files)
-- [ ] Add .gitkeep stubs for apps/ and packages/ui, packages/shared
-- [ ] git init + initial commit
-- [ ] pnpm install — verify zero errors
-- [ ] pnpm build — verify pipeline runs
+- [x]Create directory structure (apps/web, apps/native, packages/*)
+- [x]Write root package.json, pnpm-workspace.yaml, turbo.json
+- [x]Write .gitignore, .prettierrc, .prettierignore, CLAUDE.md
+- [x]Write packages/tsconfig/ (4 files)
+- [x]Write packages/eslint-config/ (3 files)
+- [x]Add .gitkeep stubs for apps/ and packages/ui, packages/shared
+- [x]git init + initial commit
+- [x]pnpm install — verify zero errors
+- [x]pnpm build — verify pipeline runs
 
 ## Success Criteria
 

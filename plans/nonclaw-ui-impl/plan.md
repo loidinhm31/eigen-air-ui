@@ -1,7 +1,7 @@
 ---
 title: "nonclaw-ui: Turborepo Tauri v2 + React 19 Desktop UI"
 description: "Standalone desktop + web UI for nonclaw AI agent daemon — Tauri v2, React 19, TypeScript, atomic design, REST+WS adapters"
-status: pending
+status: in_progress
 priority: P2
 effort: 14h (6 phases)
 branch: main
@@ -42,7 +42,7 @@ Standalone Turborepo monorepo delivering a desktop (Tauri v2) and web (Vite SPA)
 
 | # | Phase | Status | Effort | Description |
 |---|-------|--------|--------|-------------|
-| 1 | [Monorepo Scaffold](./phase-01-scaffold.md) | pending | 2h | Root configs, tsconfig, eslint packages, git init |
+| 1 | [Monorepo Scaffold](./phase-01-scaffold.md) | done | 2h | Root configs, tsconfig, eslint packages, git init |
 | 2 | [Shared Package](./phase-02-shared.md) | pending | 2h | Domain types, WS protocol types, HTTP types, constants |
 | 3 | [UI Foundation](./phase-03-ui-foundation.md) | pending | 3h | ServiceFactory, HTTP/WS adapters, Zustand stores, atoms |
 | 4 | [UI Components](./phase-04-ui-components.md) | pending | 4h | Molecules, organisms, AppShell template, 6 pages |

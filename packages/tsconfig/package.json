@@ -2,5 +2,10 @@
   "name": "@nonclaw-ui/tsconfig",
   "version": "0.0.0",
   "private": true,
-  "files": ["base.json", "react-library.json", "vite.json"]
+  "files": ["base.json", "react-library.json", "vite.json"],
+  "exports": {
+    "./base.json": "./base.json",
+    "./react-library.json": "./react-library.json",
+    "./vite.json": "./vite.json"
+  }
 }
