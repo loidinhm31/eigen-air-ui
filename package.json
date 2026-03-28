@@ -1,0 +1,24 @@
+{
+  "name": "nonclaw-ui",
+  "private": true,
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "dev:web": "turbo run dev --filter=@nonclaw-ui/web",
+    "dev:tauri": "turbo run dev --filter=@nonclaw-ui/native",
+    "lint": "turbo run lint",
+    "type-check": "turbo run type-check",
+    "format": "prettier --write \"**/*.{ts,tsx,md,json}\"",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "clean": "turbo run clean"
+  },
+  "devDependencies": {
+    "prettier": "^3.2.5",
+    "prettier-plugin-tailwindcss": "^0.6.11",
+    "turbo": "^2.5.4",
+    "vitest": "^4.0.17"
+  },
+  "packageManager": "pnpm@9.1.0"
+}

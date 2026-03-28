@@ -1,0 +1,11 @@
+node_modules
+dist
+.turbo
+target
+apps/native/src-tauri/target
+apps/native/src-tauri/Cargo.lock
+.env
+.env.*
+coverage
+*.tsbuildinfo
+.DS_Store
