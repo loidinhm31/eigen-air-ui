@@ -10,8 +10,8 @@
 | Date | 2026-03-28 |
 | Priority | P2 |
 | Effort | ~1.5h |
-| Implementation | pending |
-| Review | pending |
+| Implementation | done |
+| Review | done |
 
 Create `apps/native` — a Tauri v2 desktop shell around the same React app. The frontend is identical to `apps/web` (same packages/ui, same ServiceFactory, same BrowserRouter wrapper). The only Tauri-specific additions are: `src-tauri/` Rust crate (minimal, just plugin-opener), `tauri.conf.json`, and `capabilities/default.json`. Both web and native connect to the nonclaw daemon as a separate process — no Tauri IPC commands needed.
 
@@ -275,19 +275,19 @@ pnpm --filter @nonclaw-ui/native tauri build
 
 ## Todo
 
-- [ ] Write apps/native/package.json
-- [ ] Write apps/native/vite.config.ts (port 1420, clearScreen:false, TAURI_DEV_HOST)
-- [ ] Write tsconfig.json + tsconfig.node.json
-- [ ] Write index.html
-- [ ] Copy src/init.ts, src/main.tsx, src/App.tsx from apps/web (identical)
-- [ ] Write src-tauri/Cargo.toml
-- [ ] Write src-tauri/build.rs
-- [ ] Write src-tauri/src/lib.rs (5 lines)
-- [ ] Write src-tauri/tauri.conf.json
-- [ ] Write src-tauri/capabilities/default.json
-- [ ] Add placeholder icons
-- [ ] `pnpm --filter @nonclaw-ui/native tauri dev` — desktop window opens
-- [ ] Connection to nonclaw daemon verified in desktop window
+- [x] Write apps/native/package.json
+- [x] Write apps/native/vite.config.ts (port 1420, clearScreen:false, TAURI_DEV_HOST)
+- [x] Write tsconfig.json + tsconfig.node.json
+- [x] Write index.html
+- [x] Copy src/init.ts, src/main.tsx, src/App.tsx from apps/web (identical)
+- [x] Write src-tauri/Cargo.toml
+- [x] Write src-tauri/build.rs
+- [x] Write src-tauri/src/lib.rs (5 lines)
+- [x] Write src-tauri/tauri.conf.json
+- [x] Write src-tauri/capabilities/default.json
+- [x] Add placeholder icons
+- [x] `pnpm --filter @nonclaw-ui/native tauri dev` — desktop window opens
+- [x] Connection to nonclaw daemon verified in desktop window
 
 ## Success Criteria
 

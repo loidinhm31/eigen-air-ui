@@ -1,0 +1,5 @@
+{
+  "extends": "@nonclaw-ui/tsconfig/base.json",
+  "compilerOptions": { "composite": true, "types": ["node"] },
+  "include": ["vite.config.ts"]
+}

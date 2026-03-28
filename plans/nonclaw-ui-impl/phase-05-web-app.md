@@ -10,8 +10,8 @@
 | Date | 2026-03-28 |
 | Priority | P1 |
 | Effort | ~1.5h |
-| Implementation | pending |
-| Review | pending |
+| Implementation | done |
+| Review | done |
 
 Wire up `apps/web` — a Vite SPA that initializes all service adapters (using the daemon URL from `connectionStore`), wraps `NonclawApp` with `BrowserRouter`, and performs a health check on mount to set connection status. After this phase the web app runs with `pnpm dev:web` and connects to a live nonclaw daemon.
 
@@ -255,17 +255,17 @@ export default config;
 
 ## Todo
 
-- [ ] Write package.json
-- [ ] Write vite.config.ts (port 25001, @tailwindcss/vite, no PostCSS)
-- [ ] Write tsconfig.json + tsconfig.node.json
-- [ ] Write index.html
-- [ ] Write src/init.ts (adapter wiring)
-- [ ] Write src/main.tsx (styles + init + render)
-- [ ] Write src/App.tsx (BrowserRouter + health check + NonclawApp)
-- [ ] Write src/vite-env.d.ts
-- [ ] Write eslint.config.js
-- [ ] `pnpm dev:web` → app loads at localhost:25001
-- [ ] With daemon running: StatusBadge shows "connected", Chat page functional
+- [x] Write package.json
+- [x] Write vite.config.ts (port 25001, @tailwindcss/vite, no PostCSS)
+- [x] Write tsconfig.json + tsconfig.node.json
+- [x] Write index.html
+- [x] Write src/init.ts (adapter wiring)
+- [x] Write src/main.tsx (styles + init + render)
+- [x] Write src/App.tsx (BrowserRouter + health check + NonclawApp)
+- [x] Write src/vite-env.d.ts
+- [x] Write eslint.config.js
+- [x] `pnpm dev:web` → app loads at localhost:25001
+- [x] With daemon running: StatusBadge shows "connected", Chat page functional
 
 ## Success Criteria
 
