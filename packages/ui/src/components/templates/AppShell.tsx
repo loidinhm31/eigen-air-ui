@@ -5,12 +5,12 @@ import { StatusBadge } from "../molecules/StatusBadge.js";
 import { cn } from "@nonclaw-ui/shared/utils";
 
 const NAV_ITEMS = [
-  { to: "/", icon: MessageSquare, label: "Chat" },
-  { to: "/memory", icon: Brain, label: "Memory" },
-  { to: "/tools", icon: Wrench, label: "Tools" },
-  { to: "/skills", icon: BookOpen, label: "Skills" },
-  { to: "/sessions", icon: History, label: "Sessions" },
-  { to: "/settings", icon: Settings, label: "Settings" },
+  { to: "", icon: MessageSquare, label: "Chat" },
+  { to: "memory", icon: Brain, label: "Memory" },
+  { to: "tools", icon: Wrench, label: "Tools" },
+  { to: "skills", icon: BookOpen, label: "Skills" },
+  { to: "sessions", icon: History, label: "Sessions" },
+  { to: "settings", icon: Settings, label: "Settings" },
 ] as const;
 
 export function AppShell() {
@@ -26,7 +26,7 @@ export function AppShell() {
             <NavLink
               key={to}
               to={to}
-              end={to === "/"}
+              end={to === ""}
               className={({ isActive }) =>
                 cn(
                   "flex items-center gap-3 px-4 py-2 text-sm transition-colors",
