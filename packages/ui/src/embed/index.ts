@@ -1,1 +1,1 @@
-export { NonclawApp } from "./NonclawApp.js";
+export { NonclawApp } from "./NonclawApp";

@@ -12,7 +12,7 @@
     "./components/organisms": "./src/components/organisms/index.ts",
     "./components/templates": "./src/components/templates/index.ts",
     "./components/pages": "./src/components/pages/index.ts",
-    "./embed": "./src/embed/NonclawApp.tsx",
+    "./embed": "./src/embed/index.ts",
     ".": "./src/index.ts"
   },
   "scripts": {
