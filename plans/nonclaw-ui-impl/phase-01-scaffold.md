@@ -1,8 +1,8 @@
 # Phase 1: Monorepo Scaffold
 
 > Parent: [plan.md](./plan.md) | Dependencies: none | Blocks: all phases
-> Target: `/home/loidinh/ws/sharing/qm-sync/embed-app/nonclaw-ui/`
-> Reference: fin-catch, money-insight (same `qm-sync/embed-app/` directory)
+> Target: `/home/loidinh/ws/sharing/glean-oak-sync/embed-app/nonclaw-ui/`
+> Reference: fin-catch, money-insight (same `glean-oak-sync/embed-app/` directory)
 
 ## Overview
 
@@ -67,19 +67,19 @@ nonclaw-ui/
 
 ## Related Code Files
 
-- `/home/loidinh/ws/sharing/qm-sync/embed-app/fin-catch/package.json` — root scripts/devDeps pattern
-- `/home/loidinh/ws/sharing/qm-sync/embed-app/fin-catch/packages/tsconfig/` — TS config pattern
-- `/home/loidinh/ws/sharing/qm-sync/embed-app/fin-catch/packages/eslint-config/` — ESLint flat config pattern
-- `/home/loidinh/ws/sharing/qm-sync/.claude/skills/turborepo-tauri-react/references/root-configs.md`
-- `/home/loidinh/ws/sharing/qm-sync/.claude/skills/turborepo-tauri-react/references/tsconfig-package.md`
-- `/home/loidinh/ws/sharing/qm-sync/.claude/skills/turborepo-tauri-react/references/eslint-package.md`
+- `/home/loidinh/ws/sharing/glean-oak-sync/embed-app/fin-catch/package.json` — root scripts/devDeps pattern
+- `/home/loidinh/ws/sharing/glean-oak-sync/embed-app/fin-catch/packages/tsconfig/` — TS config pattern
+- `/home/loidinh/ws/sharing/glean-oak-sync/embed-app/fin-catch/packages/eslint-config/` — ESLint flat config pattern
+- `/home/loidinh/ws/sharing/glean-oak-sync/.claude/skills/turborepo-tauri-react/references/root-configs.md`
+- `/home/loidinh/ws/sharing/glean-oak-sync/.claude/skills/turborepo-tauri-react/references/tsconfig-package.md`
+- `/home/loidinh/ws/sharing/glean-oak-sync/.claude/skills/turborepo-tauri-react/references/eslint-package.md`
 
 ## Implementation Steps
 
 ### 1. Create directories
 
 ```bash
-cd /home/loidinh/ws/sharing/qm-sync/embed-app/nonclaw-ui
+cd /home/loidinh/ws/sharing/glean-oak-sync/embed-app/nonclaw-ui
 mkdir -p apps/web apps/native packages/tsconfig packages/eslint-config packages/ui packages/shared
 ```
 

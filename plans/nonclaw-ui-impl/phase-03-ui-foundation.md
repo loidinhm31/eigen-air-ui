@@ -82,10 +82,10 @@ packages/ui/
 
 ## Related Code Files
 
-- `/home/loidinh/ws/sharing/qm-sync/.claude/skills/turborepo-tauri-react/references/ui-package.md`
+- `/home/loidinh/ws/sharing/glean-oak-sync/.claude/skills/turborepo-tauri-react/references/ui-package.md`
 - `/home/loidinh/ws/sharing/nonclaw/docs/api-reference.md`
 - `/home/loidinh/ws/sharing/nonclaw/docs/websocket-protocol.md`
-- `/home/loidinh/ws/sharing/qm-sync/embed-app/fin-catch/packages/ui/src/adapters/` — reference pattern
+- `/home/loidinh/ws/sharing/glean-oak-sync/embed-app/fin-catch/packages/ui/src/adapters/` — reference pattern
 
 ## Implementation Steps
 

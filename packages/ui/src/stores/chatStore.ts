@@ -1,5 +1,9 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import type { ChatMessage } from "@nonclaw-ui/shared/types";
+import { STORAGE_KEYS } from "@nonclaw-ui/shared/constants";
+
+const MAX_PERSISTED_MESSAGES = 200;
 
 interface ChatStore {
   messages: ChatMessage[];
@@ -13,22 +17,34 @@ interface ChatStore {
   clearMessages(): void;
 }
 
-export const useChatStore = create<ChatStore>((set) => ({
-  messages: [],
-  isStreaming: false,
-  streamingContent: "",
-  streamError: null,
-  addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
-  appendChunk: (chunk) =>
-    set((s) => ({ streamingContent: s.streamingContent + chunk, isStreaming: true })),
-  finalizeStream: (content) =>
-    set((s) => ({
-      messages: [...s.messages, { role: "assistant", content }],
+export const useChatStore = create<ChatStore>()(
+  persist(
+    (set) => ({
+      messages: [],
       isStreaming: false,
       streamingContent: "",
       streamError: null,
-    })),
-  setStreamError: (error) => set({ streamError: error, isStreaming: false, streamingContent: "" }),
-  clearMessages: () =>
-    set({ messages: [], streamingContent: "", isStreaming: false, streamError: null }),
-}));
+      addMessage: (msg) =>
+        set((s) => ({
+          messages: [...s.messages, msg].slice(-MAX_PERSISTED_MESSAGES),
+        })),
+      appendChunk: (chunk) =>
+        set((s) => ({ streamingContent: s.streamingContent + chunk, isStreaming: true })),
+      finalizeStream: (content) =>
+        set((s) => ({
+          messages: [...s.messages, { role: "assistant" as const, content }].slice(-MAX_PERSISTED_MESSAGES),
+          isStreaming: false,
+          streamingContent: "",
+          streamError: null,
+        })),
+      setStreamError: (error) => set({ streamError: error, isStreaming: false, streamingContent: "" }),
+      clearMessages: () =>
+        set({ messages: [], streamingContent: "", isStreaming: false, streamError: null }),
+    }),
+    {
+      name: STORAGE_KEYS.CHAT_MESSAGES,
+      // Only persist messages; transient streaming state is never stored
+      partialize: (state) => ({ messages: state.messages }),
+    }
+  )
+);

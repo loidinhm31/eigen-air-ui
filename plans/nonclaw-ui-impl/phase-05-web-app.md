@@ -20,7 +20,7 @@ Wire up `apps/web` — a Vite SPA that initializes all service adapters (using t
 - Adapter init happens in `src/init.ts` (not `App.tsx`) so it can be reused in the native app (Phase 6) by importing the same module.
 - `BrowserRouter` is used in the web app; `NonclawApp` accepts `useRouter={false}` when Tauri app wraps its own BrowserRouter, or `useRouter={true}` with internal `MemoryRouter`. For web use `BrowserRouter` externally and pass `useRouter={false}`.
 - Health check on boot: call `getConfigService().health()` → update `connectionStore.status`. Retry on failure with exponential backoff (simple `setTimeout`).
-- Web app port: `25001` (250xx range, consistent with other qm-sync embed apps).
+- Web app port: `25001` (250xx range, consistent with other glean-oak-sync embed apps).
 - No env vars needed for v1 — daemon URL comes from `connectionStore` (localStorage with default).
 
 ## Requirements

@@ -16,6 +16,9 @@ export {
   getToolService,
   getSkillService,
   getConfigService,
+  registerReinitFn,
+  reinitServices,
+  hasReinitFn,
 } from "./adapters/factory/ServiceFactory.js";
 export type {
   IChatService,

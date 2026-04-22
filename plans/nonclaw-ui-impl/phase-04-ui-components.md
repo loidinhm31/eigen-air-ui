@@ -69,7 +69,7 @@ packages/ui/src/components/
 
 - `packages/ui/src/stores/` (Phase 3) — chatStore, memoryStore, connectionStore
 - `packages/ui/src/adapters/factory/ServiceFactory.ts` (Phase 3) — getChatService, etc.
-- `/home/loidinh/ws/sharing/qm-sync/.claude/skills/turborepo-tauri-react/references/settings-page-pattern.md`
+- `/home/loidinh/ws/sharing/glean-oak-sync/.claude/skills/turborepo-tauri-react/references/settings-page-pattern.md`
 
 ## Implementation Steps
 

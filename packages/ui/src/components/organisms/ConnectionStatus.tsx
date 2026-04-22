@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useState } from "react";
 import { useConnectionStore } from "../../stores/connectionStore.js";
-import { getChatService, getConfigService } from "../../adapters/factory/ServiceFactory.js";
+import { getChatService, getConfigService, reinitServices } from "../../adapters/factory/ServiceFactory.js";
 import { Input } from "../atoms/Input.js";
 import { Button } from "../atoms/Button.js";
 import { Badge } from "../atoms/Badge.js";
@@ -22,6 +22,8 @@ export function ConnectionStatus() {
     setError(null);
     setStatus("connecting");
     setUrl(draftUrl);
+    // Re-create all adapters pointing at the (possibly new) URL before any call.
+    reinitServices();
 
     try {
       await getConfigService().health();

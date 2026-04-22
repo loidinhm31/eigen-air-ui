@@ -3,6 +3,8 @@ export const DEFAULT_WS_URL = "ws://localhost:18790/ws";
 
 export const STORAGE_KEYS = {
   DAEMON_URL: "nonclaw-daemon-url",
+  SESSION_ID: "nonclaw-session-id",
+  CHAT_MESSAGES: "nonclaw-chat-messages",
   THEME: "nonclaw-theme",
 } as const;
 

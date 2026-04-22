@@ -16,24 +16,46 @@ export class WsClient {
   constructor(private readonly url: string) {}
 
   connect(timeoutMs = 10_000): Promise<void> {
+    // Tear down any existing socket without triggering the reconnect loop.
+    if (this.ws) {
+      this.ws.onclose = null;
+      this.ws.onerror = null;
+      this.ws.onmessage = null;
+      this.ws.onopen = null;
+      if (this.ws.readyState !== WebSocket.CLOSED) {
+        this.ws.close();
+      }
+      this.ws = null;
+    }
+    this.reconnectAttempts = 0;
+
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.ws?.close();
+        // Detach so onclose doesn't cascade into the reconnect loop.
+        if (this.ws === ws) this.ws = null;
+        ws.close();
         reject(new Error(`WS connect timed out after ${timeoutMs}ms`));
       }, timeoutMs);
 
-      this.ws = new WebSocket(this.url);
-      this.ws.onopen = () => {
+      const ws = new WebSocket(this.url);
+      this.ws = ws;
+      ws.onopen = () => {
         clearTimeout(timer);
-        this.reconnectAttempts = 0;
         resolve();
       };
-      this.ws.onerror = () => {
+      ws.onerror = () => {
         clearTimeout(timer);
+        // Detach from this.ws so the subsequent onclose doesn't trigger the
+        // auto-reconnect loop for an explicit connect() failure.
+        if (this.ws === ws) this.ws = null;
         reject(new Error("WS connection failed"));
       };
-      this.ws.onmessage = (e) => this.handleMessage(e.data as string);
-      this.ws.onclose = () => this.handleClose();
+      ws.onmessage = (e) => this.handleMessage(e.data as string);
+      ws.onclose = () => {
+        // Only start the reconnect loop for sockets that were fully established,
+        // not ones that failed during the initial connect() call.
+        if (this.ws === ws) this.handleClose();
+      };
     });
   }
 
@@ -99,8 +121,15 @@ export class WsClient {
 
   disconnect() {
     this.onReconnectCallback = null;
-    this.ws?.close();
-    this.ws = null;
+    if (this.ws) {
+      this.ws.onclose = null;
+      this.ws.close();
+      this.ws = null;
+    }
+    for (const [, pending] of this.pending) {
+      pending.reject(new Error("WS disconnected"));
+    }
+    this.pending.clear();
   }
 
   get isConnected(): boolean {

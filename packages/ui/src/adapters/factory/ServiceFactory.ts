@@ -10,7 +10,31 @@ let toolService: IToolService | null = null;
 let skillService: ISkillService | null = null;
 let configService: IConfigService | null = null;
 
+// Registered by the app entry (init.ts) so UI components can trigger re-init
+// without depending on the app layer.
+let _reinitFn: (() => void) | null = null;
+
+export function registerReinitFn(fn: () => void): void {
+  _reinitFn = fn;
+}
+
+/** Re-creates all service adapters with the current URL from the connection store. */
+export function reinitServices(): void {
+  _reinitFn?.();
+}
+
+/**
+ * Returns true when an app-layer init function has been registered.
+ * Used by NonclawApp to skip its own adapter creation in apps/web mode,
+ * where init.ts already owns the service lifecycle.
+ */
+export function hasReinitFn(): boolean {
+  return _reinitFn !== null;
+}
+
 export function setChatService(s: IChatService) {
+  // Tear down previous WS connection before replacing to prevent ghost sockets.
+  chatService?.disconnect();
   chatService = s;
 }
 export function setMemoryService(s: IMemoryService) {

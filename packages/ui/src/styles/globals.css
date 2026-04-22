@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Tell Tailwind where to scan for utility classes */
+@source "../**/*.{ts,tsx}";
+
 @theme {
   --color-background: hsl(222 20% 10%);
   --color-foreground: hsl(210 40% 98%);

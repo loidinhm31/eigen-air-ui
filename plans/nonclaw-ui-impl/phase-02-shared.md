@@ -62,7 +62,7 @@ packages/shared/
 
 - `/home/loidinh/ws/sharing/nonclaw/docs/api-reference.md` — REST response shapes
 - `/home/loidinh/ws/sharing/nonclaw/docs/websocket-protocol.md` — WS frame schemas + event types
-- `/home/loidinh/ws/sharing/qm-sync/.claude/skills/turborepo-tauri-react/references/shared-package.md`
+- `/home/loidinh/ws/sharing/glean-oak-sync/.claude/skills/turborepo-tauri-react/references/shared-package.md`
 
 ## Implementation Steps
 
