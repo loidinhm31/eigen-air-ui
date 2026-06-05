@@ -102,7 +102,7 @@ export class WsClient {
         return;
       }
       const id = crypto.randomUUID();
-      const req: WsReq<P> = { type: "req", id, method, params };
+      const req: WsReq<P> = { type: "req", version: "v1", id, method, params };
       this.pending.set(id, {
         resolve: resolve as (r: WsRes) => void,
         reject,

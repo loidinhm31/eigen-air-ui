@@ -44,11 +44,13 @@ export function ChatPanel() {
       await getChatService().sendMessage(msg, sessionId, (event: WsEvent) => {
         if (event.event === "chunk") {
           appendChunk(event.payload.content);
-        } else if (event.event === "run.completed") {
+        } else if (event.event === "run.delta") {
+          appendChunk(event.payload.delta);
+        } else if (event.event === "run.completed" || event.event === "run.finished") {
           finalizeStream(event.payload.content);
-        } else if (event.event === "tool.call") {
+        } else if (event.event === "tool.call" || event.event === "tool.started") {
           setToolCalls((t) => ({ ...t, [event.payload.id]: event.payload }));
-        } else if (event.event === "tool.result") {
+        } else if (event.event === "tool.result" || event.event === "tool.finished") {
           setToolResults((r) => ({ ...r, [event.payload.id]: event.payload }));
         } else if (event.event === "error") {
           setStreamError(event.payload.message);

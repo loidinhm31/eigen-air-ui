@@ -53,7 +53,10 @@ export interface AgentUpdateRequest {
 
 export interface Session {
   id: string;
-  created_at: string;
+  channel: string;
+  status: string;
+  started_at: number;
+  updated_at: number;
   message_count?: number;
 }
 
@@ -86,6 +89,74 @@ export interface MemoryStoreResponse {
 export interface MemoryDeleteResponse {
   key: string;
   deleted: boolean;
+}
+
+// --- Vault ---
+
+export interface MemoryScope {
+  tenant_id: string;
+  user_id: string;
+  session_id?: string | null;
+  agent_id: string;
+}
+
+export interface VaultItem {
+  id: string;
+  scope: MemoryScope;
+  name: string;
+  media_type: string;
+  content: unknown;
+  metadata: Record<string, unknown>;
+  created_at: number;
+  updated_at: number;
+  deleted_at?: number | null;
+}
+
+export interface VaultItemRequest {
+  name: string;
+  media_type?: string;
+  content: unknown;
+  metadata?: Record<string, unknown>;
+}
+
+// --- Knowledge ---
+
+export interface KnowledgeFact {
+  id: string;
+  scope: MemoryScope;
+  subject: string;
+  predicate: string;
+  object: string;
+  confidence: number;
+  metadata: Record<string, unknown>;
+  created_at: number;
+}
+
+export interface KnowledgeFactRequest {
+  subject: string;
+  predicate: string;
+  object: string;
+  confidence?: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface KnowledgeRelation {
+  id: string;
+  scope: MemoryScope;
+  source: string;
+  relation_type: string;
+  target: string;
+  weight: number;
+  metadata: Record<string, unknown>;
+  created_at: number;
+}
+
+export interface KnowledgeRelationRequest {
+  source: string;
+  relation_type: string;
+  target: string;
+  weight?: number;
+  metadata?: Record<string, unknown>;
 }
 
 // --- Skill ---

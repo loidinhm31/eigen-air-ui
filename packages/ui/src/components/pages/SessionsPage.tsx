@@ -1,8 +1,7 @@
 import * as React from "react";
 import { useEffect, useState } from "react";
-import { getChatService } from "../../adapters/factory/ServiceFactory.js";
+import { getSessionService } from "../../adapters/factory/ServiceFactory.js";
 import { useConnectionStore } from "../../stores/connectionStore.js";
-import { WS_METHODS } from "@nonclaw-ui/shared/constants";
 import { Button } from "../atoms/Button.js";
 import { Spinner } from "../atoms/Spinner.js";
 import { ScrollArea } from "../atoms/ScrollArea.js";
@@ -12,20 +11,45 @@ import type { Session } from "@nonclaw-ui/shared/types";
 export function SessionsPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const { sessionId, setSessionId } = useConnectionStore();
 
   async function loadSessions() {
     setLoading(true);
+    setError(null);
     try {
-      // Sessions are fetched via WS — use the chat service's underlying client indirectly
-      // by calling the WsClient directly through getChatService() which wraps WsChatAdapter
-      const history = await getChatService().getHistory();
-      // Sessions list is not directly exposed via IChatService; show current session info
-      setSessions(
-        sessionId ? [{ id: sessionId, created_at: new Date().toISOString() }] : []
-      );
-    } catch {
+      setSessions(await getSessionService().listSessions());
+    } catch (e) {
       setSessions([]);
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCreate() {
+    setLoading(true);
+    setError(null);
+    try {
+      const session = await getSessionService().createSession();
+      setSessionId(session.id);
+      setSessions(await getSessionService().listSessions());
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    setLoading(true);
+    setError(null);
+    try {
+      const deleted = await getSessionService().deleteSession(id);
+      if (deleted && id === sessionId) setSessionId(undefined);
+      setSessions(await getSessionService().listSessions());
+    } catch (e) {
+      setError(String(e));
     } finally {
       setLoading(false);
     }
@@ -39,10 +63,17 @@ export function SessionsPage() {
     <div className="flex h-full flex-col gap-3 p-4">
       <div className="flex items-center justify-between">
         <p className="text-sm font-medium">Sessions</p>
-        <Button variant="outline" size="sm" onClick={() => void loadSessions()} disabled={loading}>
-          Refresh
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => void loadSessions()} disabled={loading}>
+            Refresh
+          </Button>
+          <Button size="sm" onClick={() => void handleCreate()} disabled={loading}>
+            New
+          </Button>
+        </div>
       </div>
+
+      {error && <p className="text-xs text-destructive">{error}</p>}
 
       {loading && (
         <div className="flex justify-center py-4">
@@ -63,12 +94,20 @@ export function SessionsPage() {
               <div className="min-w-0">
                 <p className="font-mono text-xs truncate">{s.id}</p>
                 <p className="text-xs text-muted-foreground">
-                  {new Date(s.created_at).toLocaleString()}
+                  {s.channel} · {s.status} · {new Date(s.updated_at * 1000).toLocaleString()}
                 </p>
               </div>
-              {s.id === sessionId && (
-                <Badge variant="primary" className="ml-2 shrink-0">active</Badge>
-              )}
+              <div className="ml-2 flex shrink-0 items-center gap-2">
+                {s.id === sessionId && <Badge variant="primary">active</Badge>}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void handleDelete(s.id)}
+                  disabled={loading}
+                >
+                  Delete
+                </Button>
+              </div>
             </div>
           ))}
         </div>

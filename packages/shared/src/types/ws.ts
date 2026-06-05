@@ -4,6 +4,7 @@ import type { ChatMessage, ServerConfig, Session, Skill, SkillSearchResult, Memo
 
 export interface WsReq<P = Record<string, unknown>> {
   type: "req";
+  version: "v1";
   id: string;
   method: string;
   params: P;
@@ -19,10 +20,16 @@ export interface WsRes<D = unknown> {
 
 // --- Streaming event payloads ---
 
-export type RunStartedPayload = Record<string, never>;
+export interface RunStartedPayload {
+  run_id?: string;
+}
 
 export interface ChunkPayload {
   content: string;
+}
+
+export interface RunDeltaPayload {
+  delta: string;
 }
 
 export interface ToolCallPayload {
@@ -38,6 +45,7 @@ export interface ToolResultPayload {
 }
 
 export interface RunCompletedPayload {
+  run_id?: string;
   content: string;
   tool_calls_made: number;
 }
@@ -52,9 +60,13 @@ export interface WsErrorPayload {
 export type WsEvent =
   | { type: "event"; event: "run.started"; payload: RunStartedPayload }
   | { type: "event"; event: "chunk"; payload: ChunkPayload }
+  | { type: "event"; event: "run.delta"; payload: RunDeltaPayload }
   | { type: "event"; event: "tool.call"; payload: ToolCallPayload }
+  | { type: "event"; event: "tool.started"; payload: ToolCallPayload }
   | { type: "event"; event: "tool.result"; payload: ToolResultPayload }
+  | { type: "event"; event: "tool.finished"; payload: ToolResultPayload }
   | { type: "event"; event: "run.completed"; payload: RunCompletedPayload }
+  | { type: "event"; event: "run.finished"; payload: RunCompletedPayload }
   | { type: "event"; event: "error"; payload: WsErrorPayload };
 
 export type WsFrame = WsReq | WsRes | WsEvent;
@@ -73,6 +85,10 @@ export interface ChatSendParams {
 
 export interface ChatHistoryParams {
   session_id?: string;
+}
+
+export interface ChatAbortParams {
+  run_id?: string;
 }
 
 export interface SessionsDeleteParams {
@@ -113,6 +129,8 @@ export interface ChatHistoryResponse {
 
 export interface ChatAbortResponse {
   aborted: boolean;
+  aborted_count: number;
+  run_ids: string[];
 }
 
 export interface SessionsListResponse {
@@ -121,7 +139,10 @@ export interface SessionsListResponse {
 
 export interface SessionsCreateResponse {
   id: string;
-  created_at: string;
+  channel: string;
+  status: string;
+  started_at: number;
+  updated_at: number;
 }
 
 export interface SessionsDeleteResponse {
@@ -140,4 +161,4 @@ export interface MemorySearchWsResponse {
   results: MemorySearchResult[];
 }
 
-export interface ConfigGetResponse extends ServerConfig {}
+export type ConfigGetResponse = ServerConfig;

@@ -4,7 +4,7 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
-    "dev:web": "turbo run dev --filter=@nonclaw-ui/web",
+    "dev:web": "turbo run dev --filter=@nonclaw-ui/web -- --host",
     "dev:tauri": "turbo run dev --filter=@nonclaw-ui/native",
     "lint": "turbo run lint",
     "type-check": "turbo run type-check",

@@ -14,6 +14,8 @@ import {
   setToolService,
   setSkillService,
   setConfigService,
+  setSessionService,
+  setVaultKnowledgeService,
   getChatService,
   getConfigService,
   hasReinitFn,
@@ -23,6 +25,7 @@ import { HttpMemoryAdapter } from "../adapters/http/HttpMemoryAdapter.js";
 import { HttpToolAdapter } from "../adapters/http/HttpToolAdapter.js";
 import { HttpSkillAdapter } from "../adapters/http/HttpSkillAdapter.js";
 import { HttpConfigAdapter } from "../adapters/http/HttpConfigAdapter.js";
+import { HttpVaultKnowledgeAdapter } from "../adapters/http/HttpVaultKnowledgeAdapter.js";
 
 /** Backoff delays between successive health-check retries (4 gaps = 5 attempts). */
 const RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000];
@@ -64,11 +67,14 @@ export function NonclawApp({
       ? normalizedUrl.replace("https", "wss") + "/ws"
       : normalizedUrl.replace("http", "ws") + "/ws";
 
-    setChatService(new WsChatAdapter(wsUrl));
+    const wsAdapter = new WsChatAdapter(wsUrl);
+    setChatService(wsAdapter);
+    setSessionService(wsAdapter);
     setMemoryService(new HttpMemoryAdapter(normalizedUrl));
     setToolService(new HttpToolAdapter(normalizedUrl));
     setSkillService(new HttpSkillAdapter(normalizedUrl));
     setConfigService(new HttpConfigAdapter(normalizedUrl));
+    setVaultKnowledgeService(new HttpVaultKnowledgeAdapter(normalizedUrl));
 
     // Auto-connect: health check with exponential-backoff retries, then WS.
     const { setStatus, setSessionId } = useConnectionStore.getState();

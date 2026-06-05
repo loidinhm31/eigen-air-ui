@@ -3,12 +3,16 @@ import type { IMemoryService } from "./interfaces/IMemoryService.js";
 import type { IToolService } from "./interfaces/IToolService.js";
 import type { ISkillService } from "./interfaces/ISkillService.js";
 import type { IConfigService } from "./interfaces/IConfigService.js";
+import type { ISessionService } from "./interfaces/ISessionService.js";
+import type { IVaultKnowledgeService } from "./interfaces/IVaultKnowledgeService.js";
 
 let chatService: IChatService | null = null;
 let memoryService: IMemoryService | null = null;
 let toolService: IToolService | null = null;
 let skillService: ISkillService | null = null;
 let configService: IConfigService | null = null;
+let sessionService: ISessionService | null = null;
+let vaultKnowledgeService: IVaultKnowledgeService | null = null;
 
 // Registered by the app entry (init.ts) so UI components can trigger re-init
 // without depending on the app layer.
@@ -49,6 +53,12 @@ export function setSkillService(s: ISkillService) {
 export function setConfigService(s: IConfigService) {
   configService = s;
 }
+export function setSessionService(s: ISessionService) {
+  sessionService = s;
+}
+export function setVaultKnowledgeService(s: IVaultKnowledgeService) {
+  vaultKnowledgeService = s;
+}
 
 export function getChatService(): IChatService {
   if (!chatService) throw new Error("IChatService not initialized");
@@ -70,6 +80,22 @@ export function getConfigService(): IConfigService {
   if (!configService) throw new Error("IConfigService not initialized");
   return configService;
 }
+export function getSessionService(): ISessionService {
+  if (!sessionService) throw new Error("ISessionService not initialized");
+  return sessionService;
+}
+export function getVaultKnowledgeService(): IVaultKnowledgeService {
+  if (!vaultKnowledgeService) throw new Error("IVaultKnowledgeService not initialized");
+  return vaultKnowledgeService;
+}
 
-export type { IChatService, IMemoryService, IToolService, ISkillService, IConfigService };
+export type {
+  IChatService,
+  IMemoryService,
+  IToolService,
+  ISkillService,
+  IConfigService,
+  ISessionService,
+  IVaultKnowledgeService,
+};
 export type { StreamEventCallback } from "./interfaces/IChatService.js";
