@@ -9,23 +9,11 @@ import { SessionsPage } from "../components/pages/SessionsPage.js";
 import { SettingsPage } from "../components/pages/SettingsPage.js";
 import { useConnectionStore } from "../stores/connectionStore.js";
 import {
-  setChatService,
-  setMemoryService,
-  setToolService,
-  setSkillService,
-  setConfigService,
-  setSessionService,
-  setVaultKnowledgeService,
   getChatService,
   getConfigService,
   hasReinitFn,
 } from "../adapters/factory/ServiceFactory.js";
-import { WsChatAdapter } from "../adapters/ws/WsChatAdapter.js";
-import { HttpMemoryAdapter } from "../adapters/http/HttpMemoryAdapter.js";
-import { HttpToolAdapter } from "../adapters/http/HttpToolAdapter.js";
-import { HttpSkillAdapter } from "../adapters/http/HttpSkillAdapter.js";
-import { HttpConfigAdapter } from "../adapters/http/HttpConfigAdapter.js";
-import { HttpVaultKnowledgeAdapter } from "../adapters/http/HttpVaultKnowledgeAdapter.js";
+import { initServicesForDaemonUrl } from "../adapters/factory/init-services.js";
 
 /** Backoff delays between successive health-check retries (4 gaps = 5 attempts). */
 const RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000];
@@ -48,6 +36,13 @@ export function NonclawApp({
   onLogoutRequest: _onLogoutRequest,
 }: NonclawAppProps) {
   const daemonUrl = useConnectionStore((state) => state.url);
+  const appLayerOwnsLifecycle = hasReinitFn();
+
+  React.useMemo(() => {
+    if (!appLayerOwnsLifecycle) {
+      initServicesForDaemonUrl(daemonUrl);
+    }
+  }, [appLayerOwnsLifecycle, daemonUrl]);
 
   React.useEffect(() => {
     // In apps/web (or any context where an app-layer init.ts has called
@@ -58,23 +53,7 @@ export function NonclawApp({
     //
     // We MUST NOT touch services here in that case — doing so would disconnect
     // the WebSocket that ConnectionStatus just established.
-    if (hasReinitFn()) return;
-
-    // Standalone / embedded fallback: no app-layer init registered, so we
-    // own the full service lifecycle here.
-    const normalizedUrl = daemonUrl.replace(/\/+$/, "");
-    const wsUrl = normalizedUrl.startsWith("https")
-      ? normalizedUrl.replace("https", "wss") + "/ws"
-      : normalizedUrl.replace("http", "ws") + "/ws";
-
-    const wsAdapter = new WsChatAdapter(wsUrl);
-    setChatService(wsAdapter);
-    setSessionService(wsAdapter);
-    setMemoryService(new HttpMemoryAdapter(normalizedUrl));
-    setToolService(new HttpToolAdapter(normalizedUrl));
-    setSkillService(new HttpSkillAdapter(normalizedUrl));
-    setConfigService(new HttpConfigAdapter(normalizedUrl));
-    setVaultKnowledgeService(new HttpVaultKnowledgeAdapter(normalizedUrl));
+    if (appLayerOwnsLifecycle) return;
 
     // Auto-connect: health check with exponential-backoff retries, then WS.
     const { setStatus, setSessionId } = useConnectionStore.getState();
@@ -110,7 +89,7 @@ export function NonclawApp({
     return () => {
       cancelled = true;
     };
-  }, [daemonUrl]);
+  }, [appLayerOwnsLifecycle, daemonUrl]);
 
   const inner = (
     <div className={className}>

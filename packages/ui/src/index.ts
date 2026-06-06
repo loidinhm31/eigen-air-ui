@@ -24,6 +24,7 @@ export {
   reinitServices,
   hasReinitFn,
 } from "./adapters/factory/ServiceFactory.js";
+export { initServicesForDaemonUrl } from "./adapters/factory/init-services.js";
 export type {
   IChatService,
   IMemoryService,
