@@ -11,6 +11,7 @@ export interface ChatCompletionRequest {
   model: string;
   messages: ChatMessage[];
   stream?: boolean;
+  session_id?: string;
 }
 
 export interface ChatCompletionResponse {
@@ -67,18 +68,18 @@ export type MemoryKeyList = string[];
 
 export interface MemoryEntry {
   key: string;
-  value: string;
+  value: unknown;
 }
 
 export interface MemorySearchResult {
   key: string;
-  value: string;
+  value: unknown;
   snippet: string;
 }
 
 export interface MemoryStoreRequest {
   key: string;
-  value: string;
+  value: unknown;
 }
 
 export interface MemoryStoreResponse {
@@ -123,6 +124,7 @@ export interface VaultItemRequest {
 
 export interface KnowledgeFact {
   id: string;
+  source_episode_id: string;
   scope: MemoryScope;
   subject: string;
   predicate: string;
@@ -132,14 +134,20 @@ export interface KnowledgeFact {
   created_at: number;
 }
 
-export interface KnowledgeFactRequest {
-  subject: string;
-  predicate: string;
-  object: string;
-  confidence?: number;
-  metadata?: Record<string, unknown>;
+export interface EpisodicMemory {
+  id: string;
+  scope: MemoryScope;
+  input: string;
+  output: string;
+  summary: string;
+  created_at: number;
 }
 
+export interface EpisodeUpdate {
+  input?: string;
+  output?: string;
+  summary?: string;
+}
 export interface KnowledgeRelation {
   id: string;
   scope: MemoryScope;

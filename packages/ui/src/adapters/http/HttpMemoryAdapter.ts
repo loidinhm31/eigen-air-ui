@@ -1,5 +1,10 @@
 import type { IMemoryService } from "../factory/interfaces/IMemoryService.js";
-import type { MemoryEntry, MemorySearchResult } from "@nonclaw-ui/shared/types";
+import type {
+  EpisodeUpdate,
+  EpisodicMemory,
+  MemoryEntry,
+  MemorySearchResult,
+} from "@nonclaw-ui/shared/types";
 
 export class HttpMemoryAdapter implements IMemoryService {
   constructor(private readonly baseUrl: string) {}
@@ -13,11 +18,11 @@ export class HttpMemoryAdapter implements IMemoryService {
     return res.json() as Promise<T>;
   }
 
-  list(): Promise<string[]> {
-    return this.request("/v1/memory");
+  list(): Promise<MemoryEntry[]> {
+    return this.request("/v1/memory?include_values=true");
   }
 
-  async store(key: string, value: string): Promise<void> {
+  async store(key: string, value: unknown): Promise<void> {
     await this.request("/v1/memory", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -39,5 +44,29 @@ export class HttpMemoryAdapter implements IMemoryService {
 
   async forget(key: string): Promise<void> {
     await this.request(`/v1/memory/${encodeURIComponent(key)}`, { method: "DELETE" });
+  }
+
+  listEpisodes(): Promise<EpisodicMemory[]> {
+    return this.request("/v1/memory/episodes");
+  }
+
+  async getEpisode(id: string): Promise<EpisodicMemory | null> {
+    try {
+      return await this.request(`/v1/memory/episodes/${encodeURIComponent(id)}`);
+    } catch {
+      return null;
+    }
+  }
+
+  updateEpisode(id: string, update: EpisodeUpdate): Promise<EpisodicMemory> {
+    return this.request(`/v1/memory/episodes/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(update),
+    });
+  }
+
+  async deleteEpisode(id: string): Promise<void> {
+    await this.request(`/v1/memory/episodes/${encodeURIComponent(id)}`, { method: "DELETE" });
   }
 }

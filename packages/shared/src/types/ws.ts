@@ -121,6 +121,10 @@ export interface AgentStatusResponse {
 export interface ChatSendResponse {
   content: string;
   tool_calls_made: number;
+  memory_updated?: boolean;
+  memory_reason?: string;
+  episode_id?: string | null;
+  fact_count?: number;
 }
 
 export interface ChatHistoryResponse {

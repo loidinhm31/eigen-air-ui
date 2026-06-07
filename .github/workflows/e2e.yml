@@ -1,0 +1,26 @@
+name: Memory E2E
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  memory-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/nonclaw
+          path: nonclaw
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.1.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:e2e:install --with-deps
+      - run: pnpm test:e2e

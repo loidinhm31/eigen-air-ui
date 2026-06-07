@@ -1,8 +1,6 @@
 import type {
   KnowledgeFact,
-  KnowledgeFactRequest,
   KnowledgeRelation,
-  KnowledgeRelationRequest,
   VaultItem,
   VaultItemRequest,
 } from "@nonclaw-ui/shared/types";
@@ -16,12 +14,11 @@ export interface IVaultKnowledgeService {
     subject?: string;
     predicate?: string;
     object?: string;
+    source_episode_id?: string;
   }): Promise<KnowledgeFact[]>;
-  createKnowledgeFact(fact: KnowledgeFactRequest): Promise<KnowledgeFact>;
   listKnowledgeRelations(filters?: {
     source?: string;
     relation_type?: string;
     target?: string;
   }): Promise<KnowledgeRelation[]>;
-  createKnowledgeRelation(relation: KnowledgeRelationRequest): Promise<KnowledgeRelation>;
 }

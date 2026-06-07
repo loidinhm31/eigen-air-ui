@@ -12,9 +12,12 @@
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium",
     "clean": "turbo run clean"
   },
   "devDependencies": {
+    "@playwright/test": "^1.55.0",
     "prettier": "^3.2.5",
     "prettier-plugin-tailwindcss": "^0.6.11",
     "turbo": "^2.5.4",

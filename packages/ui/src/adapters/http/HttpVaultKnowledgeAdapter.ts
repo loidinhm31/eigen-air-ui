@@ -1,9 +1,7 @@
 import type { IVaultKnowledgeService } from "../factory/interfaces/IVaultKnowledgeService.js";
 import type {
   KnowledgeFact,
-  KnowledgeFactRequest,
   KnowledgeRelation,
-  KnowledgeRelationRequest,
   VaultItem,
   VaultItemRequest,
 } from "@nonclaw-ui/shared/types";
@@ -54,17 +52,15 @@ export class HttpVaultKnowledgeAdapter implements IVaultKnowledgeService {
     subject?: string;
     predicate?: string;
     object?: string;
+    source_episode_id?: string;
   } = {}): Promise<KnowledgeFact[]> {
     const qs = new URLSearchParams();
     if (filters.subject) qs.set("subject", filters.subject);
     if (filters.predicate) qs.set("predicate", filters.predicate);
     if (filters.object) qs.set("object", filters.object);
+    if (filters.source_episode_id) qs.set("source_episode_id", filters.source_episode_id);
     const suffix = qs.toString() ? `?${qs}` : "";
     return this.request(`/v1/knowledge/facts${suffix}`);
-  }
-
-  createKnowledgeFact(fact: KnowledgeFactRequest): Promise<KnowledgeFact> {
-    return this.json("/v1/knowledge/facts", fact) as Promise<KnowledgeFact>;
   }
 
   listKnowledgeRelations(filters: {
@@ -80,7 +76,4 @@ export class HttpVaultKnowledgeAdapter implements IVaultKnowledgeService {
     return this.request(`/v1/knowledge/relations${suffix}`);
   }
 
-  createKnowledgeRelation(relation: KnowledgeRelationRequest): Promise<KnowledgeRelation> {
-    return this.json("/v1/knowledge/relations", relation) as Promise<KnowledgeRelation>;
-  }
 }
