@@ -14,6 +14,10 @@ import {
   hasReinitFn,
 } from "../adapters/factory/ServiceFactory.js";
 import { initServicesForDaemonUrl } from "../adapters/factory/init-services.js";
+import {
+  BasePathContext,
+  resolveBasePath,
+} from "./base-path-navigation.js";
 
 /** Backoff delays between successive health-check retries (4 gaps = 5 attempts). */
 const RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000];
@@ -30,13 +34,14 @@ interface NonclawAppProps {
 
 export function NonclawApp({
   useRouter = true,
-  basePath: _basePath,
+  basePath,
   embedded: _embedded,
   className,
   onLogoutRequest: _onLogoutRequest,
 }: NonclawAppProps) {
   const daemonUrl = useConnectionStore((state) => state.url);
   const appLayerOwnsLifecycle = hasReinitFn();
+  const resolvedBasePath = React.useMemo(() => resolveBasePath(basePath), [basePath]);
 
   React.useMemo(() => {
     if (!appLayerOwnsLifecycle) {
@@ -68,18 +73,15 @@ export function NonclawApp({
         }
         setStatus("connecting");
         try {
-          const health = await getConfigService().health();
+          await getConfigService().health();
           if (cancelled) return;
-          setStatus("connected", health.version);
-          try {
-            const conn = await getChatService().connect();
-            if (!cancelled) setSessionId(conn.session_id);
-          } catch (e) {
-            console.warn("[NonclawApp] WS connect failed:", e);
-          }
+          const conn = await getChatService().connect();
+          if (cancelled) return;
+          setSessionId(conn.session_id);
+          setStatus("connected", conn.version);
           return;
         } catch (e) {
-          console.warn(`[NonclawApp] Health check failed (attempt ${i + 1}):`, e);
+          console.warn(`[NonclawApp] Connect failed (attempt ${i + 1}):`, e);
           if (i === RETRY_DELAYS_MS.length && !cancelled) setStatus("disconnected");
         }
       }
@@ -92,18 +94,20 @@ export function NonclawApp({
   }, [appLayerOwnsLifecycle, daemonUrl]);
 
   const inner = (
-    <div className={className}>
-      <Routes>
-        <Route path="/" element={<AppShell />}>
-          <Route index element={<ChatPage />} />
-          <Route path="memory" element={<MemoryPage />} />
-          <Route path="tools" element={<ToolsPage />} />
-          <Route path="skills" element={<SkillsPage />} />
-          <Route path="sessions" element={<SessionsPage />} />
-          <Route path="settings" element={<SettingsPage />} />
-        </Route>
-      </Routes>
-    </div>
+    <BasePathContext.Provider value={resolvedBasePath}>
+      <div className={className}>
+        <Routes>
+          <Route path="/" element={<AppShell />}>
+            <Route index element={<ChatPage />} />
+            <Route path="memory" element={<MemoryPage />} />
+            <Route path="tools" element={<ToolsPage />} />
+            <Route path="skills" element={<SkillsPage />} />
+            <Route path="sessions" element={<SessionsPage />} />
+            <Route path="settings" element={<SettingsPage />} />
+          </Route>
+        </Routes>
+      </div>
+    </BasePathContext.Provider>
   );
 
   return useRouter ? <MemoryRouter>{inner}</MemoryRouter> : inner;

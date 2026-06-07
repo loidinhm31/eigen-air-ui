@@ -11,6 +11,7 @@ interface ChatStore {
   streamingContent: string;
   streamError: string | null;
   addMessage(msg: ChatMessage): void;
+  replaceMessages(messages: ChatMessage[]): void;
   appendChunk(chunk: string): void;
   finalizeStream(content: string): void;
   setStreamError(error: string): void;
@@ -28,6 +29,13 @@ export const useChatStore = create<ChatStore>()(
         set((s) => ({
           messages: [...s.messages, msg].slice(-MAX_PERSISTED_MESSAGES),
         })),
+      replaceMessages: (messages) =>
+        set({
+          messages: messages.slice(-MAX_PERSISTED_MESSAGES),
+          isStreaming: false,
+          streamingContent: "",
+          streamError: null,
+        }),
       appendChunk: (chunk) =>
         set((s) => ({ streamingContent: s.streamingContent + chunk, isStreaming: true })),
       finalizeStream: (content) =>

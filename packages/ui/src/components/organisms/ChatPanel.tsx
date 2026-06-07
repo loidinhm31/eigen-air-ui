@@ -20,12 +20,15 @@ export function ChatPanel() {
     streamingContent,
     streamError,
     addMessage,
+    replaceMessages,
     appendChunk,
     finalizeStream,
     setStreamError,
     clearMessages,
   } = useChatStore();
-  const { sessionId, setSessionId } = useConnectionStore();
+  const sessionId = useConnectionStore((state) => state.sessionId);
+  const connectionStatus = useConnectionStore((state) => state.status);
+  const setSessionId = useConnectionStore((state) => state.setSessionId);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [toolCalls, setToolCalls] = useState<Record<string, ToolCallPayload>>({});
   const [toolResults, setToolResults] = useState<Record<string, ToolResultPayload>>({});
@@ -36,6 +39,51 @@ export function ChatPanel() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamingContent]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadHistory() {
+      setToolCalls({});
+      setToolResults({});
+      setMemoryNotice(null);
+
+      if (!sessionId) {
+        clearMessages();
+        return;
+      }
+
+      if (connectionStatus !== "connected") {
+        return;
+      }
+
+      clearMessages();
+      for (let attempt = 0; attempt < 10 && !cancelled; attempt++) {
+        try {
+          const history = await getChatService().getHistory(sessionId);
+          if (!cancelled) {
+            replaceMessages(history.messages);
+          }
+          return;
+        } catch (error) {
+          if (String(error).includes("WS not connected") && attempt < 9) {
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            continue;
+          }
+          if (!cancelled) {
+            replaceMessages([]);
+            setStreamError(String(error));
+          }
+          return;
+        }
+      }
+    }
+
+    void loadHistory();
+    return () => {
+      cancelled = true;
+    };
+  }, [clearMessages, connectionStatus, replaceMessages, sessionId, setStreamError]);
 
   async function handleSend() {
     if (!input.trim() || isStreaming) return;

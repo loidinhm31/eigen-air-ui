@@ -27,20 +27,16 @@ export default function App() {
 
         setStatus("connecting");
         try {
-          const health = await getConfigService().health();
+          await getConfigService().health();
           if (cancelled) return;
-          setStatus("connected", health.version);
-
-          try {
-            const conn = await getChatService().connect();
-            if (!cancelled) setSessionId(conn.session_id);
-          } catch (e) {
-            console.warn("[App] WS connect failed:", e);
-          }
+          const conn = await getChatService().connect();
+          if (cancelled) return;
+          setSessionId(conn.session_id);
+          setStatus("connected", conn.version);
           return;
         } catch (e) {
           const isLastAttempt = attempt === RETRY_DELAYS_MS.length;
-          console.warn(`[App] Health check failed (attempt ${attempt + 1}/${RETRY_DELAYS_MS.length + 1}):`, e);
+          console.warn(`[App] Connect failed (attempt ${attempt + 1}/${RETRY_DELAYS_MS.length + 1}):`, e);
           if (isLastAttempt && !cancelled) setStatus("disconnected");
         }
       }

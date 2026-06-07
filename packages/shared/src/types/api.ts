@@ -56,6 +56,7 @@ export interface Session {
   id: string;
   channel: string;
   status: string;
+  title?: string | null;
   started_at: number;
   updated_at: number;
   message_count?: number;

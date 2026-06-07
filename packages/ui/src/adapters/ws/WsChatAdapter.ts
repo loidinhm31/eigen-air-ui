@@ -22,12 +22,9 @@ export class WsChatAdapter implements IChatService, ISessionService {
 
   constructor(wsUrl: string) {
     this.client = new WsClient(wsUrl);
-    // After an automatic reconnect, re-authenticate and publish the new session ID
-    // so the UI and future sendMessage calls use the current session.
     this.client.onReconnect(async () => {
       try {
-        const conn = await this.authenticate();
-        useConnectionStore.getState().setSessionId(conn.session_id);
+        await this.connect(this.token);
       } catch (err) {
         console.warn("[WsChatAdapter] re-auth failed:", err);
       }
@@ -37,7 +34,8 @@ export class WsChatAdapter implements IChatService, ISessionService {
   async connect(token?: string): Promise<ConnectResponse> {
     this.token = token;
     await this.client.connect();
-    return this.authenticate();
+    const connection = await this.authenticate();
+    return this.resolveSelectedSession(connection);
   }
 
   private async authenticate(): Promise<ConnectResponse> {
@@ -47,6 +45,20 @@ export class WsChatAdapter implements IChatService, ISessionService {
     );
     if (!res.ok) throw new Error(res.error?.message ?? "connect failed");
     return res.data!;
+  }
+
+  private async resolveSelectedSession(connection: ConnectResponse): Promise<ConnectResponse> {
+    const { sessionId, setSessionId } = useConnectionStore.getState();
+    const sessions = await this.listSessions();
+    const selected = sessionId
+      ? sessions.find((candidate) => candidate.id === sessionId)
+      : undefined;
+    const activeSession = selected ?? (await this.createSession());
+    setSessionId(activeSession.id);
+    return {
+      ...connection,
+      session_id: activeSession.id,
+    };
   }
 
   async sendMessage(

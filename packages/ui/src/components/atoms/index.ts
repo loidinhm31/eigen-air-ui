@@ -8,6 +8,7 @@ export { Card, CardHeader, CardTitle, CardContent, CardFooter } from "./Card.js"
 export { Spinner } from "./Spinner.js";
 export type { SpinnerProps } from "./Spinner.js";
 export { ScrollArea, ScrollBar } from "./ScrollArea.js";
+export { NativeScrollArea } from "./NativeScrollArea.js";
 export {
   Tooltip,
   TooltipRoot,

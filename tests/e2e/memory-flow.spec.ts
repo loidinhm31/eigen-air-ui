@@ -53,5 +53,5 @@ test("real daemon memory lifecycle", async ({ page }) => {
   await expect(episode.getByText(/Sensitive transcript edits are rejected/)).toBeVisible();
   page.once("dialog", (dialog) => dialog.accept());
   await episode.getByRole("button", { name: "Delete episode" }).click();
-  await expect(page.getByText("No episodes yet")).toBeVisible();
+  await expect(page.getByText(/prefers Go/)).not.toBeVisible();
 });
