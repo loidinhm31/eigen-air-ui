@@ -12,16 +12,21 @@ import { ScrollArea } from "../atoms/ScrollArea.js";
 import { Spinner } from "../atoms/Spinner.js";
 import type { ToolCallPayload, ToolResultPayload, WsEvent } from "@nonclaw-ui/shared/types";
 
+const PROVIDER_WAIT_STATUS = "Waiting for agent response...";
+
 export function ChatPanel() {
   const [input, setInput] = useState("");
   const {
     messages,
     isStreaming,
     streamingContent,
+    streamStatus,
     streamError,
     addMessage,
     replaceMessages,
+    beginStream,
     appendChunk,
+    setStreamStatus,
     finalizeStream,
     setStreamError,
     clearMessages,
@@ -93,10 +98,13 @@ export function ChatPanel() {
     setToolResults({});
     setMemoryNotice(null);
     addMessage({ role: "user", content: msg });
+    beginStream("Submitting message...");
 
     try {
       const result = await getChatService().sendMessage(msg, sessionId, (event: WsEvent) => {
-        if (event.event === "chunk") {
+        if (event.event === "run.started") {
+          beginStream(PROVIDER_WAIT_STATUS);
+        } else if (event.event === "chunk") {
           appendChunk(event.payload.content);
         } else if (event.event === "run.delta") {
           appendChunk(event.payload.delta);
@@ -104,8 +112,10 @@ export function ChatPanel() {
           finalizeStream(event.payload.content);
         } else if (event.event === "tool.call" || event.event === "tool.started") {
           setToolCalls((t) => ({ ...t, [event.payload.id]: event.payload }));
+          setStreamStatus(`Running ${event.payload.name}...`);
         } else if (event.event === "tool.result" || event.event === "tool.finished") {
           setToolResults((r) => ({ ...r, [event.payload.id]: event.payload }));
+          setStreamStatus(PROVIDER_WAIT_STATUS);
         } else if (event.event === "error") {
           setStreamError(event.payload.message);
         }
@@ -176,6 +186,7 @@ export function ChatPanel() {
             <ChatBubble
               message={{ role: "assistant", content: streamingContent }}
               isStreaming
+              statusLabel={streamStatus ?? undefined}
             />
           )}
           {streamError && (
