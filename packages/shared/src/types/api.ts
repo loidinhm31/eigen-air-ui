@@ -171,6 +171,7 @@ export interface KnowledgeRelationRequest {
 // --- Skill ---
 
 export interface Skill {
+  id: string;
   name: string;
   description: string;
   tags?: string[];

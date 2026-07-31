@@ -1,11 +1,16 @@
 import { WsClient } from "./WsClient.js";
-import type { IChatService, StreamEventCallback } from "../factory/interfaces/IChatService.js";
+import type {
+  IChatService,
+  SendMessageOptions,
+  StreamEventCallback,
+} from "../factory/interfaces/IChatService.js";
 import type { ISessionService } from "../factory/interfaces/ISessionService.js";
 import type {
   ChatAbortParams,
   ConnectResponse,
   ChatSendResponse,
   ChatHistoryResponse,
+  ChatSendParams,
   SessionsCreateResponse,
   SessionsDeleteParams,
   SessionsDeleteResponse,
@@ -14,6 +19,21 @@ import type {
 } from "@nonclaw-ui/shared/types";
 import { WS_METHODS } from "@nonclaw-ui/shared/constants";
 import { useConnectionStore } from "../../stores/connectionStore.js";
+
+export function buildChatSendParams(
+  message: string,
+  sessionId?: string,
+  options?: SendMessageOptions
+): ChatSendParams {
+  return {
+    message,
+    stream: true,
+    ...(sessionId ? { session_id: sessionId } : {}),
+    ...(options?.selectedSkillId !== undefined
+      ? { selected_skill_id: options.selectedSkillId }
+      : {}),
+  };
+}
 
 export class WsChatAdapter implements IChatService, ISessionService {
   private readonly client: WsClient;
@@ -64,7 +84,8 @@ export class WsChatAdapter implements IChatService, ISessionService {
   async sendMessage(
     message: string,
     sessionId: string | undefined,
-    onEvent: StreamEventCallback
+    onEvent: StreamEventCallback,
+    options?: SendMessageOptions
   ): Promise<ChatSendResponse> {
     const handler = (event: WsEvent) => {
       if (event.event === "run.started") {
@@ -79,11 +100,10 @@ export class WsChatAdapter implements IChatService, ISessionService {
 
     this.client.onEvent(handler);
     try {
-      const res = await this.client.send<object, ChatSendResponse>(WS_METHODS.CHAT_SEND, {
-        message,
-        stream: true,
-        ...(sessionId ? { session_id: sessionId } : {}),
-      });
+      const res = await this.client.send<ChatSendParams, ChatSendResponse>(
+        WS_METHODS.CHAT_SEND,
+        buildChatSendParams(message, sessionId, options)
+      );
       if (!res.ok) throw new Error(res.error?.message ?? "chat.send failed");
       return res.data!;
     } finally {

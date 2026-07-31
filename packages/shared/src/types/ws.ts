@@ -81,6 +81,7 @@ export interface ChatSendParams {
   message: string;
   stream?: boolean;
   session_id?: string;
+  selected_skill_id?: string;
 }
 
 export interface ChatHistoryParams {

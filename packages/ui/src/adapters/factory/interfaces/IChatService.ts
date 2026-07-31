@@ -7,12 +7,17 @@ import type {
 
 export type StreamEventCallback = (event: WsEvent) => void;
 
+export interface SendMessageOptions {
+  selectedSkillId?: string;
+}
+
 export interface IChatService {
   connect(token?: string): Promise<ConnectResponse>;
   sendMessage(
     message: string,
     sessionId: string | undefined,
-    onEvent: StreamEventCallback
+    onEvent: StreamEventCallback,
+    options?: SendMessageOptions
   ): Promise<ChatSendResponse>;
   getHistory(sessionId?: string): Promise<ChatHistoryResponse>;
   abort(): Promise<void>;
