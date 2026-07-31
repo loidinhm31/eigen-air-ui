@@ -30,15 +30,21 @@
     "@radix-ui/react-tooltip": "^1.1.8",
     "class-variance-authority": "^0.7.1",
     "lucide-react": "^0.511.0",
+    "react-markdown": "10.1.0",
     "react-router-dom": "^7.5.3",
+    "remark-gfm": "4.0.1",
     "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@testing-library/dom": "10.4.1",
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.1",
     "@nonclaw-ui/eslint-config": "workspace:*",
     "@nonclaw-ui/tsconfig": "workspace:*",
     "@tailwindcss/vite": "^4.1.17",
     "@types/react": "^19.1.6",
     "@types/react-dom": "^19.1.5",
+    "jsdom": "26.1.0",
     "tailwindcss": "^4.1.17",
     "typescript": "^5.8.3"
   }
