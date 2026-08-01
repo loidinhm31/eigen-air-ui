@@ -3,6 +3,8 @@ import type {
   IChatService,
   SendMessageOptions,
   StreamEventCallback,
+  RunCorrelationCallback,
+  RunCorrelationSignal,
 } from "../factory/interfaces/IChatService.js";
 import type { ISessionService } from "../factory/interfaces/ISessionService.js";
 import type {
@@ -35,20 +37,60 @@ export function buildChatSendParams(
   };
 }
 
+export function projectRunCorrelation(event: WsEvent): RunCorrelationSignal | undefined {
+  const snapshotRefetchRequired =
+    "snapshot_refetch_required" in event.payload &&
+    event.payload.snapshot_refetch_required === true;
+  if (!event.run_id && !snapshotRefetchRequired) return undefined;
+  const lifecycle = "lifecycle_status" in event.payload
+    ? event.payload.lifecycle_status
+    : undefined;
+  return {
+    event: event.event,
+    run_id: event.run_id,
+    event_id: event.event_id,
+    event_seq: event.event_seq,
+    occurred_at_ms: event.occurred_at_ms,
+    ...(lifecycle ? { lifecycle_status: lifecycle } : {}),
+    ...(snapshotRefetchRequired ? { snapshot_refetch_required: true } : {}),
+  };
+}
+
 export class WsChatAdapter implements IChatService, ISessionService {
   private readonly client: WsClient;
   private token: string | undefined;
   private activeRunId: string | undefined;
+  private readonly runSubscribers = new Set<RunCorrelationCallback>();
+  private readonly reconnectSubscribers = new Set<() => void>();
 
   constructor(wsUrl: string) {
     this.client = new WsClient(wsUrl);
+    this.client.onEvent((event) => this.forwardRunCorrelation(event));
     this.client.onReconnect(async () => {
       try {
         await this.connect(this.token);
+        this.reconnectSubscribers.forEach((callback) => callback());
       } catch (err) {
         console.warn("[WsChatAdapter] re-auth failed:", err);
       }
     });
+  }
+
+  subscribeRunCorrelation(callback: RunCorrelationCallback): () => void {
+    this.runSubscribers.add(callback);
+    return () => this.runSubscribers.delete(callback);
+  }
+
+  onRunReconnect(callback: () => void): () => void {
+    this.reconnectSubscribers.add(callback);
+    return () => this.reconnectSubscribers.delete(callback);
+  }
+
+  private forwardRunCorrelation(event: WsEvent): void {
+    // Deliberately project metadata only; debug/content/tool payloads never enter a replay buffer.
+    const projected = projectRunCorrelation(event);
+    if (!projected) return;
+    this.runSubscribers.forEach((callback) => callback(projected));
   }
 
   async connect(token?: string): Promise<ConnectResponse> {

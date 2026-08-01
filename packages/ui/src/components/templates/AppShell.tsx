@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Outlet, NavLink } from "react-router-dom";
-import { MessageSquare, Brain, Wrench, BookOpen, Settings, History } from "lucide-react";
+import { MessageSquare, Brain, Wrench, BookOpen, Settings, History, Activity } from "lucide-react";
 import { StatusBadge } from "../molecules/StatusBadge.js";
 import { cn } from "@nonclaw-ui/shared/utils";
 
@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { to: "tools", icon: Wrench, label: "Tools" },
   { to: "skills", icon: BookOpen, label: "Skills" },
   { to: "sessions", icon: History, label: "Sessions" },
+  { to: "runs", icon: Activity, label: "Runs" },
   { to: "settings", icon: Settings, label: "Settings" },
 ] as const;
 

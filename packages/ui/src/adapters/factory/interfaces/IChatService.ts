@@ -2,10 +2,23 @@ import type {
   ConnectResponse,
   ChatSendResponse,
   ChatHistoryResponse,
+  RunLifecycleStatus,
   WsEvent,
 } from "@nonclaw-ui/shared/types";
 
 export type StreamEventCallback = (event: WsEvent) => void;
+/** Correlation-only event: no payload/debug is retained by the Runs bridge. */
+export type RunCorrelationEvent = Pick<
+  WsEvent,
+  "event" | "run_id" | "event_id" | "event_seq" | "occurred_at_ms"
+> & { lifecycle_status?: RunLifecycleStatus };
+
+export type RunCorrelationSignal = RunCorrelationEvent & {
+  /** Metadata-only recovery hint for legacy frames that cannot name a run. */
+  snapshot_refetch_required?: boolean;
+};
+
+export type RunCorrelationCallback = (event: RunCorrelationSignal) => void;
 
 export interface SendMessageOptions {
   selectedSkillId?: string;
@@ -22,4 +35,6 @@ export interface IChatService {
   getHistory(sessionId?: string): Promise<ChatHistoryResponse>;
   abort(): Promise<void>;
   disconnect(): void;
+  subscribeRunCorrelation?(callback: RunCorrelationCallback): () => void;
+  onRunReconnect?(callback: () => void): () => void;
 }

@@ -37,6 +37,11 @@ export type {
 } from "./adapters/factory/ServiceFactory.js";
 export { WsChatAdapter } from "./adapters/ws/WsChatAdapter.js";
 export { WsClient } from "./adapters/ws/WsClient.js";
+export { HttpRunAdapter } from "./adapters/http/HttpRunAdapter.js";
+export type {
+  RunAccessContext,
+  RunCapabilities,
+} from "./adapters/http/HttpRunAdapter.js";
 export { HttpMemoryAdapter } from "./adapters/http/HttpMemoryAdapter.js";
 export { HttpToolAdapter } from "./adapters/http/HttpToolAdapter.js";
 export { HttpSkillAdapter } from "./adapters/http/HttpSkillAdapter.js";

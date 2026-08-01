@@ -1,0 +1,114 @@
+{
+  "schema": "nonclaw.g2.ws-v1-run-events",
+  "legacy": [
+    {
+      "type": "event",
+      "version": "v1",
+      "event": "run.started",
+      "payload": { "run_id": "request-1" }
+    },
+    { "type": "event", "version": "v1", "event": "run.delta", "payload": { "delta": "hello" } },
+    {
+      "type": "event",
+      "version": "v1",
+      "event": "tool.started",
+      "payload": {
+        "id": "tool-1",
+        "tool_call_id": "tool-1",
+        "name": "echo",
+        "args": { "message": "hi" }
+      }
+    },
+    {
+      "type": "event",
+      "version": "v1",
+      "event": "run.finished",
+      "payload": {
+        "run_id": "request-1",
+        "content": "hello",
+        "tool_calls_made": 1,
+        "tool_limit_reached": false,
+        "can_continue": false
+      }
+    }
+  ],
+  "enriched": [
+    {
+      "type": "event",
+      "version": "v1",
+      "event": "run.started",
+      "payload": { "run_id": "request-1" },
+      "request_id": "request-1",
+      "event_id": "event-1",
+      "event_seq": 1,
+      "occurred_at_ms": 1700000000000,
+      "session_id": "session-1",
+      "run_id": "run-1",
+      "trace_id": "trace-1",
+      "root_run_id": "run-1"
+    },
+    {
+      "type": "event",
+      "version": "v1",
+      "event": "run.delta",
+      "payload": { "delta": "hello" },
+      "request_id": "request-1",
+      "event_id": "event-2",
+      "event_seq": 2,
+      "occurred_at_ms": 1700000000001,
+      "session_id": "session-1",
+      "run_id": "run-1",
+      "trace_id": "trace-1",
+      "root_run_id": "run-1"
+    },
+    {
+      "type": "event",
+      "version": "v1",
+      "event": "tool.started",
+      "payload": {
+        "id": "tool-1",
+        "tool_call_id": "tool-1",
+        "name": "echo",
+        "args": { "message": "hi" }
+      },
+      "request_id": "request-1",
+      "event_id": "event-3",
+      "event_seq": 3,
+      "occurred_at_ms": 1700000000002,
+      "session_id": "session-1",
+      "run_id": "run-1",
+      "trace_id": "trace-1",
+      "root_run_id": "run-1"
+    },
+    {
+      "type": "event",
+      "version": "v1",
+      "event": "run.finished",
+      "payload": {
+        "run_id": "request-1",
+        "content": "hello",
+        "tool_calls_made": 1,
+        "tool_limit_reached": false,
+        "can_continue": false,
+        "lifecycle_status": "completed",
+        "snapshot_seq": 4
+      },
+      "request_id": "request-1",
+      "event_id": "event-4",
+      "event_seq": 4,
+      "occurred_at_ms": 1700000000003,
+      "session_id": "session-1",
+      "run_id": "run-1",
+      "trace_id": "trace-1",
+      "root_run_id": "run-1"
+    }
+  ],
+  "unsequenced_refetch": [
+    {
+      "type": "event",
+      "version": "v1",
+      "event": "run.delta",
+      "payload": { "delta": "hello", "snapshot_refetch_required": true }
+    }
+  ]
+}

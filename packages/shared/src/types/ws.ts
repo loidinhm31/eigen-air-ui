@@ -1,4 +1,4 @@
-import type { ChatMessage, ServerConfig, Session, Skill, SkillSearchResult, MemorySearchResult } from "./api.js";
+import type { ChatMessage, ServerConfig, Session, Skill, SkillSearchResult, MemorySearchResult, RunLifecycleStatus } from "./api.js";
 
 // --- Frame types ---
 
@@ -30,10 +30,12 @@ export interface ChunkPayload {
 
 export interface RunDeltaPayload {
   delta: string;
+  snapshot_refetch_required?: boolean;
 }
 
 export interface ToolCallPayload {
   id: string;
+  tool_call_id?: string;
   name: string;
   args: Record<string, unknown>;
 }
@@ -48,6 +50,8 @@ export interface RunCompletedPayload {
   run_id?: string;
   content: string;
   tool_calls_made: number;
+  lifecycle_status?: RunLifecycleStatus;
+  snapshot_seq?: number;
 }
 
 export interface WsErrorPayload {
@@ -57,17 +61,36 @@ export interface WsErrorPayload {
 
 // --- Discriminated union on event field ---
 
+export interface RunCorrelationFields {
+  request_id?: string;
+  event_id?: string;
+  event_seq?: number;
+  occurred_at_ms?: number;
+  session_id?: string;
+  run_id?: string;
+  trace_id?: string;
+  parent_run_id?: string;
+  root_run_id?: string;
+}
+
+type CorrelatedWsEvent<E extends string, P> = {
+  type: "event";
+  version?: "v1";
+  event: E;
+  payload: P;
+} & RunCorrelationFields;
+
 export type WsEvent =
-  | { type: "event"; event: "run.started"; payload: RunStartedPayload }
-  | { type: "event"; event: "chunk"; payload: ChunkPayload }
-  | { type: "event"; event: "run.delta"; payload: RunDeltaPayload }
-  | { type: "event"; event: "tool.call"; payload: ToolCallPayload }
-  | { type: "event"; event: "tool.started"; payload: ToolCallPayload }
-  | { type: "event"; event: "tool.result"; payload: ToolResultPayload }
-  | { type: "event"; event: "tool.finished"; payload: ToolResultPayload }
-  | { type: "event"; event: "run.completed"; payload: RunCompletedPayload }
-  | { type: "event"; event: "run.finished"; payload: RunCompletedPayload }
-  | { type: "event"; event: "error"; payload: WsErrorPayload };
+  | CorrelatedWsEvent<"run.started", RunStartedPayload>
+  | CorrelatedWsEvent<"chunk", ChunkPayload>
+  | CorrelatedWsEvent<"run.delta", RunDeltaPayload>
+  | CorrelatedWsEvent<"tool.call", ToolCallPayload>
+  | CorrelatedWsEvent<"tool.started", ToolCallPayload>
+  | CorrelatedWsEvent<"tool.result", ToolResultPayload>
+  | CorrelatedWsEvent<"tool.finished", ToolResultPayload>
+  | CorrelatedWsEvent<"run.completed", RunCompletedPayload>
+  | CorrelatedWsEvent<"run.finished", RunCompletedPayload>
+  | CorrelatedWsEvent<"error", WsErrorPayload>;
 
 export type WsFrame = WsReq | WsRes | WsEvent;
 

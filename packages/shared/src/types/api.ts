@@ -217,6 +217,125 @@ export interface HealthStatus {
   version: string;
 }
 
+// --- Run observability (G2) ---
+
+export type RunLifecycleStatus = "running" | "completed" | "failed" | "skipped" | "aborted";
+export type RunUsageOrigin = "reported" | "estimated" | "unknown";
+export type RunPolicyOutcome = "allowed" | "denied" | "not_applicable";
+export type RunToolCallStatus = "requested" | "running" | "completed" | "failed" | "denied" | "skipped";
+export type RunMemoryKind = "working" | "episode" | "fact";
+export type RunDebugExcerptKind =
+  | "user_request"
+  | "system_prompt"
+  | "provider_reasoning"
+  | "provider_response"
+  | "tool_arguments"
+  | "tool_result";
+
+export interface RunRedactionDto {
+  metadata_only: boolean;
+  debug_requested: boolean;
+  debug_available: boolean;
+  unavailable_reason?: "disabled" | "unauthorized" | "expired" | "key_unavailable" | "invalid" | null;
+}
+
+export interface RunUsageDto {
+  prompt_tokens?: number | null;
+  completion_tokens?: number | null;
+  total_tokens?: number | null;
+  origin: RunUsageOrigin;
+}
+
+export interface RunSummaryDto {
+  run_id: string;
+  trace_id: string;
+  request_id?: string | null;
+  session_id: string;
+  parent_run_id?: string | null;
+  root_run_id: string;
+  tenant_id: string;
+  user_id: string;
+  workspace_id: string;
+  agent_id: string;
+  provider_id: string;
+  channel: string;
+  lifecycle_status: RunLifecycleStatus;
+  started_at_ms: number;
+  updated_at_ms: number;
+  completed_at_ms?: number | null;
+  snapshot_seq: number;
+  correlation_state: string;
+  redaction: RunRedactionDto;
+  usage?: RunUsageDto | null;
+}
+
+export interface RunEventDto {
+  event_id: string;
+  event_seq: number;
+  event_kind: string;
+  lifecycle_status?: RunLifecycleStatus | null;
+  occurred_at_ms: number;
+  safe_error_code?: string | null;
+  policy_outcome?: RunPolicyOutcome | null;
+}
+
+export interface RunToolCallDto {
+  tool_call_id: string;
+  ordinal: number;
+  tool_name: string;
+  status: RunToolCallStatus;
+  policy_outcome?: RunPolicyOutcome | null;
+  started_at_ms: number;
+  completed_at_ms?: number | null;
+  safe_error_code?: string | null;
+}
+
+export interface RunMemoryLineageDto {
+  lineage_seq: number;
+  relation: "considered" | "used" | "written";
+  memory_kind: RunMemoryKind;
+  memory_reference: string;
+  tenant_id: string;
+  user_id: string;
+  workspace_id: string;
+  agent_id: string;
+  source_episode_id?: string | null;
+  provenance?: string | null;
+  confidence?: number | null;
+  occurred_at_ms: number;
+}
+
+/** Sensitive, request-time plaintext. This must only live in runInspectorStore. */
+export interface RunDebugExcerptDto {
+  excerpt_seq: number;
+  kind: RunDebugExcerptKind;
+  plaintext: string;
+  created_at_ms: number;
+  expires_at_ms: number;
+  plaintext_bytes: number;
+  truncated: boolean;
+  redaction_count: number;
+}
+
+export interface RunSnapshotDto {
+  schema_version: number;
+  run: RunSummaryDto;
+  events: RunEventDto[];
+  tool_calls: RunToolCallDto[];
+  memory_lineage: RunMemoryLineageDto[];
+  debug_excerpts?: RunDebugExcerptDto[];
+  next_event_cursor?: string | null;
+  next_tool_cursor?: string | null;
+  next_lineage_cursor?: string | null;
+  next_debug_cursor?: string | null;
+}
+
+export interface RunListResponseDto {
+  schema_version: number;
+  runs: RunSummaryDto[];
+  next_cursor?: string | null;
+}
+
 // --- Errors ---
 
 export interface ApiError {
