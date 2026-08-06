@@ -10,7 +10,7 @@
     "type-check": "turbo run type-check",
     "format": "prettier --write \"**/*.{ts,tsx,md,json}\"",
     "test": "vitest",
-    "test:run": "vitest run",
+    "test:run": "vitest run packages",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",

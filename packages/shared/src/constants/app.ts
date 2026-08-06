@@ -5,6 +5,7 @@ export const STORAGE_KEYS = {
   DAEMON_URL: "nonclaw-daemon-url",
   SESSION_ID: "nonclaw-session-id",
   CHAT_MESSAGES: "nonclaw-chat-messages",
+  DEBUG_SETTINGS: "nonclaw-debug-settings",
   THEME: "nonclaw-theme",
 } as const;
 

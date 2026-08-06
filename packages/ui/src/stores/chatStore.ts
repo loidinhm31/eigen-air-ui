@@ -17,7 +17,7 @@ interface ChatStore {
   beginStream(status?: string): void;
   appendChunk(chunk: string): void;
   setStreamStatus(status: string): void;
-  finalizeStream(content: string): void;
+  finalizeStream(message: ChatMessage): void;
   setStreamError(error: string): void;
   clearMessages(): void;
 }
@@ -62,22 +62,32 @@ export const useChatStore = create<ChatStore>()(
           streamStatus: status,
           streamError: null,
         }),
-      finalizeStream: (content) =>
+      finalizeStream: (message) =>
         set((s) => ({
-          messages: [...s.messages, { role: "assistant" as const, content }].slice(-MAX_PERSISTED_MESSAGES),
+          messages: [...s.messages, message].slice(-MAX_PERSISTED_MESSAGES),
           isStreaming: false,
           streamingContent: "",
           streamStatus: null,
           streamError: null,
         })),
       setStreamError: (error) =>
-        set({ streamError: error, isStreaming: false, streamingContent: "", streamStatus: null }),
+        set({
+          streamError: error,
+          isStreaming: false,
+          streamingContent: "",
+          streamStatus: null,
+        }),
       clearMessages: () =>
-        set({ messages: [], streamingContent: "", isStreaming: false, streamStatus: null, streamError: null }),
+        set({
+          messages: [],
+          streamingContent: "",
+          isStreaming: false,
+          streamStatus: null,
+          streamError: null,
+        }),
     }),
     {
       name: STORAGE_KEYS.CHAT_MESSAGES,
-      // Only persist messages; transient streaming state is never stored
       partialize: (state) => ({ messages: state.messages }),
     }
   )

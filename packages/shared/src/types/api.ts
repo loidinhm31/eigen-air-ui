@@ -2,9 +2,30 @@
 
 export type MessageRole = "user" | "assistant" | "system";
 
+export interface ChatDebugSkill {
+  name: string;
+  score: number;
+}
+
+export interface ChatDebugReasoning {
+  requested: boolean;
+  available: boolean;
+  text?: string | null;
+}
+
+export interface ChatDebugData {
+  provider: string;
+  model: string;
+  active_skill?: ChatDebugSkill | null;
+  system_prompt?: string | null;
+  reasoning?: ChatDebugReasoning | null;
+}
+
 export interface ChatMessage {
+  id?: string;
   role: MessageRole;
   content: string;
+  debug?: ChatDebugData;
 }
 
 export interface ChatCompletionRequest {
@@ -141,6 +162,7 @@ export interface EpisodicMemory {
   input: string;
   output: string;
   summary: string;
+  debug?: ChatDebugData | null;
   created_at: number;
 }
 
@@ -149,6 +171,7 @@ export interface EpisodeUpdate {
   output?: string;
   summary?: string;
 }
+
 export interface KnowledgeRelation {
   id: string;
   scope: MemoryScope;

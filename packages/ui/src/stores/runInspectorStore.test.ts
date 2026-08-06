@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { RunEventDto, RunSnapshotDto } from "@nonclaw-ui/shared/types";
 import {
   applyRunEvent,
@@ -94,6 +94,7 @@ describe("run inspector reconciliation", () => {
     });
   });
   it("retains the earliest debug timer across metadata-only snapshot installs", () => {
+    const expiresAt = Date.now() + 10_000;
     const sensitive = {
       ...snapshot("run-a"),
       debug_excerpts: [
@@ -102,7 +103,7 @@ describe("run inspector reconciliation", () => {
           kind: "provider_response" as const,
           plaintext: "secret",
           created_at_ms: 1,
-          expires_at_ms: 10,
+          expires_at_ms: expiresAt,
           plaintext_bytes: 6,
           truncated: false,
           redaction_count: 0,
@@ -110,7 +111,7 @@ describe("run inspector reconciliation", () => {
       ],
     };
     const installed = installSnapshot(installSnapshot(state(), sensitive), snapshot("run-b"));
-    expect(installed.debugExpiresAtMs).toBe(10);
+    expect(installed.debugExpiresAtMs).toBe(expiresAt);
   });
   it("clears cached debug plaintext when selection changes", () => {
     useRunInspectorStore.getState().clear();
@@ -133,5 +134,79 @@ describe("run inspector reconciliation", () => {
     useRunInspectorStore.getState().select("run-b");
     expect(useRunInspectorStore.getState().snapshots["run-a"].debug_excerpts).toBeUndefined();
     expect(useRunInspectorStore.getState().debugExpiresAtMs).toBeUndefined();
+  });
+  it("does not retain already-expired plaintext and preserves unrelated pending queues", () => {
+    const expired = {
+      ...snapshot(),
+      debug_excerpts: [
+        {
+          excerpt_seq: 1,
+          kind: "provider_response" as const,
+          plaintext: "expired-secret",
+          created_at_ms: 1,
+          expires_at_ms: 1,
+          plaintext_bytes: 14,
+          truncated: false,
+          redaction_count: 0,
+        },
+      ],
+    };
+    const installed = installSnapshot(state(), expired);
+    expect(installed.snapshots["run-a"].debug_excerpts).toBeUndefined();
+
+    useRunInspectorStore.getState().clear();
+    const expiresAt = Date.now() + 10_000;
+    useRunInspectorStore.getState().snapshot({
+      ...expired,
+      debug_excerpts: [{ ...expired.debug_excerpts[0], expires_at_ms: expiresAt }],
+    });
+    useRunInspectorStore.getState().event("run-b", event(1));
+    useRunInspectorStore.getState().expire(expiresAt);
+    expect(useRunInspectorStore.getState().pending).toEqual({ "run-b": [event(1)] });
+  });
+
+  it("evicts a run only when the caller confirms deletion", () => {
+    useRunInspectorStore.getState().clear();
+    useRunInspectorStore.getState().snapshot(snapshot());
+    useRunInspectorStore.getState().beginOperation("delete", "run-a");
+    expect(useRunInspectorStore.getState().snapshots["run-a"]).toBeDefined();
+    useRunInspectorStore.getState().evict("run-a");
+    expect(useRunInspectorStore.getState()).toMatchObject({
+      snapshots: {},
+      pending: {},
+      status: "deleted",
+    });
+  });
+
+  it("expires only cached debug snapshots at the exact deadline while queues are pending", () => {
+    vi.useFakeTimers();
+    const now = Date.now();
+    const expiresAt = now + 1_000;
+    const debug = (runId: string): RunSnapshotDto => ({
+      ...snapshot(runId),
+      debug_excerpts: [
+        {
+          excerpt_seq: 1,
+          kind: "provider_response",
+          plaintext: `${runId}-secret`,
+          created_at_ms: now,
+          expires_at_ms: expiresAt,
+          plaintext_bytes: 12,
+          truncated: false,
+          redaction_count: 0,
+        },
+      ],
+    });
+    useRunInspectorStore.getState().clear();
+    useRunInspectorStore.getState().snapshot(debug("run-a"));
+    useRunInspectorStore.getState().snapshot(debug("run-b"));
+    useRunInspectorStore.getState().event("run-c", event(1));
+    useRunInspectorStore.getState().expire(expiresAt);
+    const current = useRunInspectorStore.getState();
+    expect(Object.values(current.snapshots).every((item) => item.debug_excerpts === undefined)).toBe(
+      true
+    );
+    expect(current.pending).toEqual({ "run-c": [event(1)] });
+    vi.useRealTimers();
   });
 });

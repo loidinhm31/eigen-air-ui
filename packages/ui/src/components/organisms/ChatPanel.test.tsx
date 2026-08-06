@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useChatStore } from "../../stores/chatStore.js";
 import { useConnectionStore } from "../../stores/connectionStore.js";
+import { useDebugSettingsStore } from "../../stores/debugSettingsStore.js";
 import { ChatPanel } from "./ChatPanel.js";
 
 const serviceMocks = vi.hoisted(() => ({
@@ -36,19 +37,6 @@ async function selectTestSkill(user: ReturnType<typeof userEvent.setup>) {
   await user.click(await screen.findByRole("option", { name: /Code review/ }));
 }
 
-function resolveSendWithFinalEvent() {
-  serviceMocks.sendMessage.mockImplementation(
-    async (_message: string, _sessionId: string | undefined, onEvent: (event: unknown) => void) => {
-      onEvent({
-        type: "event",
-        event: "run.finished",
-        payload: { content: "done", tool_calls_made: 0 },
-      });
-      return { content: "done", tool_calls_made: 0 };
-    }
-  );
-}
-
 describe("ChatPanel selected skill lifecycle", () => {
   afterEach(() => cleanup());
 
@@ -71,20 +59,26 @@ describe("ChatPanel selected skill lifecycle", () => {
       streamStatus: null,
       streamError: null,
     });
+    useDebugSettingsStore.setState({
+      showPromptDebug: false,
+      showReasoningDebug: false,
+    });
   });
 
   it("sends a selected ID once, then command choice clears the chip and stays ordinary text", async () => {
-    resolveSendWithFinalEvent();
+    serviceMocks.sendMessage.mockResolvedValue({ content: "done", tool_calls_made: 0 });
     const user = userEvent.setup();
     render(<ChatPanel />);
 
     await selectTestSkill(user);
+    expect(screen.getByText("Skill: Code review")).toBeTruthy();
+
     const composer = screen.getByPlaceholderText("Message nonclaw...") as HTMLInputElement;
     await user.type(composer, "review this");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     await waitFor(() => expect(serviceMocks.sendMessage).toHaveBeenCalledTimes(1));
-    expect(serviceMocks.sendMessage.mock.calls[0]?.[3]).toEqual({
+    expect(serviceMocks.sendMessage.mock.calls[0]?.[3]).toMatchObject({
       selectedSkillId: "code_review",
     });
     expect(screen.queryByText("Skill: Code review")).toBeNull();
@@ -92,29 +86,50 @@ describe("ChatPanel selected skill lifecycle", () => {
     await user.type(composer, "later ordinary message");
     await user.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(serviceMocks.sendMessage).toHaveBeenCalledTimes(2));
-    expect(serviceMocks.sendMessage.mock.calls[1]?.[3]).toBeUndefined();
+    expect(serviceMocks.sendMessage.mock.calls[1]?.[3]).not.toHaveProperty("selectedSkillId");
 
     await selectTestSkill(user);
     await user.click(screen.getByRole("button", { name: "Open commands and skills" }));
     await user.click(screen.getByRole("option", { name: /!recall/ }));
     expect(screen.queryByText("Skill: Code review")).toBeNull();
     expect(composer.value).toBe("!recall ");
+
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(serviceMocks.sendMessage).toHaveBeenCalledTimes(3));
+    expect(serviceMocks.sendMessage.mock.calls[2]?.[3]).not.toHaveProperty("selectedSkillId");
   });
 
-  it("clears a selected skill when starting a new chat", async () => {
+  it("never carries a newly selected skill into Continue or a new chat", async () => {
+    serviceMocks.sendMessage
+      .mockResolvedValueOnce({ content: "partial", tool_calls_made: 1, can_continue: true })
+      .mockResolvedValueOnce({ content: "complete", tool_calls_made: 0 });
     const user = userEvent.setup();
     render(<ChatPanel />);
 
+    const composer = screen.getByPlaceholderText("Message nonclaw...");
+    await user.type(composer, "start");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await screen.findByRole("button", { name: "Continue" });
+
     await selectTestSkill(user);
     expect(screen.getByText("Skill: Code review")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "New chat" }));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
 
+    await waitFor(() => expect(serviceMocks.sendMessage).toHaveBeenCalledTimes(2));
+    expect(serviceMocks.sendMessage.mock.calls[1]?.[3]).toMatchObject({
+      allowToolLimitContinue: true,
+    });
+    expect(serviceMocks.sendMessage.mock.calls[1]?.[3]).not.toHaveProperty("selectedSkillId");
+    expect(screen.queryByText("Skill: Code review")).toBeNull();
+
+    await selectTestSkill(user);
+    await user.click(screen.getByRole("button", { name: "New chat" }));
     await waitFor(() => expect(serviceMocks.createSession).toHaveBeenCalledOnce());
     expect(screen.queryByText("Skill: Code review")).toBeNull();
   });
 
   it("keeps a selected-skill server rejection visible without choosing a replacement", async () => {
-    serviceMocks.sendMessage.mockRejectedValueOnce(
+    serviceMocks.sendMessage.mockRejectedValue(
       new Error("Selected skill is unavailable. Refresh the skill list or remove the selection.")
     );
     const user = userEvent.setup();
@@ -130,16 +145,17 @@ describe("ChatPanel selected skill lifecycle", () => {
       )
     ).toBeTruthy();
     expect(screen.queryByText("Skill: Code review")).toBeNull();
+    expect(serviceMocks.sendMessage).toHaveBeenCalledTimes(1);
 
-    resolveSendWithFinalEvent();
+    serviceMocks.sendMessage.mockResolvedValueOnce({ content: "retry done", tool_calls_made: 0 });
     await user.type(screen.getByPlaceholderText("Message nonclaw..."), "manual retry");
     await user.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(serviceMocks.sendMessage).toHaveBeenCalledTimes(2));
-    expect(serviceMocks.sendMessage.mock.calls[1]?.[3]).toBeUndefined();
+    expect(serviceMocks.sendMessage.mock.calls[1]?.[3]).not.toHaveProperty("selectedSkillId");
   });
 
   it("clears selection across reconnect and history session changes", async () => {
-    resolveSendWithFinalEvent();
+    serviceMocks.sendMessage.mockResolvedValue({ content: "done", tool_calls_made: 0 });
     const user = userEvent.setup();
     render(<ChatPanel />);
 
@@ -155,7 +171,7 @@ describe("ChatPanel selected skill lifecycle", () => {
     await user.type(screen.getByPlaceholderText("Message nonclaw..."), "after history change");
     await user.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(serviceMocks.sendMessage).toHaveBeenCalledOnce());
-    expect(serviceMocks.sendMessage.mock.calls[0]?.[3]).toBeUndefined();
+    expect(serviceMocks.sendMessage.mock.calls[0]?.[3]).not.toHaveProperty("selectedSkillId");
   });
 
   it("keeps built-in commands usable when skill discovery fails synchronously", async () => {

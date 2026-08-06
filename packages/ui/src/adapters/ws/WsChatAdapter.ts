@@ -1,5 +1,6 @@
 import { WsClient } from "./WsClient.js";
 import type {
+  DebugRequestOptions,
   IChatService,
   SendMessageOptions,
   StreamEventCallback,
@@ -9,10 +10,12 @@ import type {
 import type { ISessionService } from "../factory/interfaces/ISessionService.js";
 import type {
   ChatAbortParams,
-  ConnectResponse,
-  ChatSendResponse,
+  ChatHistoryParams,
   ChatHistoryResponse,
   ChatSendParams,
+  ChatSendResponse,
+  ConnectResponse,
+  DebugRequest,
   SessionsCreateResponse,
   SessionsDeleteParams,
   SessionsDeleteResponse,
@@ -22,18 +25,33 @@ import type {
 import { WS_METHODS } from "@nonclaw-ui/shared/constants";
 import { useConnectionStore } from "../../stores/connectionStore.js";
 
+export function buildDebugRequest(
+  debug?: DebugRequestOptions
+): DebugRequest | undefined {
+  if (!debug || (!debug.includePrompt && !debug.includeReasoning)) {
+    return undefined;
+  }
+  return {
+    include_prompt: debug.includePrompt,
+    include_reasoning: debug.includeReasoning,
+  };
+}
+
 export function buildChatSendParams(
   message: string,
-  sessionId?: string,
-  options?: SendMessageOptions
+  sessionId: string | undefined,
+  options: SendMessageOptions = {}
 ): ChatSendParams {
+  const debug = buildDebugRequest(options.debug);
   return {
     message,
     stream: true,
     ...(sessionId ? { session_id: sessionId } : {}),
-    ...(options?.selectedSkillId !== undefined
+    ...(options.selectedSkillId !== undefined
       ? { selected_skill_id: options.selectedSkillId }
       : {}),
+    ...(options.allowToolLimitContinue ? { allow_tool_limit_continue: true } : {}),
+    ...(debug ? { debug } : {}),
   };
 }
 
@@ -127,7 +145,7 @@ export class WsChatAdapter implements IChatService, ISessionService {
     message: string,
     sessionId: string | undefined,
     onEvent: StreamEventCallback,
-    options?: SendMessageOptions
+    options: SendMessageOptions = {}
   ): Promise<ChatSendResponse> {
     const handler = (event: WsEvent) => {
       if (event.event === "run.started") {
@@ -142,9 +160,10 @@ export class WsChatAdapter implements IChatService, ISessionService {
 
     this.client.onEvent(handler);
     try {
+      const params = buildChatSendParams(message, sessionId, options);
       const res = await this.client.send<ChatSendParams, ChatSendResponse>(
         WS_METHODS.CHAT_SEND,
-        buildChatSendParams(message, sessionId, options)
+        params
       );
       if (!res.ok) throw new Error(res.error?.message ?? "chat.send failed");
       return res.data!;
@@ -154,10 +173,18 @@ export class WsChatAdapter implements IChatService, ISessionService {
     }
   }
 
-  async getHistory(sessionId?: string): Promise<ChatHistoryResponse> {
-    const res = await this.client.send<object, ChatHistoryResponse>(
+  async getHistory(
+    sessionId?: string,
+    debugOptions?: DebugRequestOptions
+  ): Promise<ChatHistoryResponse> {
+    const debug = buildDebugRequest(debugOptions);
+    const params: ChatHistoryParams = {
+      ...(sessionId ? { session_id: sessionId } : {}),
+      ...(debug ? { debug } : {}),
+    };
+    const res = await this.client.send<ChatHistoryParams, ChatHistoryResponse>(
       WS_METHODS.CHAT_HISTORY,
-      sessionId ? { session_id: sessionId } : {}
+      params
     );
     if (!res.ok) throw new Error(res.error?.message ?? "chat.history failed");
     return res.data!;

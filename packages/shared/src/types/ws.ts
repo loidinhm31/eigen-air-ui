@@ -1,4 +1,13 @@
-import type { ChatMessage, ServerConfig, Session, Skill, SkillSearchResult, MemorySearchResult, RunLifecycleStatus } from "./api.js";
+import type {
+  ChatDebugData,
+  ChatMessage,
+  MemorySearchResult,
+  RunLifecycleStatus,
+  ServerConfig,
+  Session,
+  Skill,
+  SkillSearchResult,
+} from "./api.js";
 
 // --- Frame types ---
 
@@ -20,8 +29,14 @@ export interface WsRes<D = unknown> {
 
 // --- Streaming event payloads ---
 
+export interface DebugRequest {
+  include_prompt: boolean;
+  include_reasoning: boolean;
+}
+
 export interface RunStartedPayload {
   run_id?: string;
+  debug?: ChatDebugData;
 }
 
 export interface ChunkPayload {
@@ -31,6 +46,10 @@ export interface ChunkPayload {
 export interface RunDeltaPayload {
   delta: string;
   snapshot_refetch_required?: boolean;
+}
+
+export interface RunReasoningDeltaPayload {
+  delta: string;
 }
 
 export interface ToolCallPayload {
@@ -50,6 +69,9 @@ export interface RunCompletedPayload {
   run_id?: string;
   content: string;
   tool_calls_made: number;
+  tool_limit_reached?: boolean;
+  can_continue?: boolean;
+  debug?: ChatDebugData;
   lifecycle_status?: RunLifecycleStatus;
   snapshot_seq?: number;
 }
@@ -84,6 +106,7 @@ export type WsEvent =
   | CorrelatedWsEvent<"run.started", RunStartedPayload>
   | CorrelatedWsEvent<"chunk", ChunkPayload>
   | CorrelatedWsEvent<"run.delta", RunDeltaPayload>
+  | CorrelatedWsEvent<"run.reasoning_delta", RunReasoningDeltaPayload>
   | CorrelatedWsEvent<"tool.call", ToolCallPayload>
   | CorrelatedWsEvent<"tool.started", ToolCallPayload>
   | CorrelatedWsEvent<"tool.result", ToolResultPayload>
@@ -105,10 +128,13 @@ export interface ChatSendParams {
   stream?: boolean;
   session_id?: string;
   selected_skill_id?: string;
+  allow_tool_limit_continue?: boolean;
+  debug?: DebugRequest;
 }
 
 export interface ChatHistoryParams {
   session_id?: string;
+  debug?: DebugRequest;
 }
 
 export interface ChatAbortParams {
@@ -145,10 +171,14 @@ export interface AgentStatusResponse {
 export interface ChatSendResponse {
   content: string;
   tool_calls_made: number;
+  tool_limit_reached?: boolean;
+  can_continue?: boolean;
   memory_updated?: boolean;
   memory_reason?: string;
   episode_id?: string | null;
+  message_id?: string | null;
   fact_count?: number;
+  debug?: ChatDebugData;
 }
 
 export interface ChatHistoryResponse {

@@ -1,7 +1,7 @@
 import type {
-  ConnectResponse,
-  ChatSendResponse,
   ChatHistoryResponse,
+  ChatSendResponse,
+  ConnectResponse,
   RunLifecycleStatus,
   WsEvent,
 } from "@nonclaw-ui/shared/types";
@@ -20,8 +20,15 @@ export type RunCorrelationSignal = RunCorrelationEvent & {
 
 export type RunCorrelationCallback = (event: RunCorrelationSignal) => void;
 
+export interface DebugRequestOptions {
+  includePrompt: boolean;
+  includeReasoning: boolean;
+}
+
 export interface SendMessageOptions {
   selectedSkillId?: string;
+  allowToolLimitContinue?: boolean;
+  debug?: DebugRequestOptions;
 }
 
 export interface IChatService {
@@ -32,7 +39,10 @@ export interface IChatService {
     onEvent: StreamEventCallback,
     options?: SendMessageOptions
   ): Promise<ChatSendResponse>;
-  getHistory(sessionId?: string): Promise<ChatHistoryResponse>;
+  getHistory(
+    sessionId?: string,
+    debug?: DebugRequestOptions
+  ): Promise<ChatHistoryResponse>;
   abort(): Promise<void>;
   disconnect(): void;
   subscribeRunCorrelation?(callback: RunCorrelationCallback): () => void;

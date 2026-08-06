@@ -1,5 +1,6 @@
 import * as React from "react";
-import { useRef, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { RotateCw } from "lucide-react";
 import {
   getChatService,
   getSessionService,
@@ -7,16 +8,18 @@ import {
 } from "../../adapters/factory/ServiceFactory.js";
 import { useChatStore } from "../../stores/chatStore.js";
 import { useConnectionStore } from "../../stores/connectionStore.js";
+import { useDebugSettingsStore } from "../../stores/debugSettingsStore.js";
 import { useMemoryStore } from "../../stores/memoryStore.js";
-import { ChatBubble } from "../molecules/ChatBubble.js";
-import { CommandPalette } from "../molecules/CommandPalette.js";
-import type { PaletteSelection } from "../molecules/commandPaletteModel.js";
-import { ToolCallCard } from "../molecules/ToolCallCard.js";
 import { Button } from "../atoms/Button.js";
 import { Input } from "../atoms/Input.js";
 import { ScrollArea } from "../atoms/ScrollArea.js";
 import { Spinner } from "../atoms/Spinner.js";
+import { ChatBubble } from "../molecules/ChatBubble.js";
+import { CommandPalette } from "../molecules/CommandPalette.js";
+import type { PaletteSelection } from "../molecules/commandPaletteModel.js";
+import { ToolCallCard } from "../molecules/ToolCallCard.js";
 import type {
+  ChatDebugData,
   Skill,
   ToolCallPayload,
   ToolResultPayload,
@@ -24,6 +27,8 @@ import type {
 } from "@nonclaw-ui/shared/types";
 
 const PROVIDER_WAIT_STATUS = "Waiting for agent response...";
+const TOOL_LIMIT_CONTINUE_PROMPT =
+  "Continue from the previous tool results and finish the answer. Use tools only if necessary.";
 
 export function ChatPanel() {
   const [input, setInput] = useState("");
@@ -45,18 +50,46 @@ export function ChatPanel() {
   const sessionId = useConnectionStore((state) => state.sessionId);
   const connectionStatus = useConnectionStore((state) => state.status);
   const setSessionId = useConnectionStore((state) => state.setSessionId);
+  const showPromptDebug = useDebugSettingsStore((state) => state.showPromptDebug);
+  const showReasoningDebug = useDebugSettingsStore((state) => state.showReasoningDebug);
   const bottomRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLInputElement>(null);
+  const streamingDebugRef = useRef<ChatDebugData | undefined>(undefined);
   const [toolCalls, setToolCalls] = useState<Record<string, ToolCallPayload>>({});
   const [toolResults, setToolResults] = useState<Record<string, ToolResultPayload>>({});
   const [memoryNotice, setMemoryNotice] = useState<string | null>(null);
   const [isStartingSession, setIsStartingSession] = useState(false);
+  const [limitContinuePrompt, setLimitContinuePrompt] = useState<string | null>(null);
+  const [streamingDebug, setStreamingDebug] = useState<ChatDebugData | undefined>(undefined);
   const [skills, setSkills] = useState<Skill[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(true);
   const [skillLoadError, setSkillLoadError] = useState<string | null>(null);
   const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const bumpMemoryRevision = useMemoryStore((state) => state.bumpRevision);
+
+  function getDebugOptions() {
+    if (!showPromptDebug && !showReasoningDebug) {
+      return undefined;
+    }
+    return {
+      includePrompt: showPromptDebug,
+      includeReasoning: showReasoningDebug,
+    };
+  }
+
+  function updateStreamingDebug(
+    next:
+      | ChatDebugData
+      | undefined
+      | ((previous: ChatDebugData | undefined) => ChatDebugData | undefined)
+  ) {
+    setStreamingDebug((previous) => {
+      const resolved = typeof next === "function" ? next(previous) : next;
+      streamingDebugRef.current = resolved;
+      return resolved;
+    });
+  }
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -105,6 +138,8 @@ export function ChatPanel() {
       setToolCalls({});
       setToolResults({});
       setMemoryNotice(null);
+      setLimitContinuePrompt(null);
+      updateStreamingDebug(undefined);
 
       if (!sessionId) {
         clearMessages();
@@ -118,7 +153,7 @@ export function ChatPanel() {
       clearMessages();
       for (let attempt = 0; attempt < 10 && !cancelled; attempt++) {
         try {
-          const history = await getChatService().getHistory(sessionId);
+          const history = await getChatService().getHistory(sessionId, getDebugOptions());
           if (!cancelled) {
             replaceMessages(history.messages);
           }
@@ -141,7 +176,111 @@ export function ChatPanel() {
     return () => {
       cancelled = true;
     };
-  }, [clearMessages, connectionStatus, replaceMessages, sessionId, setStreamError]);
+  }, [
+    clearMessages,
+    connectionStatus,
+    replaceMessages,
+    sessionId,
+    setStreamError,
+    showPromptDebug,
+    showReasoningDebug,
+  ]);
+
+  async function sendPrompt(
+    msg: string,
+    allowToolLimitContinue = false,
+    selectedSkillId?: string
+  ) {
+    if (!msg.trim() || isStreaming) return;
+    setToolCalls({});
+    setToolResults({});
+    setMemoryNotice(null);
+    setLimitContinuePrompt(null);
+    updateStreamingDebug(undefined);
+    addMessage({ role: "user", content: msg });
+    beginStream("Submitting message...");
+
+    try {
+      const debug = getDebugOptions();
+      const result = await getChatService().sendMessage(
+        msg,
+        sessionId,
+        (event: WsEvent) => {
+          if (event.event === "run.started") {
+            updateStreamingDebug(event.payload.debug);
+            beginStream(PROVIDER_WAIT_STATUS);
+          } else if (event.event === "chunk") {
+            appendChunk(event.payload.content);
+          } else if (event.event === "run.delta") {
+            appendChunk(event.payload.delta);
+          } else if (event.event === "run.reasoning_delta") {
+            updateStreamingDebug((previous) => {
+              if (!previous) {
+                return previous;
+              }
+              return {
+                ...previous,
+                reasoning: {
+                  requested: true,
+                  available: true,
+                  text: `${previous.reasoning?.text ?? ""}${event.payload.delta}`,
+                },
+              };
+            });
+          } else if (event.event === "run.completed" || event.event === "run.finished") {
+            updateStreamingDebug(event.payload.debug ?? streamingDebugRef.current);
+            setStreamStatus("Finalizing response...");
+            if (event.payload.can_continue) {
+              setLimitContinuePrompt(TOOL_LIMIT_CONTINUE_PROMPT);
+            }
+          } else if (event.event === "tool.call" || event.event === "tool.started") {
+            setToolCalls((calls) => ({ ...calls, [event.payload.id]: event.payload }));
+            setStreamStatus(`Running ${event.payload.name}...`);
+          } else if (event.event === "tool.result" || event.event === "tool.finished") {
+            setToolResults((results) => ({ ...results, [event.payload.id]: event.payload }));
+            setStreamStatus(PROVIDER_WAIT_STATUS);
+          } else if (event.event === "error") {
+            updateStreamingDebug(undefined);
+            setStreamError(event.payload.message);
+          }
+        },
+        {
+          ...(selectedSkillId !== undefined ? { selectedSkillId } : {}),
+          ...(allowToolLimitContinue ? { allowToolLimitContinue: true } : {}),
+          ...(debug ? { debug } : {}),
+        }
+      );
+
+      const finalDebug = result.debug ?? streamingDebugRef.current;
+      finalizeStream({
+        role: "assistant",
+        content: result.content,
+        ...(result.message_id ? { id: result.message_id } : {}),
+        ...(finalDebug ? { debug: finalDebug } : {}),
+      });
+      updateStreamingDebug(undefined);
+      bumpMemoryRevision();
+      if (result.can_continue) {
+        setLimitContinuePrompt(TOOL_LIMIT_CONTINUE_PROMPT);
+      }
+      if (result.memory_updated) {
+        setMemoryNotice(
+          result.episode_id
+            ? `Memory updated: episode saved, ${result.fact_count ?? 0} derived facts`
+            : "Working memory updated"
+        );
+      } else if (result.can_continue) {
+        setMemoryNotice("Agent needs another attempt. Use Continue.");
+      } else if (result.tool_limit_reached) {
+        setMemoryNotice("Tool limit reached");
+      } else if (result.memory_reason === "sensitive_content") {
+        setMemoryNotice("Memory not saved because the transcript may contain sensitive content");
+      }
+    } catch (e) {
+      updateStreamingDebug(undefined);
+      setStreamError(String(e));
+    }
+  }
 
   async function handleSend() {
     if (!input.trim() || isStreaming) return;
@@ -150,50 +289,7 @@ export function ChatPanel() {
     setInput("");
     setSelectedSkill(null);
     setPaletteOpen(false);
-    setToolCalls({});
-    setToolResults({});
-    setMemoryNotice(null);
-    addMessage({ role: "user", content: msg });
-    beginStream("Submitting message...");
-
-    try {
-      const result = await getChatService().sendMessage(
-        msg,
-        sessionId,
-        (event: WsEvent) => {
-          if (event.event === "run.started") {
-            beginStream(PROVIDER_WAIT_STATUS);
-          } else if (event.event === "chunk") {
-            appendChunk(event.payload.content);
-          } else if (event.event === "run.delta") {
-            appendChunk(event.payload.delta);
-          } else if (event.event === "run.completed" || event.event === "run.finished") {
-            finalizeStream(event.payload.content);
-          } else if (event.event === "tool.call" || event.event === "tool.started") {
-            setToolCalls((calls) => ({ ...calls, [event.payload.id]: event.payload }));
-            setStreamStatus(`Running ${event.payload.name}...`);
-          } else if (event.event === "tool.result" || event.event === "tool.finished") {
-            setToolResults((results) => ({ ...results, [event.payload.id]: event.payload }));
-            setStreamStatus(PROVIDER_WAIT_STATUS);
-          } else if (event.event === "error") {
-            setStreamError(event.payload.message);
-          }
-        },
-        selectedSkillId !== undefined ? { selectedSkillId } : undefined
-      );
-      bumpMemoryRevision();
-      if (result.memory_updated) {
-        setMemoryNotice(
-          result.episode_id
-            ? `Memory updated: episode saved, ${result.fact_count ?? 0} derived facts`
-            : "Working memory updated"
-        );
-      } else if (result.memory_reason === "sensitive_content") {
-        setMemoryNotice("Memory not saved because the transcript may contain sensitive content");
-      }
-    } catch (e) {
-      setStreamError(String(e));
-    }
+    await sendPrompt(msg, false, selectedSkillId);
   }
 
   function handlePaletteSelect(outcome: PaletteSelection) {
@@ -204,6 +300,13 @@ export function ChatPanel() {
     }
 
     setSelectedSkill(outcome.skill);
+  }
+
+  async function handleContinueFromLimit() {
+    if (!limitContinuePrompt || isStreaming) return;
+    setSelectedSkill(null);
+    setPaletteOpen(false);
+    await sendPrompt(limitContinuePrompt, true);
   }
 
   function handleComposerKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
@@ -234,6 +337,8 @@ export function ChatPanel() {
       setToolCalls({});
       setToolResults({});
       setMemoryNotice(null);
+      setLimitContinuePrompt(null);
+      updateStreamingDebug(undefined);
       setSelectedSkill(null);
       setPaletteOpen(false);
       setInput("");
@@ -267,15 +372,19 @@ export function ChatPanel() {
       </div>
       <ScrollArea className="flex-1">
         <div className="flex flex-col">
-          {messages.map((msg, i) => (
-            <ChatBubble key={i} message={msg} />
+          {messages.map((msg, index) => (
+            <ChatBubble key={msg.id ?? `${msg.role}-${index}`} message={msg} />
           ))}
           {Object.values(toolCalls).map((tc) => (
             <ToolCallCard key={tc.id} call={tc} result={toolResults[tc.id]} />
           ))}
           {isStreaming && (
             <ChatBubble
-              message={{ role: "assistant", content: streamingContent }}
+              message={{
+                role: "assistant",
+                content: streamingContent,
+                ...(streamingDebug ? { debug: streamingDebug } : {}),
+              }}
               isStreaming
               statusLabel={streamStatus ?? undefined}
             />
@@ -343,13 +452,27 @@ export function ChatPanel() {
               <Spinner size="sm" />
             </Button>
           ) : (
-            <Button onClick={() => void handleSend()} disabled={!input.trim()}>
-              Send
-            </Button>
+            <>
+              {limitContinuePrompt && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void handleContinueFromLimit()}
+                  title="Continue"
+                >
+                  <RotateCw className="mr-2 h-4 w-4" />
+                  Continue
+                </Button>
+              )}
+              <Button onClick={() => void handleSend()} disabled={!input.trim()}>
+                Send
+              </Button>
+            </>
           )}
         </div>
       </div>
     </div>
   );
 }
+
 ChatPanel.displayName = "ChatPanel";

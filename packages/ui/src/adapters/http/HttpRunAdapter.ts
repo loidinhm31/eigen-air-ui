@@ -17,7 +17,7 @@ export class HttpRunAdapter {
     private readonly access: RunAccessContext = {}
   ) {}
 
-  private async request<T>(path: string, init?: RequestInit): Promise<T> {
+  private async response(path: string, init?: RequestInit): Promise<Response> {
     const response = await fetch(`${this.baseUrl}${path}`, {
       ...init,
       headers: {
@@ -33,6 +33,13 @@ export class HttpRunAdapter {
       Object.assign(error, { status: response.status });
       throw error;
     }
+    return response;
+  }
+
+  private async request<T>(path: string, init?: RequestInit): Promise<T> {
+    const response = await this.response(path, init);
+    // Successful DELETE responses are intentionally empty (204).
+    if (response.status === 204) return undefined as T;
     return response.json() as Promise<T>;
   }
 
@@ -51,21 +58,18 @@ export class HttpRunAdapter {
     });
   }
 
-  async export(runId: string): Promise<Blob> {
+  async export(runId: string, signal?: AbortSignal): Promise<Blob> {
     if (!this.access.capabilities?.has("run:export")) {
       throw new Error("Run export unavailable");
     }
-    const response = await fetch(`${this.baseUrl}/v1/runs/${encodeURIComponent(runId)}/export`, {
-      headers: this.access.authToken ? { Authorization: `Bearer ${this.access.authToken}` } : {},
-    });
-    if (!response.ok) throw new Error("Run export unavailable");
+    const response = await this.response(`/v1/runs/${encodeURIComponent(runId)}/export`, { signal });
     return response.blob();
   }
 
-  async delete(runId: string): Promise<void> {
+  async delete(runId: string, signal?: AbortSignal): Promise<void> {
     if (!this.access.capabilities?.has("run:delete")) {
       throw new Error("Run deletion unavailable");
     }
-    await this.request(`/v1/runs/${encodeURIComponent(runId)}`, { method: "DELETE" });
+    await this.request<void>(`/v1/runs/${encodeURIComponent(runId)}`, { method: "DELETE", signal });
   }
 }

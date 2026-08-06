@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { buildChatSendParams, projectRunCorrelation } from "./WsChatAdapter.js";
+import { buildChatSendParams, buildDebugRequest, projectRunCorrelation } from "./WsChatAdapter.js";
+
+describe("buildDebugRequest", () => {
+  it("omits debug payload when all toggles are disabled", () => {
+    expect(buildDebugRequest()).toBeUndefined();
+    expect(buildDebugRequest({ includePrompt: false, includeReasoning: false })).toBeUndefined();
+  });
+
+  it("maps UI settings to the websocket debug request shape", () => {
+    expect(buildDebugRequest({ includePrompt: true, includeReasoning: false })).toEqual({
+      include_prompt: true,
+      include_reasoning: false,
+    });
+  });
+});
 
 describe("projectRunCorrelation", () => {
   it("projects only durable correlation metadata and ignores legacy frames", () => {

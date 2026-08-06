@@ -128,4 +128,72 @@ describe("RunsPage lifecycle reconciliation", () => {
     });
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
   });
+
+  it("keeps a run visible while DELETE is pending, then evicts only after success", async () => {
+    let resolveDelete!: (value: Response) => void;
+    const deleting = new Promise<Response>((resolve) => {
+      resolveDelete = resolve;
+    });
+    const fetch = vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes("?limit=")) return Promise.resolve(response({ schema_version: 1, runs: [runSummary()] }));
+      if (init?.method === "DELETE") return deleting;
+      return Promise.resolve(response(snapshot()));
+    });
+    vi.stubGlobal("fetch", fetch);
+    const user = userEvent.setup();
+    render(<RunsPage access={{ identityKey: "user-a", capabilities: new Set(["run:delete"]) }} />);
+    await user.click(await screen.findByRole("button", { name: "run-a" }));
+    await user.click(await screen.findByRole("button", { name: "Delete" }));
+    expect(screen.getByRole("status").textContent).toMatch(/Deleting/);
+    expect(useRunInspectorStore.getState().snapshots["run-a"]).toBeDefined();
+
+    await act(async () => {
+      resolveDelete({ ok: true, status: 204 } as Response);
+      await deleting;
+    });
+    await waitFor(() => expect(useRunInspectorStore.getState().snapshots["run-a"]).toBeUndefined());
+    expect(screen.getByText("Run deleted.")).toBeDefined();
+  });
+
+  it("retains the run and exposes an error when DELETE fails", async () => {
+    const fetch = vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes("?limit=")) return Promise.resolve(response({ schema_version: 1, runs: [runSummary()] }));
+      if (init?.method === "DELETE") return Promise.resolve({ ok: false, status: 500, json: async () => ({ message: "Nope" }) });
+      return Promise.resolve(response(snapshot()));
+    });
+    vi.stubGlobal("fetch", fetch);
+    const user = userEvent.setup();
+    render(<RunsPage access={{ identityKey: "user-a", capabilities: new Set(["run:delete"]) }} />);
+    await user.click(await screen.findByRole("button", { name: "run-a" }));
+    await user.click(await screen.findByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("Nope"));
+    expect(useRunInspectorStore.getState().snapshots["run-a"]).toBeDefined();
+  });
+
+  it("clears cached plaintext when DELETE returns a no-oracle 404", async () => {
+    const fetch = vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes("?limit=")) return Promise.resolve(response({ schema_version: 1, runs: [runSummary()] }));
+      if (init?.method === "DELETE")
+        return Promise.resolve({ ok: false, status: 404, json: async () => ({}) });
+      return Promise.resolve(response(snapshot(true)));
+    });
+    vi.stubGlobal("fetch", fetch);
+    const user = userEvent.setup();
+    render(<RunsPage access={{ identityKey: "user-a", capabilities: new Set(["run:delete"]) }} />);
+    await user.click(await screen.findByRole("button", { name: "run-a" }));
+    await waitFor(() => expect(useRunInspectorStore.getState().snapshots["run-a"]).toBeDefined());
+    await user.click(await screen.findByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("Run unavailable."));
+    expect(useRunInspectorStore.getState().snapshots).toEqual({});
+    act(() => {
+      service.runCallback?.({
+        event: "run.delta",
+        run_id: "run-a",
+        event_id: "late-event",
+        event_seq: 2,
+        occurred_at_ms: 2,
+      });
+    });
+    expect(useRunInspectorStore.getState().pending).toEqual({});
+  });
 });

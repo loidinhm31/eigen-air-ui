@@ -14,6 +14,7 @@ export function RunsPage({ access = NO_RUN_ACCESS }: RunsPageProps) {
   const { authToken, capabilities, identityKey } = access;
   const {
     snapshots,
+    debugExpiresAtMs,
     selectedRunId,
     status,
     error,
@@ -24,29 +25,56 @@ export function RunsPage({ access = NO_RUN_ACCESS }: RunsPageProps) {
     clear,
     clearDebug,
     expire,
+    operation,
+    beginOperation,
+    completeOperation,
+    failOperation,
+    evict,
   } = useRunInspectorStore();
   const [runs, setRuns] = React.useState<RunSummaryDto[]>([]);
   const lifecycleGeneration = React.useRef(0);
   const listAbort = React.useRef<AbortController | undefined>(undefined);
   const detailAbort = React.useRef<AbortController | undefined>(undefined);
+  const mutationAbort = React.useRef<AbortController | undefined>(undefined);
+  const correlationEnabled = React.useRef(true);
+  // Includes the role/capability boundary; it remains component-local and is never persisted.
+  const accessKey = `${identityKey ?? ""}\u0000${authToken ?? ""}\u0000${[...(capabilities ?? [])].sort().join(",")}`;
+  const previousAccessKey = React.useRef<string | undefined>(undefined);
   const adapter = React.useMemo(
     () => new HttpRunAdapter(url.replace(/\/+$/, ""), { authToken, capabilities, identityKey }),
     [authToken, capabilities, identityKey, url]
   );
   const selected = selectedRunId ? snapshots[selectedRunId] : undefined;
   const canRequestDebug = capabilities?.has("run:read:debug") ?? false;
+  const canExport = capabilities?.has("run:export") ?? false;
+  const canDelete = capabilities?.has("run:delete") ?? false;
+  const clearUnavailable = React.useCallback(
+    (reason: "denied" | "not-found") => {
+      // Invalidate every in-flight request and the currently subscribed live
+      // stream before clearing state. A late frame must not repopulate queues
+      // after an authorization/no-oracle boundary.
+      lifecycleGeneration.current += 1;
+      listAbort.current?.abort();
+      detailAbort.current?.abort();
+      mutationAbort.current?.abort();
+      correlationEnabled.current = false;
+      setRuns([]);
+      clear(reason);
+    },
+    [clear]
+  );
   const handleReadError = React.useCallback(
     (reason: unknown) => {
       const statusCode = (reason as Error & { status?: number }).status;
       if (statusCode === 401 || statusCode === 403) {
-        clear("denied");
+        clearUnavailable("denied");
       } else if (statusCode === 404) {
-        clear("not-found");
+        clearUnavailable("not-found");
       } else {
         fail(reason);
       }
     },
-    [clear, fail]
+    [clearUnavailable, fail]
   );
   const load = React.useCallback(async () => {
     const generation = lifecycleGeneration.current;
@@ -57,6 +85,7 @@ export function RunsPage({ access = NO_RUN_ACCESS }: RunsPageProps) {
     try {
       const result = await adapter.list(undefined, 50, controller.signal);
       if (controller.signal.aborted || generation !== lifecycleGeneration.current) return;
+      correlationEnabled.current = true;
       setRuns(result.runs);
     } catch (reason) {
       if (controller.signal.aborted || generation !== lifecycleGeneration.current) return;
@@ -80,13 +109,70 @@ export function RunsPage({ access = NO_RUN_ACCESS }: RunsPageProps) {
           activeRunId !== runId
         )
           return;
+        correlationEnabled.current = true;
         snapshot(result);
       } catch (reason) {
-        if (controller.signal.aborted || generation !== lifecycleGeneration.current) return;
+        if (
+          controller.signal.aborted ||
+          generation !== lifecycleGeneration.current ||
+          useRunInspectorStore.getState().selectedRunId !== runId
+        )
+          return;
         handleReadError(reason);
       }
     },
     [adapter, begin, handleReadError, select, snapshot]
+  );
+  const exportRun = React.useCallback(
+    async (runId: string) => {
+      const generation = lifecycleGeneration.current;
+      mutationAbort.current?.abort();
+      const controller = new AbortController();
+      mutationAbort.current = controller;
+      beginOperation("export", runId);
+      try {
+        const blob = await adapter.export(runId, controller.signal);
+        if (controller.signal.aborted || generation !== lifecycleGeneration.current) return;
+        const href = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = href;
+        link.download = `${runId}.json`;
+        link.click();
+        URL.revokeObjectURL(href);
+        completeOperation("export", runId);
+      } catch (reason) {
+        if (controller.signal.aborted || generation !== lifecycleGeneration.current) return;
+        const statusCode = (reason as Error & { status?: number }).status;
+        if (statusCode === 401 || statusCode === 403 || statusCode === 404)
+          clearUnavailable(statusCode === 404 ? "not-found" : "denied");
+        else failOperation("export", runId, reason);
+      }
+    },
+    [adapter, beginOperation, clearUnavailable, completeOperation, failOperation]
+  );
+  const deleteRun = React.useCallback(
+    async (runId: string) => {
+      const generation = lifecycleGeneration.current;
+      mutationAbort.current?.abort();
+      const controller = new AbortController();
+      mutationAbort.current = controller;
+      beginOperation("delete", runId);
+      try {
+        await adapter.delete(runId, controller.signal);
+        if (controller.signal.aborted || generation !== lifecycleGeneration.current) return;
+        // Do not optimistically hide data: evict only after the server accepts DELETE.
+        evict(runId);
+        setRuns((current) => current.filter((run) => run.run_id !== runId));
+        completeOperation("delete", runId);
+      } catch (reason) {
+        if (controller.signal.aborted || generation !== lifecycleGeneration.current) return;
+        const statusCode = (reason as Error & { status?: number }).status;
+        if (statusCode === 401 || statusCode === 403 || statusCode === 404)
+          clearUnavailable(statusCode === 404 ? "not-found" : "denied");
+        else failOperation("delete", runId, reason);
+      }
+    },
+    [adapter, beginOperation, clearUnavailable, completeOperation, evict, failOperation]
   );
   React.useEffect(() => {
     void load();
@@ -94,12 +180,28 @@ export function RunsPage({ access = NO_RUN_ACCESS }: RunsPageProps) {
       lifecycleGeneration.current += 1;
       listAbort.current?.abort();
       detailAbort.current?.abort();
+      mutationAbort.current?.abort();
+      correlationEnabled.current = false;
       clear();
     };
   }, [clear, load]);
   React.useEffect(() => {
+    const changed = previousAccessKey.current !== undefined && previousAccessKey.current !== accessKey;
+    previousAccessKey.current = accessKey;
+    if (!changed) return;
+    lifecycleGeneration.current += 1;
+    listAbort.current?.abort();
+    detailAbort.current?.abort();
+    mutationAbort.current?.abort();
+    correlationEnabled.current = false;
+    setRuns([]);
+    clear("denied");
+    void load();
+  }, [accessKey, clear, load]);
+  React.useEffect(() => {
     const service = getChatService();
     const unsubscribe = service.subscribeRunCorrelation?.((frame) => {
+      if (!correlationEnabled.current) return;
       const runId = frame.run_id;
       if (
         !runId ||
@@ -136,9 +238,10 @@ export function RunsPage({ access = NO_RUN_ACCESS }: RunsPageProps) {
     if (status === "reconciling" && selectedRunId) void open(selectedRunId);
   }, [open, selectedRunId, status]);
   React.useEffect(() => {
-    const timer = window.setInterval(() => expire(), 1_000);
-    return () => window.clearInterval(timer);
-  }, [expire]);
+    if (debugExpiresAtMs === undefined) return;
+    const timer = window.setTimeout(() => expire(), Math.max(0, debugExpiresAtMs - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [debugExpiresAtMs, expire]);
   return (
     <div className="grid h-full gap-4 overflow-hidden p-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
       <aside className="border-border bg-card overflow-auto rounded-lg border p-3">
@@ -181,13 +284,46 @@ export function RunsPage({ access = NO_RUN_ACCESS }: RunsPageProps) {
         )}
         {(status === "denied" || status === "not-found") && <p role="alert">Run unavailable.</p>}
         {status === "deleted" && <p role="status">Run deleted.</p>}
+        {operation?.status === "pending" && (
+          <p role="status">{operation.kind === "delete" ? "Deleting" : "Exporting"} run…</p>
+        )}
+        {operation?.status === "success" && operation.kind === "export" && (
+          <p role="status">Run exported.</p>
+        )}
+        {operation?.status === "failed" && (
+          <p role="alert" className="text-destructive">{operation.error}</p>
+        )}
         {selected && (
-          <RunInspector
-            snapshot={selected}
-            canRequestDebug={canRequestDebug}
-            onRequestDebug={() => void open(selected.run.run_id, true)}
-            onClearDebug={() => clearDebug(selected.run.run_id)}
-          />
+          <>
+            <div className="mb-3 flex flex-wrap gap-2">
+              {canExport && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  isLoading={operation?.kind === "export" && operation.status === "pending"}
+                  onClick={() => void exportRun(selected.run.run_id)}
+                >
+                  Export
+                </Button>
+              )}
+              {canDelete && (
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  isLoading={operation?.kind === "delete" && operation.status === "pending"}
+                  onClick={() => void deleteRun(selected.run.run_id)}
+                >
+                  Delete
+                </Button>
+              )}
+            </div>
+            <RunInspector
+              snapshot={selected}
+              canRequestDebug={canRequestDebug}
+              onRequestDebug={() => void open(selected.run.run_id, true)}
+              onClearDebug={() => clearDebug(selected.run.run_id)}
+            />
+          </>
         )}
       </main>
     </div>

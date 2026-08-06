@@ -36,4 +36,23 @@ describe("HttpRunAdapter", () => {
     await expect(new HttpRunAdapter("http://daemon").export("run")).rejects.toThrow("unavailable");
     await expect(new HttpRunAdapter("http://daemon").delete("run")).rejects.toThrow("unavailable");
   });
+
+  it("uses authenticated encoded export and DELETE requests, including empty DELETE success", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, blob: async () => new Blob(["export"]) })
+      .mockResolvedValueOnce({ ok: true, status: 204 });
+    vi.stubGlobal("fetch", fetch);
+    const adapter = new HttpRunAdapter("http://daemon", {
+      capabilities: new Set(["run:export", "run:delete"]),
+      authToken: "secret",
+    });
+
+    await expect(adapter.export("run/a")).resolves.toBeInstanceOf(Blob);
+    await expect(adapter.delete("run/a")).resolves.toBeUndefined();
+    expect(fetch.mock.calls[0][0]).toBe("http://daemon/v1/runs/run%2Fa/export");
+    expect(fetch.mock.calls[0][1].headers.Authorization).toBe("Bearer secret");
+    expect(fetch.mock.calls[1][0]).toBe("http://daemon/v1/runs/run%2Fa");
+    expect(fetch.mock.calls[1][1]).toMatchObject({ method: "DELETE" });
+  });
 });

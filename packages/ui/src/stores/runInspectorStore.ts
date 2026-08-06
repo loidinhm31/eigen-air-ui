@@ -18,6 +18,12 @@ export interface RunInspectorState {
   selectedRunId?: string;
   debugExpiresAtMs?: number;
   error?: string;
+  operation?: {
+    kind: "export" | "delete";
+    runId: string;
+    status: "pending" | "success" | "failed";
+    error?: string;
+  };
 }
 
 function earliestDebugExpiry(snapshots: Record<string, RunSnapshotDto>): number | undefined {
@@ -47,13 +53,35 @@ function clearSnapshotDebug(snapshot: RunSnapshotDto): RunSnapshotDto {
   };
 }
 
+function expireSnapshotDebug(snapshot: RunSnapshotDto): RunSnapshotDto {
+  const cleared = clearSnapshotDebug(snapshot);
+  return {
+    ...cleared,
+    run: {
+      ...cleared.run,
+      redaction: {
+        ...cleared.run.redaction,
+        metadata_only: true,
+        debug_available: false,
+        unavailable_reason: "expired",
+      },
+    },
+  };
+}
+
+function withoutExpiredDebug(snapshot: RunSnapshotDto, now: number): RunSnapshotDto {
+  return (snapshot.debug_excerpts ?? []).some((excerpt) => excerpt.expires_at_ms <= now)
+    ? expireSnapshotDebug(snapshot)
+    : snapshot;
+}
+
 export function installSnapshot(
   state: RunInspectorState,
   snapshot: RunSnapshotDto
 ): RunInspectorState {
   const runId = snapshot.run.run_id;
   const pending = state.pending[runId] ?? [];
-  const snapshots = { ...state.snapshots, [runId]: snapshot };
+  const snapshots = { ...state.snapshots, [runId]: withoutExpiredDebug(snapshot, Date.now()) };
   let next: RunInspectorState = {
     ...state,
     snapshots,
@@ -114,6 +142,10 @@ interface RunInspectorActions {
   clearDebug(runId: string): void;
   clear(reason?: RunInspectorStatus): void;
   expire(now?: number): void;
+  beginOperation(kind: "export" | "delete", runId: string): void;
+  completeOperation(kind: "export" | "delete", runId: string): void;
+  failOperation(kind: "export" | "delete", runId: string, error: unknown): void;
+  evict(runId: string): void;
 }
 
 export const useRunInspectorStore = create<RunInspectorState & RunInspectorActions>((set) => ({
@@ -153,28 +185,58 @@ export const useRunInspectorStore = create<RunInspectorState & RunInspectorActio
       selectedRunId: undefined,
       debugExpiresAtMs: undefined,
       error: undefined,
+      operation: undefined,
     }),
   expire: (now = Date.now()) =>
     set((state) => {
       if (state.debugExpiresAtMs === undefined || state.debugExpiresAtMs > now) return state;
+      const expiredRunIds = new Set<string>();
       const snapshots = Object.fromEntries(
-        Object.entries(state.snapshots).map(([id, snapshot]) => [
-          id,
-          {
-            ...snapshot,
-            run: {
-              ...snapshot.run,
-              redaction: {
-                ...snapshot.run.redaction,
-                metadata_only: true,
-                debug_available: false,
-                unavailable_reason: "expired" as const,
-              },
-            },
-            debug_excerpts: undefined,
-          },
-        ])
+        Object.entries(state.snapshots).map(([id, snapshot]) => {
+          const expired = (snapshot.debug_excerpts ?? []).some(
+            (excerpt) => excerpt.expires_at_ms <= now
+          );
+          if (expired) expiredRunIds.add(id);
+          return [id, expired ? expireSnapshotDebug(snapshot) : snapshot];
+        })
       );
-      return { snapshots, debugExpiresAtMs: undefined };
+      // Only discard delayed events for the run whose sensitive debug data
+      // expired. Unrelated runs may still be reconciling and must retain their
+      // correlation queue.
+      const pending = Object.fromEntries(
+        Object.entries(state.pending).filter(([runId]) => !expiredRunIds.has(runId))
+      );
+      return {
+        snapshots,
+        pending,
+        debugExpiresAtMs: earliestDebugExpiry(snapshots),
+      };
+    }),
+  beginOperation: (kind, runId) =>
+    set({ operation: { kind, runId, status: "pending" }, error: undefined }),
+  completeOperation: (kind, runId) =>
+    set({ operation: { kind, runId, status: "success" }, error: undefined }),
+  failOperation: (kind, runId, error) =>
+    set({
+      operation: {
+        kind,
+        runId,
+        status: "failed",
+        error: error instanceof Error ? error.message : `Run ${kind} failed`,
+      },
+    }),
+  evict: (runId) =>
+    set((state) => {
+      const snapshots = { ...state.snapshots };
+      const pending = { ...state.pending };
+      delete snapshots[runId];
+      delete pending[runId];
+      return {
+        snapshots,
+        pending,
+        selectedRunId: state.selectedRunId === runId ? undefined : state.selectedRunId,
+        status: "deleted",
+        debugExpiresAtMs: earliestDebugExpiry(snapshots),
+      };
     }),
 }));

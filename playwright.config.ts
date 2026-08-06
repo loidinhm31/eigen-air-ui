@@ -1,7 +1,20 @@
 import { defineConfig } from "@playwright/test";
 import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 
-const nonclawDir = existsSync("../../../nonclaw/Cargo.toml") ? "../../../nonclaw" : "nonclaw";
+const { NONCLAW_DIR: configuredNonclawDir } = process.env;
+const nonclawDir = resolve(
+  configuredNonclawDir
+    ? configuredNonclawDir
+    : existsSync("../../../nonclaw/Cargo.toml")
+      ? "../../../nonclaw"
+      : "nonclaw"
+);
+const nonclawManifest = resolve(nonclawDir, "Cargo.toml");
+if (!existsSync(nonclawManifest)) {
+  throw new Error(`Nonclaw Cargo manifest not found: ${nonclawManifest}`);
+}
+const quotedNonclawManifest = `'${nonclawManifest.replaceAll("'", `'"'"'`)}'`;
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -13,7 +26,8 @@ export default defineConfig({
   webServer: [
     {
       command:
-        `cargo run --manifest-path ${nonclawDir}/Cargo.toml --bin nonclaw-test -- --serve-fixture --base-url http://127.0.0.1:18791`,
+        `cargo build --manifest-path ${quotedNonclawManifest} --bins && ` +
+        `cargo run --manifest-path ${quotedNonclawManifest} --bin nonclaw-test -- --serve-fixture --base-url http://127.0.0.1:18791`,
       url: "http://127.0.0.1:18791/health",
       reuseExistingServer: false,
       timeout: 120_000,
