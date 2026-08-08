@@ -3,6 +3,7 @@ import * as React from "react";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { STORAGE_KEYS } from "@nonclaw-ui/shared/constants";
 import { useChatStore } from "../../stores/chatStore.js";
 import { useConnectionStore } from "../../stores/connectionStore.js";
 import { useDebugSettingsStore } from "../../stores/debugSettingsStore.js";
@@ -205,5 +206,40 @@ describe("ChatPanel selected skill lifecycle", () => {
     expect(screen.getByRole("option", { name: /!remember/ })).toBeTruthy();
     expect(composer.value).toBe("");
     expect(serviceMocks.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("renders live debug while keeping prompt and reasoning out of storage", async () => {
+    useDebugSettingsStore.setState({
+      showPromptDebug: true,
+      showReasoningDebug: true,
+    });
+    serviceMocks.sendMessage.mockResolvedValue({
+      content: "debugged answer",
+      tool_calls_made: 0,
+      debug: {
+        provider: "provider",
+        model: "model",
+        system_prompt: "live-prompt-fixture",
+        reasoning: {
+          requested: true,
+          available: true,
+          text: "live-reasoning-fixture",
+        },
+      },
+    });
+    const user = userEvent.setup();
+    render(<ChatPanel />);
+
+    await user.type(screen.getByPlaceholderText("Message nonclaw..."), "show debug");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByText("live-prompt-fixture")).toBeTruthy();
+    expect(await screen.findByText("live-reasoning-fixture")).toBeTruthy();
+    expect(useChatStore.getState().messages.at(-1)?.debug?.system_prompt).toBe("live-prompt-fixture");
+
+    const persisted = localStorage.getItem(STORAGE_KEYS.CHAT_MESSAGES) ?? "";
+    expect(persisted).not.toContain("live-prompt-fixture");
+    expect(persisted).not.toContain("live-reasoning-fixture");
+    expect(JSON.parse(persisted).state.messages.at(-1).debug).toBeUndefined();
   });
 });

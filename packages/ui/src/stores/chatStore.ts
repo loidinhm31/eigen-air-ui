@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 import type { ChatMessage } from "@nonclaw-ui/shared/types";
 import { STORAGE_KEYS } from "@nonclaw-ui/shared/constants";
 
@@ -21,6 +21,62 @@ interface ChatStore {
   setStreamError(error: string): void;
   clearMessages(): void;
 }
+
+function stripChatDebug(message: ChatMessage): ChatMessage {
+  const persistedMessage = { ...message };
+  delete persistedMessage.debug;
+  return persistedMessage;
+}
+
+type PersistedChatState = Pick<ChatStore, "messages">;
+
+function isChatMessage(value: unknown): value is ChatMessage {
+  if (!value || typeof value !== "object") return false;
+  const message = value as Partial<ChatMessage>;
+  return (
+    (message.role === "user" || message.role === "assistant" || message.role === "system") &&
+    typeof message.content === "string"
+  );
+}
+
+function sanitizePersistedChatState(persistedState: unknown): PersistedChatState {
+  const persisted = persistedState as Partial<PersistedChatState> | null;
+  return {
+    messages: Array.isArray(persisted?.messages)
+      ? persisted.messages.filter(isChatMessage).map(stripChatDebug)
+      : [],
+  };
+}
+
+function sanitizeStoredValue(raw: string): string {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return raw;
+    const persisted = parsed as Record<string, unknown>;
+    return JSON.stringify({
+      ...persisted,
+      state: sanitizePersistedChatState(persisted.state),
+      version: 1,
+    });
+  } catch {
+    return raw;
+  }
+}
+
+const chatStorage =
+  typeof localStorage !== "undefined"
+    ? createJSONStorage(() => ({
+        getItem: (name: string) => {
+          const raw = localStorage.getItem(name);
+          if (raw === null) return null;
+          const sanitized = sanitizeStoredValue(raw);
+          if (sanitized !== raw) localStorage.setItem(name, sanitized);
+          return sanitized;
+        },
+        setItem: (name: string, value: string) => localStorage.setItem(name, value),
+        removeItem: (name: string) => localStorage.removeItem(name),
+      }))
+    : undefined;
 
 export const useChatStore = create<ChatStore>()(
   persist(
@@ -88,7 +144,18 @@ export const useChatStore = create<ChatStore>()(
     }),
     {
       name: STORAGE_KEYS.CHAT_MESSAGES,
-      partialize: (state) => ({ messages: state.messages }),
+      ...(chatStorage ? { storage: chatStorage } : {}),
+      version: 1,
+      migrate: sanitizePersistedChatState,
+      merge: (persistedState, currentState) => ({
+        ...currentState,
+        ...sanitizePersistedChatState(persistedState),
+      }),
+      // Debug data is intentionally ephemeral: it may be rendered for the
+      // current response, but prompts and reasoning must never reach storage.
+      partialize: (state) => ({
+        messages: state.messages.map(stripChatDebug),
+      }),
     }
   )
 );
