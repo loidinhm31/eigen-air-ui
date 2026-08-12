@@ -1,10 +1,26 @@
-import type { WsReq, WsRes, WsEvent, WsFrame } from "@nonclaw-ui/shared/types";
+import {
+  decodeTaskProgressWsEvent,
+  type WsReq,
+  type WsRes,
+  type WsEvent,
+  type WsFrame,
+} from "@nonclaw-ui/shared/types";
 import { MAX_RECONNECT_ATTEMPTS, RECONNECT_DELAY_MS } from "@nonclaw-ui/shared/constants";
 
 type PendingRequest = {
   resolve: (res: WsRes) => void;
   reject: (err: Error) => void;
 };
+
+/** Preserve legacy events while rejecting malformed additive G6 events. */
+export function decodeInboundWsEvent(frame: WsEvent): WsEvent | undefined {
+  if (frame.event !== "task_progress.updated") return frame;
+  try {
+    return decodeTaskProgressWsEvent(frame);
+  } catch {
+    return undefined;
+  }
+}
 
 export class WsClient {
   private ws: WebSocket | null = null;
@@ -73,7 +89,8 @@ export class WsClient {
         pending.resolve(frame);
       }
     } else if (frame.type === "event") {
-      this.eventHandlers.forEach((h) => h(frame));
+      const event = decodeInboundWsEvent(frame);
+      if (event) this.eventHandlers.forEach((h) => h(event));
     }
   }
 

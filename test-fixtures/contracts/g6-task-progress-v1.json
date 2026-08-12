@@ -1,0 +1,248 @@
+{
+  "backward": [
+    {
+      "artifact_event_seq": 4,
+      "artifact_revision": 2,
+      "snapshot_seq": 11
+    }
+  ],
+  "duplicate": [
+    {
+      "artifact_event_seq": 5,
+      "artifact_revision": 3,
+      "snapshot_seq": 12
+    }
+  ],
+  "enriched": [
+    {
+      "event": "task_progress.updated",
+      "event_id": "event-12",
+      "event_seq": 12,
+      "occurred_at_ms": 1700000000012,
+      "parent_run_id": "parent-run-1",
+      "payload": {
+        "artifact_event_seq": 5,
+        "artifact_id": "11111111-1111-4111-8111-111111111111",
+        "artifact_revision": 3,
+        "projection_status": "running",
+        "snapshot_seq": 12,
+        "subagent_run_id": "subagent-run-1",
+        "task_id": "task-1",
+        "verification_status": "unverified"
+      },
+      "request_id": "request-1",
+      "root_run_id": "root-run-1",
+      "run_id": "run-1",
+      "session_id": "child-session-1",
+      "trace_id": "trace-1",
+      "type": "event",
+      "version": "v1"
+    }
+  ],
+  "gap": [
+    {
+      "artifact_event_seq": 7,
+      "artifact_revision": 5,
+      "snapshot_seq": 14
+    }
+  ],
+  "legacy": [
+    {
+      "event": "run.delta",
+      "payload": {
+        "delta": "legacy"
+      },
+      "type": "event",
+      "version": "v1"
+    }
+  ],
+  "malformed": [
+    {
+      "event": "task_progress.updated",
+      "payload": {
+        "artifact_id": false
+      },
+      "type": "event",
+      "version": "v1"
+    },
+    "not-an-event-frame"
+  ],
+  "reorder": [
+    {
+      "artifact_event_seq": 6,
+      "artifact_revision": 4,
+      "snapshot_seq": 12
+    }
+  ],
+  "rest_replacement": [
+    {
+      "artifact_event_seq": 9,
+      "artifact_id": "11111111-1111-4111-8111-111111111111",
+      "artifact_revision": 7,
+      "artifact_type": "task_progress",
+      "claimed_active_count": 0,
+      "claimed_item_count": 0,
+      "g2_snapshot_seq": 20,
+      "parent_run_id": "parent-run-1",
+      "projection_status": "running",
+      "redaction": {
+        "hidden_fields": [
+          "claimed_items.label",
+          "evidence"
+        ],
+        "metadata_only": true
+      },
+      "root_run_id": "root-run-1",
+      "root_session_id": "root-session-1",
+      "run_id": "run-1",
+      "schema_version": 1,
+      "subagent_run_id": "subagent-run-1",
+      "task_id": "task-1",
+      "terminal_at_ms": null,
+      "trace_id": "trace-1",
+      "updated_at_ms": 1700000000020,
+      "verification_status": "unverified"
+    }
+  ],
+  "rest_zero_state": [
+    {
+      "artifact_event_seq": 0,
+      "artifact_id": "11111111-1111-4111-8111-111111111111",
+      "artifact_revision": 0,
+      "artifact_type": "task_progress",
+      "claimed_active_count": 0,
+      "claimed_item_count": 0,
+      "g2_snapshot_seq": 1,
+      "parent_run_id": "parent-run-1",
+      "projection_status": "running",
+      "redaction": {
+        "hidden_fields": [
+          "claimed_items.label",
+          "evidence"
+        ],
+        "metadata_only": true
+      },
+      "root_run_id": "root-run-1",
+      "root_session_id": "root-session-1",
+      "run_id": "run-1",
+      "schema_version": 1,
+      "subagent_run_id": "subagent-run-1",
+      "task_id": "task-1",
+      "terminal_at_ms": null,
+      "trace_id": "trace-1",
+      "updated_at_ms": 1700000000020,
+      "verification_status": "unverified"
+    }
+  ],
+  "schema": "nonclaw.g6.task-progress-ws-v1",
+  "unknown_schema": [
+    {
+      "event": "task_progress.updated",
+      "payload": {
+        "artifact_event_seq": 5,
+        "artifact_id": "11111111-1111-4111-8111-111111111111",
+        "artifact_revision": 3,
+        "projection_status": "running",
+        "snapshot_seq": 12,
+        "subagent_run_id": "subagent-run-1",
+        "task_id": "task-1",
+        "verification_status": "unverified"
+      },
+      "type": "event",
+      "version": "v9"
+    }
+  ],
+  "unsequenced_refetch": [
+    {
+      "event": "task_progress.updated",
+      "payload": {
+        "artifact_event_seq": 5,
+        "artifact_id": "11111111-1111-4111-8111-111111111111",
+        "artifact_revision": 3,
+        "projection_status": "partial",
+        "snapshot_refetch_required": true,
+        "subagent_run_id": "subagent-run-1",
+        "task_id": "task-1",
+        "verification_status": "unverified"
+      },
+      "type": "event",
+      "version": "v1"
+    }
+  ],
+  "valid_states": [
+    {
+      "event": "task_progress.updated",
+      "event_id": "event-15",
+      "event_seq": 15,
+      "occurred_at_ms": 1700000000015,
+      "parent_run_id": "parent-run-1",
+      "payload": {
+        "artifact_event_seq": 5,
+        "artifact_id": "11111111-1111-4111-8111-111111111111",
+        "artifact_revision": 3,
+        "projection_status": "blocked",
+        "snapshot_seq": 15,
+        "subagent_run_id": "subagent-run-1",
+        "task_id": "task-1",
+        "verification_status": "unverified"
+      },
+      "request_id": "request-1",
+      "root_run_id": "root-run-1",
+      "run_id": "run-1",
+      "session_id": "child-session-1",
+      "trace_id": "trace-1",
+      "type": "event",
+      "version": "v1"
+    },
+    {
+      "event": "task_progress.updated",
+      "event_id": "event-16",
+      "event_seq": 16,
+      "occurred_at_ms": 1700000000016,
+      "parent_run_id": "parent-run-1",
+      "payload": {
+        "artifact_event_seq": 5,
+        "artifact_id": "11111111-1111-4111-8111-111111111111",
+        "artifact_revision": 3,
+        "projection_status": "cancel_requested",
+        "snapshot_seq": 16,
+        "subagent_run_id": "subagent-run-1",
+        "task_id": "task-1",
+        "verification_status": "unverified"
+      },
+      "request_id": "request-1",
+      "root_run_id": "root-run-1",
+      "run_id": "run-1",
+      "session_id": "child-session-1",
+      "trace_id": "trace-1",
+      "type": "event",
+      "version": "v1"
+    }
+  ],
+  "zero_state": [
+    {
+      "event": "task_progress.updated",
+      "event_id": "event-1",
+      "event_seq": 1,
+      "occurred_at_ms": 1700000000001,
+      "parent_run_id": "parent-run-1",
+      "payload": {
+        "artifact_event_seq": 0,
+        "artifact_id": "11111111-1111-4111-8111-111111111111",
+        "artifact_revision": 0,
+        "projection_status": "running",
+        "snapshot_seq": 1,
+        "subagent_run_id": "subagent-run-1",
+        "task_id": "task-1",
+        "verification_status": "unverified"
+      },
+      "request_id": "request-1",
+      "root_run_id": "root-run-1",
+      "run_id": "run-1",
+      "session_id": "child-session-1",
+      "trace_id": "trace-1",
+      "type": "event",
+      "version": "v1"
+    }
+  ]
+}

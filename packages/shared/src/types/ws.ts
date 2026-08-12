@@ -8,6 +8,7 @@ import type {
   Skill,
   SkillSearchResult,
 } from "./api.js";
+import type { TaskProgressWsEvent } from "./task-progress.js";
 
 // --- Frame types ---
 
@@ -113,6 +114,7 @@ export type WsEvent =
   | CorrelatedWsEvent<"tool.finished", ToolResultPayload>
   | CorrelatedWsEvent<"run.completed", RunCompletedPayload>
   | CorrelatedWsEvent<"run.finished", RunCompletedPayload>
+  | TaskProgressWsEvent
   | CorrelatedWsEvent<"error", WsErrorPayload>;
 
 export type WsFrame = WsReq | WsRes | WsEvent;

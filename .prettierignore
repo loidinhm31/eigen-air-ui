@@ -5,3 +5,5 @@ coverage
 *.min.js
 pnpm-lock.yaml
 target
+# Rust-generated canonical fixture; consumers pin its exact bytes.
+test-fixtures/contracts/g6-task-progress-v1.json
