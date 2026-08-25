@@ -18,6 +18,7 @@ interface ChatStore {
   appendChunk(chunk: string): void;
   setStreamStatus(status: string): void;
   finalizeStream(message: ChatMessage): void;
+  finishStream(): void;
   setStreamError(error: string): void;
   clearMessages(): void;
 }
@@ -126,6 +127,13 @@ export const useChatStore = create<ChatStore>()(
           streamStatus: null,
           streamError: null,
         })),
+      finishStream: () =>
+        set({
+          isStreaming: false,
+          streamingContent: "",
+          streamStatus: null,
+          streamError: null,
+        }),
       setStreamError: (error) =>
         set({
           streamError: error,

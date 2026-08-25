@@ -3,6 +3,7 @@ import type {
   ChatSendResponse,
   ConnectResponse,
   RunLifecycleStatus,
+  UserQuestionUpdatedEvent,
   WsEvent,
 } from "@nonclaw-ui/shared/types";
 
@@ -19,6 +20,7 @@ export type RunCorrelationSignal = RunCorrelationEvent & {
 };
 
 export type RunCorrelationCallback = (event: RunCorrelationSignal) => void;
+export type UserQuestionEventCallback = (event: UserQuestionUpdatedEvent) => void;
 
 export interface DebugRequestOptions {
   includePrompt: boolean;
@@ -47,4 +49,6 @@ export interface IChatService {
   disconnect(): void;
   subscribeRunCorrelation?(callback: RunCorrelationCallback): () => void;
   onRunReconnect?(callback: () => void): () => void;
+  subscribeUserQuestion?(callback: UserQuestionEventCallback): () => void;
+  onQuestionProtocolError?(callback: () => void): () => void;
 }

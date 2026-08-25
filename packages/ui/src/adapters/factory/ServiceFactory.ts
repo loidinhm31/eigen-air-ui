@@ -5,6 +5,9 @@ import type { ISkillService } from "./interfaces/ISkillService.js";
 import type { IConfigService } from "./interfaces/IConfigService.js";
 import type { ISessionService } from "./interfaces/ISessionService.js";
 import type { IVaultKnowledgeService } from "./interfaces/IVaultKnowledgeService.js";
+import type { IUserQuestionService } from "./interfaces/IUserQuestionService.js";
+import type { HttpRunAdapter } from "../http/HttpRunAdapter.js";
+import type { RunAccessContext } from "../http/HttpRunAdapter.js";
 
 let chatService: IChatService | null = null;
 let memoryService: IMemoryService | null = null;
@@ -13,6 +16,10 @@ let skillService: ISkillService | null = null;
 let configService: IConfigService | null = null;
 let sessionService: ISessionService | null = null;
 let vaultKnowledgeService: IVaultKnowledgeService | null = null;
+let userQuestionService: IUserQuestionService | null = null;
+let runService: HttpRunAdapter | null = null;
+let serviceAccessContext: RunAccessContext = {};
+let serviceAccessRevision = 0;
 
 // Registered by the app entry (init.ts) so UI components can trigger re-init
 // without depending on the app layer.
@@ -34,6 +41,23 @@ export function reinitServices(): void {
  */
 export function hasReinitFn(): boolean {
   return _reinitFn !== null;
+}
+
+/** Ephemeral host access; never persisted or included in question state. */
+export function setServiceAccessContext(context: RunAccessContext | undefined): void {
+  const next = context ? { ...context } : {};
+  if (
+    serviceAccessContext.authToken !== next.authToken ||
+    serviceAccessContext.identityKey !== next.identityKey ||
+    serviceAccessContext.capabilities !== next.capabilities
+  ) {
+    serviceAccessRevision += 1;
+  }
+  serviceAccessContext = next;
+}
+
+export function getServiceAccessContext(): RunAccessContext {
+  return { ...serviceAccessContext, accessRevision: serviceAccessRevision };
 }
 
 export function setChatService(s: IChatService) {
@@ -58,6 +82,12 @@ export function setSessionService(s: ISessionService) {
 }
 export function setVaultKnowledgeService(s: IVaultKnowledgeService) {
   vaultKnowledgeService = s;
+}
+export function setUserQuestionService(s: IUserQuestionService) {
+  userQuestionService = s;
+}
+export function setRunService(s: HttpRunAdapter) {
+  runService = s;
 }
 
 export function getChatService(): IChatService {
@@ -88,6 +118,14 @@ export function getVaultKnowledgeService(): IVaultKnowledgeService {
   if (!vaultKnowledgeService) throw new Error("IVaultKnowledgeService not initialized");
   return vaultKnowledgeService;
 }
+export function getUserQuestionService(): IUserQuestionService {
+  if (!userQuestionService) throw new Error("IUserQuestionService not initialized");
+  return userQuestionService;
+}
+export function getRunService(): HttpRunAdapter {
+  if (!runService) throw new Error("HttpRunAdapter not initialized");
+  return runService;
+}
 
 export type {
   IChatService,
@@ -97,5 +135,6 @@ export type {
   IConfigService,
   ISessionService,
   IVaultKnowledgeService,
+  IUserQuestionService,
 };
 export type { StreamEventCallback } from "./interfaces/IChatService.js";

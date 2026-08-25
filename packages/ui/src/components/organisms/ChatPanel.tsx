@@ -18,6 +18,8 @@ import { ChatBubble } from "../molecules/ChatBubble.js";
 import { CommandPalette } from "../molecules/CommandPalette.js";
 import type { PaletteSelection } from "../molecules/commandPaletteModel.js";
 import { ToolCallCard } from "../molecules/ToolCallCard.js";
+import { PendingQuestionRegion } from "./PendingQuestionRegion.js";
+import { useUserQuestionStore } from "../../stores/userQuestionStore.js";
 import type {
   ChatDebugData,
   Skill,
@@ -44,11 +46,15 @@ export function ChatPanel() {
     appendChunk,
     setStreamStatus,
     finalizeStream,
+    finishStream,
     setStreamError,
     clearMessages,
   } = useChatStore();
   const sessionId = useConnectionStore((state) => state.sessionId);
   const connectionStatus = useConnectionStore((state) => state.status);
+  const questionBlocksComposer = useUserQuestionStore(
+    (state) => state.composerBlockedSessionId === sessionId
+  );
   const setSessionId = useConnectionStore((state) => state.setSessionId);
   const showPromptDebug = useDebugSettingsStore((state) => state.showPromptDebug);
   const showReasoningDebug = useDebugSettingsStore((state) => state.showReasoningDebug);
@@ -191,7 +197,7 @@ export function ChatPanel() {
     allowToolLimitContinue = false,
     selectedSkillId?: string
   ) {
-    if (!msg.trim() || isStreaming) return;
+    if (!msg.trim() || isStreaming || questionBlocksComposer) return;
     setToolCalls({});
     setToolResults({});
     setMemoryNotice(null);
@@ -251,6 +257,11 @@ export function ChatPanel() {
         }
       );
 
+      if (!("content" in result)) {
+        finishStream();
+        updateStreamingDebug(undefined);
+        return;
+      }
       const finalDebug = result.debug ?? streamingDebugRef.current;
       finalizeStream({
         role: "assistant",
@@ -283,7 +294,7 @@ export function ChatPanel() {
   }
 
   async function handleSend() {
-    if (!input.trim() || isStreaming) return;
+    if (!input.trim() || isStreaming || questionBlocksComposer) return;
     const msg = input.trim();
     const selectedSkillId = selectedSkill?.id;
     setInput("");
@@ -310,6 +321,7 @@ export function ChatPanel() {
   }
 
   function handleComposerKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (questionBlocksComposer) return;
     if (
       event.key === "/" &&
       input.length === 0 &&
@@ -389,6 +401,7 @@ export function ChatPanel() {
               statusLabel={streamStatus ?? undefined}
             />
           )}
+          <PendingQuestionRegion onUserInitiatedResolved={() => composerRef.current?.focus()} />
           {streamError && (
             <div className="mx-4 my-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
               {streamError}
@@ -429,7 +442,7 @@ export function ChatPanel() {
             skills={skills}
             loading={skillsLoading}
             error={skillLoadError}
-            disabled={isStreaming}
+            disabled={isStreaming || questionBlocksComposer}
             onSelect={handlePaletteSelect}
             onRequestComposerFocus={() => composerRef.current?.focus()}
           />
@@ -439,7 +452,7 @@ export function ChatPanel() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleComposerKeyDown}
             placeholder="Message nonclaw..."
-            disabled={isStreaming}
+            disabled={isStreaming || questionBlocksComposer}
             className="flex-1"
           />
           {isStreaming ? (
@@ -464,7 +477,10 @@ export function ChatPanel() {
                   Continue
                 </Button>
               )}
-              <Button onClick={() => void handleSend()} disabled={!input.trim()}>
+              <Button
+                onClick={() => void handleSend()}
+                disabled={!input.trim() || questionBlocksComposer}
+              >
                 Send
               </Button>
             </>

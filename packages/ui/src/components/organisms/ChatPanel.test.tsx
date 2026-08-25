@@ -15,6 +15,12 @@ const serviceMocks = vi.hoisted(() => ({
   abort: vi.fn(),
   createSession: vi.fn(),
   listSkills: vi.fn(),
+  listQuestions: vi.fn(),
+  getQuestion: vi.fn(),
+  resolveQuestion: vi.fn(),
+  cancelQuestion: vi.fn(),
+  getRunSnapshot: vi.fn(),
+  questionCallback: undefined as ((event: unknown) => void) | undefined,
 }));
 
 vi.mock("../../adapters/factory/ServiceFactory.js", () => ({
@@ -22,15 +28,54 @@ vi.mock("../../adapters/factory/ServiceFactory.js", () => ({
     sendMessage: serviceMocks.sendMessage,
     getHistory: serviceMocks.getHistory,
     abort: serviceMocks.abort,
+    subscribeUserQuestion: (callback: (event: unknown) => void) => {
+      serviceMocks.questionCallback = callback;
+      return () => {
+        if (serviceMocks.questionCallback === callback) serviceMocks.questionCallback = undefined;
+      };
+    },
   }),
   getSessionService: () => ({ createSession: serviceMocks.createSession }),
   getSkillService: () => ({ list: serviceMocks.listSkills }),
+  getUserQuestionService: () => ({
+    list: serviceMocks.listQuestions,
+    get: serviceMocks.getQuestion,
+    resolve: serviceMocks.resolveQuestion,
+    cancel: serviceMocks.cancelQuestion,
+  }),
+  getRunService: () => ({ get: serviceMocks.getRunSnapshot }),
+  getServiceAccessContext: () => ({}),
 }));
 
 const TEST_SKILL = {
   id: "code_review",
   name: "Code review",
   description: "Review code without exposing instructions",
+};
+
+const TEST_RUN_SNAPSHOT = {
+  schema_version: 1,
+  run: {
+    run_id: "run-1",
+    trace_id: "trace-1",
+    session_id: "session-1",
+    root_run_id: "run-1",
+    tenant_id: "tenant-1",
+    user_id: "user-1",
+    workspace_id: "workspace-1",
+    agent_id: "agent-1",
+    provider_id: "provider-1",
+    channel: "web",
+    lifecycle_status: "running",
+    started_at_ms: 1,
+    updated_at_ms: 1,
+    snapshot_seq: 1,
+    correlation_state: "active",
+    redaction: { metadata_only: true, debug_requested: false, debug_available: false },
+  },
+  events: [],
+  tool_calls: [],
+  memory_lineage: [],
 };
 
 async function selectTestSkill(user: ReturnType<typeof userEvent.setup>) {
@@ -52,6 +97,16 @@ describe("ChatPanel selected skill lifecycle", () => {
     serviceMocks.abort.mockReset().mockResolvedValue(undefined);
     serviceMocks.createSession.mockReset().mockResolvedValue({ id: "session-2" });
     serviceMocks.listSkills.mockReset().mockResolvedValue([TEST_SKILL]);
+    serviceMocks.listQuestions.mockReset().mockResolvedValue({
+      schema_version: "user_question.v1",
+      questions: [],
+      redaction: "metadata_only",
+    });
+    serviceMocks.getQuestion.mockReset();
+    serviceMocks.resolveQuestion.mockReset();
+    serviceMocks.cancelQuestion.mockReset();
+    serviceMocks.getRunSnapshot.mockReset().mockResolvedValue(TEST_RUN_SNAPSHOT);
+    serviceMocks.questionCallback = undefined;
     useConnectionStore.setState({ status: "connected", sessionId: "session-1" });
     useChatStore.setState({
       messages: [],
@@ -64,6 +119,67 @@ describe("ChatPanel selected skill lifecycle", () => {
       showPromptDebug: false,
       showReasoningDebug: false,
     });
+  });
+
+  it("keeps an agent question visible after the originating send promise completes", async () => {
+    const question = {
+      schema_version: "user_question.v1",
+      question_id: "question-1",
+      tenant_id: "tenant-1",
+      user_id: "user-1",
+      workspace_id: "workspace-1",
+      session_id: "session-1",
+      run_id: "run-1",
+      turn_index: 1,
+      state: "pending",
+      revision: 1,
+      created_at_ms: 1,
+      expires_at_ms: 2,
+      terminal_at_ms: null,
+      redaction: "metadata_only",
+    } as const;
+    const pendingList = {
+      schema_version: "user_question.v1",
+      questions: [question],
+      redaction: "metadata_only",
+    } as const;
+    serviceMocks.listQuestions
+      .mockResolvedValueOnce({
+        schema_version: "user_question.v1",
+        questions: [],
+        redaction: "metadata_only",
+      })
+      .mockResolvedValue(pendingList);
+    serviceMocks.getQuestion.mockResolvedValue({
+      ...question,
+      request: { kind: "short_text", prompt: "What should the note say?" },
+      mutation_token: "a".repeat(32),
+    });
+    serviceMocks.sendMessage.mockImplementation(async () => {
+      serviceMocks.questionCallback?.({
+        type: "event",
+        version: "v1",
+        event: "user_question.updated",
+        payload: { question_id: "question-1", state: "pending", revision: 1 },
+      });
+      return {
+        status: "waiting_for_input",
+        run_id: "run-1",
+        question_id: "question-1",
+        snapshot_ref: "user_question:question-1",
+      };
+    });
+    const user = userEvent.setup();
+    render(<ChatPanel />);
+
+    await user.type(screen.getByPlaceholderText("Message nonclaw..."), "start");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(serviceMocks.sendMessage).toHaveBeenCalledOnce());
+    expect(await screen.findByRole("heading", { name: "Agent question" })).toBeTruthy();
+    expect(useChatStore.getState().isStreaming).toBe(false);
+    expect((screen.getByPlaceholderText("Message nonclaw...") as HTMLInputElement).disabled).toBe(
+      true
+    );
   });
 
   it("sends a selected ID once, then command choice clears the chip and stays ordinary text", async () => {
@@ -235,7 +351,9 @@ describe("ChatPanel selected skill lifecycle", () => {
 
     expect(await screen.findByText("live-prompt-fixture")).toBeTruthy();
     expect(await screen.findByText("live-reasoning-fixture")).toBeTruthy();
-    expect(useChatStore.getState().messages.at(-1)?.debug?.system_prompt).toBe("live-prompt-fixture");
+    expect(useChatStore.getState().messages.at(-1)?.debug?.system_prompt).toBe(
+      "live-prompt-fixture"
+    );
 
     const persisted = localStorage.getItem(STORAGE_KEYS.CHAT_MESSAGES) ?? "";
     expect(persisted).not.toContain("live-prompt-fixture");

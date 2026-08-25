@@ -3,6 +3,8 @@ import { HttpMemoryAdapter } from "../http/HttpMemoryAdapter.js";
 import { HttpSkillAdapter } from "../http/HttpSkillAdapter.js";
 import { HttpToolAdapter } from "../http/HttpToolAdapter.js";
 import { HttpVaultKnowledgeAdapter } from "../http/HttpVaultKnowledgeAdapter.js";
+import { HttpUserQuestionAdapter } from "../http/HttpUserQuestionAdapter.js";
+import { HttpRunAdapter } from "../http/HttpRunAdapter.js";
 import { WsChatAdapter } from "../ws/WsChatAdapter.js";
 import {
   setChatService,
@@ -12,6 +14,9 @@ import {
   setSkillService,
   setToolService,
   setVaultKnowledgeService,
+  setUserQuestionService,
+  setRunService,
+  getServiceAccessContext,
 } from "./ServiceFactory.js";
 
 export function initServicesForDaemonUrl(daemonUrl: string): void {
@@ -20,7 +25,8 @@ export function initServicesForDaemonUrl(daemonUrl: string): void {
     ? normalizedUrl.replace("https", "wss") + "/ws"
     : normalizedUrl.replace("http", "ws") + "/ws";
 
-  const wsAdapter = new WsChatAdapter(wsUrl);
+  const access = () => getServiceAccessContext();
+  const wsAdapter = new WsChatAdapter(wsUrl, access);
   setChatService(wsAdapter);
   setSessionService(wsAdapter);
   setMemoryService(new HttpMemoryAdapter(normalizedUrl));
@@ -28,4 +34,6 @@ export function initServicesForDaemonUrl(daemonUrl: string): void {
   setSkillService(new HttpSkillAdapter(normalizedUrl));
   setConfigService(new HttpConfigAdapter(normalizedUrl));
   setVaultKnowledgeService(new HttpVaultKnowledgeAdapter(normalizedUrl));
+  setUserQuestionService(new HttpUserQuestionAdapter(normalizedUrl, access));
+  setRunService(new HttpRunAdapter(normalizedUrl, access));
 }

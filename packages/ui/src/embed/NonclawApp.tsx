@@ -14,6 +14,7 @@ import {
   getChatService,
   getConfigService,
   hasReinitFn,
+  setServiceAccessContext,
 } from "../adapters/factory/ServiceFactory.js";
 import { initServicesForDaemonUrl } from "../adapters/factory/init-services.js";
 import {
@@ -49,10 +50,11 @@ export function NonclawApp({
   const resolvedBasePath = React.useMemo(() => resolveBasePath(basePath), [basePath]);
 
   React.useMemo(() => {
+    setServiceAccessContext(runAccess);
     if (!appLayerOwnsLifecycle) {
       initServicesForDaemonUrl(daemonUrl);
     }
-  }, [appLayerOwnsLifecycle, daemonUrl]);
+  }, [appLayerOwnsLifecycle, daemonUrl, runAccess]);
 
   React.useEffect(() => {
     // In apps/web (or any context where an app-layer init.ts has called

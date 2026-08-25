@@ -13,6 +13,8 @@ export {
   setConfigService,
   setSessionService,
   setVaultKnowledgeService,
+  setUserQuestionService,
+  setRunService,
   getChatService,
   getMemoryService,
   getToolService,
@@ -20,6 +22,8 @@ export {
   getConfigService,
   getSessionService,
   getVaultKnowledgeService,
+  getUserQuestionService,
+  getRunService,
   registerReinitFn,
   reinitServices,
   hasReinitFn,
@@ -33,6 +37,7 @@ export type {
   IConfigService,
   ISessionService,
   IVaultKnowledgeService,
+  IUserQuestionService,
   StreamEventCallback,
 } from "./adapters/factory/ServiceFactory.js";
 export { WsChatAdapter } from "./adapters/ws/WsChatAdapter.js";
@@ -47,3 +52,4 @@ export { HttpToolAdapter } from "./adapters/http/HttpToolAdapter.js";
 export { HttpSkillAdapter } from "./adapters/http/HttpSkillAdapter.js";
 export { HttpConfigAdapter } from "./adapters/http/HttpConfigAdapter.js";
 export { HttpVaultKnowledgeAdapter } from "./adapters/http/HttpVaultKnowledgeAdapter.js";
+export { HttpUserQuestionAdapter, UserQuestionHttpError } from "./adapters/http/HttpUserQuestionAdapter.js";

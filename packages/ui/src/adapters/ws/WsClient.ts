@@ -1,9 +1,10 @@
 import {
   decodeTaskProgressWsEvent,
+  decodeUserQuestionEvent,
+  decodeWsFrameJson,
   type WsReq,
   type WsRes,
   type WsEvent,
-  type WsFrame,
 } from "@nonclaw-ui/shared/types";
 import { MAX_RECONNECT_ATTEMPTS, RECONNECT_DELAY_MS } from "@nonclaw-ui/shared/constants";
 
@@ -12,8 +13,22 @@ type PendingRequest = {
   reject: (err: Error) => void;
 };
 
+export interface WsReconnectFence {
+  epoch: number;
+  signal: AbortSignal;
+}
+
+type WsConnectionStatus = "reconnecting" | "offline" | "connected";
+
 /** Preserve legacy events while rejecting malformed additive G6 events. */
 export function decodeInboundWsEvent(frame: WsEvent): WsEvent | undefined {
+  if (frame.event === "user_question.updated") {
+    try {
+      return decodeUserQuestionEvent(frame);
+    } catch {
+      return undefined;
+    }
+  }
   if (frame.event !== "task_progress.updated") return frame;
   try {
     return decodeTaskProgressWsEvent(frame);
@@ -27,11 +42,32 @@ export class WsClient {
   private pending = new Map<string, PendingRequest>();
   private eventHandlers: Array<(event: WsEvent) => void> = [];
   private reconnectAttempts = 0;
-  private onReconnectCallback: (() => Promise<void>) | null = null;
+  private onReconnectCallback: ((fence: WsReconnectFence) => Promise<void>) | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectInFlight = false;
+  private stopped = false;
+  private lifecycleEpoch = 0;
+  private reconnectAbort?: AbortController;
+  private statusHandlers: Array<(status: WsConnectionStatus) => void> = [];
+  private protocolErrorHandlers: Array<() => void> = [];
 
   constructor(private readonly url: string) {}
 
   connect(timeoutMs = 10_000): Promise<void> {
+    this.stopped = false;
+    this.reconnectAttempts = 0;
+    this.lifecycleEpoch += 1;
+    this.reconnectInFlight = false;
+    this.reconnectAbort?.abort();
+    this.reconnectAbort = undefined;
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    return this.open(timeoutMs);
+  }
+
+  private open(timeoutMs = 10_000): Promise<void> {
     // Tear down any existing socket without triggering the reconnect loop.
     if (this.ws) {
       this.ws.onclose = null;
@@ -43,9 +79,9 @@ export class WsClient {
       }
       this.ws = null;
     }
-    this.reconnectAttempts = 0;
-
     return new Promise((resolve, reject) => {
+      let opened = false;
+      let closeHandled = false;
       const timer = setTimeout(() => {
         // Detach so onclose doesn't cascade into the reconnect loop.
         if (this.ws === ws) this.ws = null;
@@ -55,33 +91,67 @@ export class WsClient {
 
       const ws = new WebSocket(this.url);
       this.ws = ws;
+      const handleClosed = () => {
+        if (closeHandled) return;
+        closeHandled = true;
+        if (this.ws !== ws) return;
+        this.ws = null;
+        this.handleClose();
+      };
       ws.onopen = () => {
         clearTimeout(timer);
+        opened = true;
         resolve();
       };
       ws.onerror = () => {
         clearTimeout(timer);
-        // Detach from this.ws so the subsequent onclose doesn't trigger the
-        // auto-reconnect loop for an explicit connect() failure.
-        if (this.ws === ws) this.ws = null;
-        reject(new Error("WS connection failed"));
+        if (!opened) {
+          // Detach from this.ws so the subsequent onclose doesn't trigger the
+          // auto-reconnect loop for an explicit connect() failure.
+          if (this.ws === ws) this.ws = null;
+          reject(new Error("WS connection failed"));
+          return;
+        }
+        // Established sockets must enter the same recovery path as close. Some
+        // runtimes deliver error and close separately; closeHandled fences the
+        // duplicate notification and preserves the reconnect loop.
+        handleClosed();
+        if (ws.readyState !== WebSocket.CLOSED) ws.close();
       };
-      ws.onmessage = (e) => this.handleMessage(e.data as string);
-      ws.onclose = () => {
-        // Only start the reconnect loop for sockets that were fully established,
-        // not ones that failed during the initial connect() call.
-        if (this.ws === ws) this.handleClose();
-      };
+      ws.onmessage = (e) => this.handleMessage(e.data);
+      ws.onclose = handleClosed;
     });
   }
 
   /** Register a callback invoked after reconnect completes (e.g. for re-auth). */
-  onReconnect(cb: () => Promise<void>) {
+  onReconnect(cb: (fence: WsReconnectFence) => Promise<void>) {
     this.onReconnectCallback = cb;
   }
 
+  onConnectionStatus(cb: (status: WsConnectionStatus) => void) {
+    this.statusHandlers.push(cb);
+    return () => {
+      this.statusHandlers = this.statusHandlers.filter((handler) => handler !== cb);
+    };
+  }
+
+  onProtocolError(cb: () => void) {
+    this.protocolErrorHandlers.push(cb);
+    return () => {
+      this.protocolErrorHandlers = this.protocolErrorHandlers.filter((handler) => handler !== cb);
+    };
+  }
+
+  private notifyStatus(status: WsConnectionStatus) {
+    this.statusHandlers.forEach((handler) => handler(status));
+  }
+
   private handleMessage(raw: string) {
-    const frame = JSON.parse(raw) as WsFrame;
+    const frame = decodeWsFrameJson(raw);
+    if (!frame) {
+      this.protocolErrorHandlers.forEach((handler) => handler());
+      return;
+    }
     if (frame.type === "res") {
       const pending = this.pending.get(frame.id);
       if (pending) {
@@ -90,40 +160,130 @@ export class WsClient {
       }
     } else if (frame.type === "event") {
       const event = decodeInboundWsEvent(frame);
-      if (event) this.eventHandlers.forEach((h) => h(event));
+      if (event) {
+        this.eventHandlers.forEach((h) => h(event));
+      } else {
+        this.protocolErrorHandlers.forEach((handler) => handler());
+      }
     }
   }
 
   private handleClose() {
+    this.reconnectAbort?.abort();
+    this.reconnectAbort = undefined;
+    this.reconnectInFlight = false;
     // Reject all in-flight requests so callers don't hang.
     for (const [, pending] of this.pending) {
       pending.reject(new Error("WS connection closed"));
     }
     this.pending.clear();
 
-    if (this.reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-      const delay = RECONNECT_DELAY_MS * Math.pow(2, this.reconnectAttempts);
-      this.reconnectAttempts++;
-      setTimeout(() => {
-        this.connect()
-          .then(() => this.onReconnectCallback?.())
-          .catch(() => {});
-      }, delay);
-    }
+    this.scheduleReconnect();
   }
 
-  send<P, D = unknown>(method: string, params: P): Promise<WsRes<D>> {
+  private scheduleReconnect() {
+    if (
+      this.stopped ||
+      this.reconnectTimer !== null ||
+      this.reconnectInFlight ||
+      this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS
+    ) {
+      if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) this.notifyStatus("offline");
+      return;
+    }
+    const delay = RECONNECT_DELAY_MS * Math.pow(2, this.reconnectAttempts);
+    this.reconnectAttempts++;
+    const lifecycleEpoch = this.lifecycleEpoch;
+    const reconnectAbort = new AbortController();
+    this.reconnectAbort = reconnectAbort;
+    this.notifyStatus("reconnecting");
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.stopped || lifecycleEpoch !== this.lifecycleEpoch) return;
+      this.reconnectInFlight = true;
+      this.open()
+        .then(() => {
+          if (
+            this.stopped ||
+            lifecycleEpoch !== this.lifecycleEpoch ||
+            reconnectAbort.signal.aborted
+          ) {
+            return;
+          }
+          return this.onReconnectCallback?.({ epoch: lifecycleEpoch, signal: reconnectAbort.signal });
+        })
+        .then(() => {
+          if (
+            this.stopped ||
+            lifecycleEpoch !== this.lifecycleEpoch ||
+            reconnectAbort.signal.aborted
+          ) {
+            return;
+          }
+          this.reconnectAttempts = 0;
+          this.reconnectInFlight = false;
+          this.notifyStatus("connected");
+        })
+        .catch(() => {
+          if (
+            this.stopped ||
+            lifecycleEpoch !== this.lifecycleEpoch ||
+            reconnectAbort.signal.aborted
+          ) {
+            return;
+          }
+          this.reconnectInFlight = false;
+          this.scheduleReconnect();
+        })
+        .finally(() => {
+          if (this.reconnectAbort === reconnectAbort) {
+            this.reconnectAbort = undefined;
+          }
+        });
+    }, delay);
+  }
+
+  send<P, D = unknown>(
+    method: string,
+    params: P,
+    fence?: WsReconnectFence
+  ): Promise<WsRes<D>> {
     return new Promise((resolve, reject) => {
+      if (fence && (fence.signal.aborted || fence.epoch !== this.lifecycleEpoch)) {
+        reject(new Error("WS request superseded"));
+        return;
+      }
       if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
         reject(new Error("WS not connected"));
         return;
       }
       const id = crypto.randomUUID();
       const req: WsReq<P> = { type: "req", version: "v1", id, method, params };
-      this.pending.set(id, {
-        resolve: resolve as (r: WsRes) => void,
-        reject,
-      });
+      let cleanup = () => {};
+      const pending: PendingRequest = {
+        resolve: (response) => {
+          cleanup();
+          resolve(response as WsRes<D>);
+        },
+        reject: (error) => {
+          cleanup();
+          reject(error);
+        },
+      };
+      this.pending.set(id, pending);
+      if (fence) {
+        const onAbort = () => {
+          if (this.pending.get(id) !== pending) return;
+          this.pending.delete(id);
+          pending.reject(new Error("WS request aborted"));
+        };
+        cleanup = () => fence.signal.removeEventListener("abort", onAbort);
+        fence.signal.addEventListener("abort", onAbort, { once: true });
+        if (fence.signal.aborted) {
+          onAbort();
+          return;
+        }
+      }
       this.ws.send(JSON.stringify(req));
     });
   }
@@ -137,7 +297,15 @@ export class WsClient {
   }
 
   disconnect() {
-    this.onReconnectCallback = null;
+    this.stopped = true;
+    this.lifecycleEpoch += 1;
+    this.reconnectInFlight = false;
+    this.reconnectAbort?.abort();
+    this.reconnectAbort = undefined;
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (this.ws) {
       this.ws.onclose = null;
       this.ws.close();
@@ -147,6 +315,7 @@ export class WsClient {
       pending.reject(new Error("WS disconnected"));
     }
     this.pending.clear();
+    this.notifyStatus("offline");
   }
 
   get isConnected(): boolean {

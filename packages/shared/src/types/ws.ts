@@ -9,6 +9,11 @@ import type {
   SkillSearchResult,
 } from "./api.js";
 import type { TaskProgressWsEvent } from "./task-progress.js";
+import type {
+  ChatCompletedResponse,
+  ChatWaitingForInputResponse,
+  UserQuestionUpdatedEvent,
+} from "./user-question.js";
 
 // --- Frame types ---
 
@@ -22,6 +27,7 @@ export interface WsReq<P = Record<string, unknown>> {
 
 export interface WsRes<D = unknown> {
   type: "res";
+  version?: "v1";
   id: string;
   ok: boolean;
   data?: D;
@@ -115,6 +121,7 @@ export type WsEvent =
   | CorrelatedWsEvent<"run.completed", RunCompletedPayload>
   | CorrelatedWsEvent<"run.finished", RunCompletedPayload>
   | TaskProgressWsEvent
+  | UserQuestionUpdatedEvent
   | CorrelatedWsEvent<"error", WsErrorPayload>;
 
 export type WsFrame = WsReq | WsRes | WsEvent;
@@ -170,18 +177,7 @@ export interface AgentStatusResponse {
   memory_count: number;
 }
 
-export interface ChatSendResponse {
-  content: string;
-  tool_calls_made: number;
-  tool_limit_reached?: boolean;
-  can_continue?: boolean;
-  memory_updated?: boolean;
-  memory_reason?: string;
-  episode_id?: string | null;
-  message_id?: string | null;
-  fact_count?: number;
-  debug?: ChatDebugData;
-}
+export type ChatSendResponse = ChatCompletedResponse | ChatWaitingForInputResponse;
 
 export interface ChatHistoryResponse {
   messages: ChatMessage[];

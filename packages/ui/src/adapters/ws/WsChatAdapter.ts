@@ -1,4 +1,4 @@
-import { WsClient } from "./WsClient.js";
+import { WsClient, type WsReconnectFence } from "./WsClient.js";
 import type {
   DebugRequestOptions,
   IChatService,
@@ -21,9 +21,13 @@ import type {
   SessionsDeleteResponse,
   SessionsListResponse,
   WsEvent,
+  UserQuestionUpdatedEvent,
 } from "@nonclaw-ui/shared/types";
+import { decodeChatHistoryResponse, decodeChatSendResponse } from "@nonclaw-ui/shared/types";
 import { WS_METHODS } from "@nonclaw-ui/shared/constants";
 import { useConnectionStore } from "../../stores/connectionStore.js";
+
+type WsAccessProvider = () => { authToken?: string };
 
 export function buildDebugRequest(
   debug?: DebugRequestOptions
@@ -80,16 +84,36 @@ export class WsChatAdapter implements IChatService, ISessionService {
   private activeRunId: string | undefined;
   private readonly runSubscribers = new Set<RunCorrelationCallback>();
   private readonly reconnectSubscribers = new Set<() => void>();
+  private readonly questionSubscribers = new Set<(event: UserQuestionUpdatedEvent) => void>();
+  private readonly questionProtocolSubscribers = new Set<() => void>();
+  private readonly waitingHandlers = new Set<(event: WsEvent) => void>();
+  private readonly accessProvider?: WsAccessProvider;
 
-  constructor(wsUrl: string) {
+  constructor(wsUrl: string, accessProvider?: WsAccessProvider) {
+    this.accessProvider = accessProvider;
     this.client = new WsClient(wsUrl);
-    this.client.onEvent((event) => this.forwardRunCorrelation(event));
-    this.client.onReconnect(async () => {
+    this.client.onEvent((event) => {
+      if (event.event === "user_question.updated") {
+        this.questionSubscribers.forEach((callback) => callback(event));
+      }
+      this.forwardRunCorrelation(event);
+    });
+    this.client.onConnectionStatus((status) => {
+      if (status === "reconnecting") useConnectionStore.getState().setStatus("connecting");
+      if (status === "offline") useConnectionStore.getState().setStatus("disconnected");
+      if (status === "connected") useConnectionStore.getState().setStatus("connected");
+    });
+    this.client.onProtocolError(() => {
+      this.questionProtocolSubscribers.forEach((callback) => callback());
+    });
+    this.client.onReconnect(async (fence) => {
       try {
-        await this.connect(this.token);
+        const connection = await this.authenticateAndResolveSession(fence);
+        this.assertReconnectFence(fence);
+        useConnectionStore.getState().setStatus("connected", connection.version);
         this.reconnectSubscribers.forEach((callback) => callback());
-      } catch (err) {
-        console.warn("[WsChatAdapter] re-auth failed:", err);
+      } catch {
+        throw new Error("re-authentication failed");
       }
     });
   }
@@ -104,6 +128,16 @@ export class WsChatAdapter implements IChatService, ISessionService {
     return () => this.reconnectSubscribers.delete(callback);
   }
 
+  subscribeUserQuestion(callback: (event: UserQuestionUpdatedEvent) => void): () => void {
+    this.questionSubscribers.add(callback);
+    return () => this.questionSubscribers.delete(callback);
+  }
+
+  onQuestionProtocolError(callback: () => void): () => void {
+    this.questionProtocolSubscribers.add(callback);
+    return () => this.questionProtocolSubscribers.delete(callback);
+  }
+
   private forwardRunCorrelation(event: WsEvent): void {
     // Deliberately project metadata only; debug/content/tool payloads never enter a replay buffer.
     const projected = projectRunCorrelation(event);
@@ -112,28 +146,51 @@ export class WsChatAdapter implements IChatService, ISessionService {
   }
 
   async connect(token?: string): Promise<ConnectResponse> {
-    this.token = token;
-    await this.client.connect();
-    const connection = await this.authenticate();
-    return this.resolveSelectedSession(connection);
+    this.token = token ?? this.accessProvider?.().authToken;
+    try {
+      await this.client.connect();
+      return await this.authenticateAndResolveSession();
+    } catch (error) {
+      // Authentication failure must not leave an unauthenticated socket alive.
+      this.client.disconnect();
+      throw error;
+    }
   }
 
-  private async authenticate(): Promise<ConnectResponse> {
+  private assertReconnectFence(fence?: WsReconnectFence): void {
+    if (fence?.signal.aborted) throw new Error("reconnect superseded");
+  }
+
+  private async authenticateAndResolveSession(
+    fence?: WsReconnectFence
+  ): Promise<ConnectResponse> {
+    const connection = await this.authenticate(fence);
+    this.assertReconnectFence(fence);
+    return this.resolveSelectedSession(connection, fence);
+  }
+
+  private async authenticate(fence?: WsReconnectFence): Promise<ConnectResponse> {
+    if (this.accessProvider) this.token = this.accessProvider().authToken;
     const res = await this.client.send<{ token?: string }, ConnectResponse>(
       WS_METHODS.CONNECT,
-      this.token ? { token: this.token } : {}
+      this.token ? { token: this.token } : {},
+      fence
     );
     if (!res.ok) throw new Error(res.error?.message ?? "connect failed");
     return res.data!;
   }
 
-  private async resolveSelectedSession(connection: ConnectResponse): Promise<ConnectResponse> {
+  private async resolveSelectedSession(
+    connection: ConnectResponse,
+    fence?: WsReconnectFence
+  ): Promise<ConnectResponse> {
     const { sessionId, setSessionId } = useConnectionStore.getState();
-    const sessions = await this.listSessions();
+    const sessions = await this.listSessions(fence);
     const selected = sessionId
       ? sessions.find((candidate) => candidate.id === sessionId)
       : undefined;
-    const activeSession = selected ?? (await this.createSession());
+    const activeSession = selected ?? (await this.createSession(fence));
+    this.assertReconnectFence(fence);
     setSessionId(activeSession.id);
     return {
       ...connection,
@@ -147,15 +204,36 @@ export class WsChatAdapter implements IChatService, ISessionService {
     onEvent: StreamEventCallback,
     options: SendMessageOptions = {}
   ): Promise<ChatSendResponse> {
+    this.clearWaitingHandlers();
+    let waitingForInput = false;
+    let terminalSeen = false;
+    let waitingQuestionId: string | undefined;
+    let keepHandler = false;
     const handler = (event: WsEvent) => {
       if (event.event === "run.started") {
         this.activeRunId = event.payload.run_id;
       } else if (event.event === "run.finished" || event.event === "run.completed") {
         this.activeRunId = undefined;
+        terminalSeen = true;
       } else if (event.event === "error") {
         this.activeRunId = undefined;
+        terminalSeen = true;
+      }
+      if (
+        waitingForInput &&
+        waitingQuestionId !== undefined &&
+        event.event === "user_question.updated" &&
+        event.payload.question_id === waitingQuestionId &&
+        ["cancelled", "expired", "aborted", "failed", "resolved"].includes(event.payload.state)
+      ) {
+        terminalSeen = true;
       }
       onEvent(event);
+      if (terminalSeen && waitingForInput) {
+        keepHandler = false;
+        this.client.removeEventHandler(handler);
+        this.waitingHandlers.delete(handler);
+      }
     };
 
     this.client.onEvent(handler);
@@ -166,10 +244,21 @@ export class WsChatAdapter implements IChatService, ISessionService {
         params
       );
       if (!res.ok) throw new Error(res.error?.message ?? "chat.send failed");
-      return res.data!;
+      const result = decodeChatSendResponse(res.data);
+      if ("status" in result && result.status === "waiting_for_input") {
+        waitingForInput = true;
+        waitingQuestionId = result.question_id;
+        keepHandler = !terminalSeen;
+        if (keepHandler) this.waitingHandlers.add(handler);
+        else this.client.removeEventHandler(handler);
+      }
+      return result;
     } finally {
       this.activeRunId = undefined;
-      this.client.removeEventHandler(handler);
+      if (!keepHandler) {
+        this.client.removeEventHandler(handler);
+        this.waitingHandlers.delete(handler);
+      }
     }
   }
 
@@ -187,7 +276,7 @@ export class WsChatAdapter implements IChatService, ISessionService {
       params
     );
     if (!res.ok) throw new Error(res.error?.message ?? "chat.history failed");
-    return res.data!;
+    return decodeChatHistoryResponse(res.data);
   }
 
   async abort(): Promise<void> {
@@ -195,19 +284,21 @@ export class WsChatAdapter implements IChatService, ISessionService {
     await this.client.send<ChatAbortParams>(WS_METHODS.CHAT_ABORT, params);
   }
 
-  async listSessions(): Promise<SessionsListResponse["sessions"]> {
+  async listSessions(fence?: WsReconnectFence): Promise<SessionsListResponse["sessions"]> {
     const res = await this.client.send<object, SessionsListResponse>(
       WS_METHODS.SESSIONS_LIST,
-      {}
+      {},
+      fence
     );
     if (!res.ok) throw new Error(res.error?.message ?? "sessions.list failed");
     return res.data!.sessions;
   }
 
-  async createSession(): Promise<SessionsCreateResponse> {
+  async createSession(fence?: WsReconnectFence): Promise<SessionsCreateResponse> {
     const res = await this.client.send<object, SessionsCreateResponse>(
       WS_METHODS.SESSIONS_CREATE,
-      {}
+      {},
+      fence
     );
     if (!res.ok) throw new Error(res.error?.message ?? "sessions.create failed");
     return res.data!;
@@ -223,6 +314,12 @@ export class WsChatAdapter implements IChatService, ISessionService {
   }
 
   disconnect() {
+    this.clearWaitingHandlers();
     this.client.disconnect();
+  }
+
+  private clearWaitingHandlers(): void {
+    for (const handler of this.waitingHandlers) this.client.removeEventHandler(handler);
+    this.waitingHandlers.clear();
   }
 }

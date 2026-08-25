@@ -1,5 +1,7 @@
 // --- Chat ---
 
+import type { TaskProgressSnapshotDto } from "./task-progress.js";
+
 export type MessageRole = "user" | "assistant" | "system";
 
 export interface ChatDebugSkill {
@@ -347,6 +349,7 @@ export interface RunSnapshotDto {
   tool_calls: RunToolCallDto[];
   memory_lineage: RunMemoryLineageDto[];
   debug_excerpts?: RunDebugExcerptDto[];
+  task_progress?: TaskProgressSnapshotDto | null;
   next_event_cursor?: string | null;
   next_tool_cursor?: string | null;
   next_lineage_cursor?: string | null;
