@@ -117,6 +117,37 @@ describe("UserQuestionController", () => {
     expect(useUserQuestionStore.getState().status).toBe("ready");
     expect(useUserQuestionStore.getState().composerBlockedSessionId).toBe("session-1");
   });
+  it("hydrates history even when a run snapshot is unavailable", async () => {
+    const { service } = fakeService();
+    const history = { messages: [{ role: "assistant", content: "I see you mentioned red." }] };
+    const getHistory = vi.fn().mockResolvedValue(history);
+    const getRunSnapshot = vi.fn().mockRejectedValue(new Error("run unavailable"));
+    const onHistorySnapshot = vi.fn();
+    const controller = new UserQuestionController({
+      service,
+      getHistory,
+      getRunSnapshot,
+      onHistorySnapshot,
+    });
+    controller.setContext({ daemonUrl: "http://daemon", sessionId: "session-1" });
+    controller.onConnectionStatus("connected");
+
+    await expect(controller.refresh()).resolves.toBe(false);
+
+    expect(onHistorySnapshot).toHaveBeenCalledWith(history);
+    expect(useUserQuestionStore.getState().status).toBe("failed");
+  });
+  it("reconciles question state to ready even if chat history fetch rejects", async () => {
+    const { service } = fakeService();
+    const getHistory = vi.fn().mockRejectedValue(new Error("WS network error"));
+    const getRunSnapshot = vi.fn().mockResolvedValue(runSnapshot());
+    const controller = new UserQuestionController({ service, getHistory, getRunSnapshot });
+    controller.setContext({ daemonUrl: "http://daemon", sessionId: "session-1" });
+    controller.onConnectionStatus("connected");
+    await controller.refresh();
+    expect(useUserQuestionStore.getState().status).toBe("ready");
+    expect(useUserQuestionStore.getState().composerBlockedSessionId).toBe("session-1");
+  });
 
   it("allows exactly one resolve and clears the pending composer block only after REST refresh", async () => {
     const { service } = fakeService();

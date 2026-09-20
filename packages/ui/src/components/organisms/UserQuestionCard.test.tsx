@@ -136,9 +136,9 @@ describe("UserQuestionCard", () => {
     const { container } = render(
       <UserQuestionCard
         {...baseProps({
-          submitting: true,
+          loading: true,
           focus: true,
-          status: "Waiting for the server",
+          status: "Agent is working",
           error: "The response could not be sent.",
         })}
       />
@@ -148,7 +148,8 @@ describe("UserQuestionCard", () => {
     const article = container.querySelector("article");
     expect(document.activeElement).not.toBe(input);
     expect(article?.getAttribute("aria-busy")).toBe("true");
-    expect(screen.getByRole("status").textContent).toContain("Waiting for the server");
+    expect(screen.getByRole("status").textContent).toContain("Agent is working");
+    expect(screen.getByRole("status").querySelector("svg.animate-spin")).toBeTruthy();
     expect(screen.getByRole("alert").textContent).toContain("could not be sent");
     expect((input as HTMLInputElement).disabled).toBe(true);
     expect(container.textContent).not.toMatch(/\b(?:approve|approval|allow|deny|shield)\b/i);

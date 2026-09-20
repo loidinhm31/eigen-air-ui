@@ -3,7 +3,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "../atoms/Card.js";
 import { ConnectionStatus } from "../organisms/ConnectionStatus.js";
 import { useDebugSettingsStore } from "../../stores/debugSettingsStore.js";
 
-export function SettingsPage() {
+export interface SettingsPageProps {
+  managedAccess?: boolean;
+}
+
+export function SettingsPage({ managedAccess = false }: SettingsPageProps = {}) {
   const showPromptDebug = useDebugSettingsStore((state) => state.showPromptDebug);
   const showReasoningDebug = useDebugSettingsStore((state) => state.showReasoningDebug);
   const setShowPromptDebug = useDebugSettingsStore((state) => state.setShowPromptDebug);
@@ -13,7 +17,7 @@ export function SettingsPage() {
     <div className="h-full overflow-y-auto">
       <div className="mx-auto flex max-w-lg flex-col gap-4 py-4">
         <h1 className="px-4 pb-1 text-base font-semibold">Settings</h1>
-        <ConnectionStatus />
+        <ConnectionStatus managedAccess={managedAccess} />
         <div className="px-4">
           <Card>
             <CardHeader>

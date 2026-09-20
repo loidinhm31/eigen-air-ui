@@ -35,7 +35,7 @@ export default defineConfig({
     {
       command: "pnpm --filter @nonclaw-ui/web dev --host 127.0.0.1 --port 25001",
       url: "http://127.0.0.1:25001",
-      reuseExistingServer: false,
+      reuseExistingServer: true,
       timeout: 120_000,
     },
   ],

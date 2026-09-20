@@ -14,6 +14,7 @@ import type {
   ChatWaitingForInputResponse,
   UserQuestionUpdatedEvent,
 } from "./user-question.js";
+import type { ToolApprovalUpdatedEvent } from "./tool-approval.js";
 
 // --- Frame types ---
 
@@ -122,6 +123,7 @@ export type WsEvent =
   | CorrelatedWsEvent<"run.finished", RunCompletedPayload>
   | TaskProgressWsEvent
   | UserQuestionUpdatedEvent
+  | ToolApprovalUpdatedEvent
   | CorrelatedWsEvent<"error", WsErrorPayload>;
 
 export type WsFrame = WsReq | WsRes | WsEvent;

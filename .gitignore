@@ -9,3 +9,6 @@ apps/native/src-tauri/Cargo.lock
 coverage
 *.tsbuildinfo
 .DS_Store
+.pi-subagents
+tmp
+**/tmp

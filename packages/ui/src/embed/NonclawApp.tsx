@@ -15,6 +15,7 @@ import {
   getConfigService,
   hasReinitFn,
   setServiceAccessContext,
+  getServiceAccessContext,
 } from "../adapters/factory/ServiceFactory.js";
 import { initServicesForDaemonUrl } from "../adapters/factory/init-services.js";
 import {
@@ -50,7 +51,9 @@ export function NonclawApp({
   const resolvedBasePath = React.useMemo(() => resolveBasePath(basePath), [basePath]);
 
   React.useMemo(() => {
-    setServiceAccessContext(runAccess);
+    if (runAccess !== undefined) {
+      setServiceAccessContext(runAccess);
+    }
     if (!appLayerOwnsLifecycle) {
       initServicesForDaemonUrl(daemonUrl);
     }
@@ -100,6 +103,8 @@ export function NonclawApp({
     };
   }, [appLayerOwnsLifecycle, daemonUrl]);
 
+  const hasHostAccess = Boolean(runAccess);
+
   const inner = (
     <BasePathContext.Provider value={resolvedBasePath}>
       <div className={className}>
@@ -110,8 +115,8 @@ export function NonclawApp({
             <Route path="tools" element={<ToolsPage />} />
             <Route path="skills" element={<SkillsPage />} />
             <Route path="sessions" element={<SessionsPage />} />
-            <Route path="runs" element={<RunsPage access={runAccess} />} />
-            <Route path="settings" element={<SettingsPage />} />
+            <Route path="runs" element={<RunsPage access={runAccess ?? getServiceAccessContext()} />} />
+            <Route path="settings" element={<SettingsPage managedAccess={hasHostAccess} />} />
           </Route>
         </Routes>
       </div>

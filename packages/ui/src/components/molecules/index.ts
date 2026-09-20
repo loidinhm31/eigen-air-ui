@@ -5,3 +5,4 @@ export { SkillCard } from "./SkillCard.js";
 export { StatusBadge } from "./StatusBadge.js";
 export { RunTimeline } from "./RunTimeline.js";
 export { MemoryLineagePanel } from "./MemoryLineagePanel.js";
+export { ToolApprovalCard } from "./ToolApprovalCard.js";

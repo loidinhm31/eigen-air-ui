@@ -8,6 +8,7 @@ const DEFAULT_STREAM_STATUS = "Working on it...";
 
 interface ChatStore {
   messages: ChatMessage[];
+  messageRevision: number;
   isStreaming: boolean;
   streamingContent: string;
   streamStatus: string | null;
@@ -83,6 +84,7 @@ export const useChatStore = create<ChatStore>()(
   persist(
     (set) => ({
       messages: [],
+      messageRevision: 0,
       isStreaming: false,
       streamingContent: "",
       streamStatus: null,
@@ -90,15 +92,17 @@ export const useChatStore = create<ChatStore>()(
       addMessage: (msg) =>
         set((s) => ({
           messages: [...s.messages, msg].slice(-MAX_PERSISTED_MESSAGES),
+          messageRevision: s.messageRevision + 1,
         })),
       replaceMessages: (messages) =>
-        set({
+        set((s) => ({
           messages: messages.slice(-MAX_PERSISTED_MESSAGES),
+          messageRevision: s.messageRevision + 1,
           isStreaming: false,
           streamingContent: "",
           streamStatus: null,
           streamError: null,
-        }),
+        })),
       beginStream: (status = DEFAULT_STREAM_STATUS) =>
         set({
           isStreaming: true,
@@ -122,6 +126,7 @@ export const useChatStore = create<ChatStore>()(
       finalizeStream: (message) =>
         set((s) => ({
           messages: [...s.messages, message].slice(-MAX_PERSISTED_MESSAGES),
+          messageRevision: s.messageRevision + 1,
           isStreaming: false,
           streamingContent: "",
           streamStatus: null,
@@ -142,13 +147,14 @@ export const useChatStore = create<ChatStore>()(
           streamStatus: null,
         }),
       clearMessages: () =>
-        set({
+        set((s) => ({
           messages: [],
+          messageRevision: s.messageRevision + 1,
           streamingContent: "",
           isStreaming: false,
           streamStatus: null,
           streamError: null,
-        }),
+        })),
     }),
     {
       name: STORAGE_KEYS.CHAT_MESSAGES,

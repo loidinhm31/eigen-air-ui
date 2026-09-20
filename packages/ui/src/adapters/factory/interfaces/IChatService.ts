@@ -4,6 +4,7 @@ import type {
   ConnectResponse,
   RunLifecycleStatus,
   UserQuestionUpdatedEvent,
+  ToolApprovalUpdatedEvent,
   WsEvent,
 } from "@nonclaw-ui/shared/types";
 
@@ -12,7 +13,7 @@ export type StreamEventCallback = (event: WsEvent) => void;
 export type RunCorrelationEvent = Pick<
   WsEvent,
   "event" | "run_id" | "event_id" | "event_seq" | "occurred_at_ms"
-> & { lifecycle_status?: RunLifecycleStatus };
+> & { lifecycle_status?: RunLifecycleStatus; session_id?: string };
 
 export type RunCorrelationSignal = RunCorrelationEvent & {
   /** Metadata-only recovery hint for legacy frames that cannot name a run. */
@@ -21,7 +22,7 @@ export type RunCorrelationSignal = RunCorrelationEvent & {
 
 export type RunCorrelationCallback = (event: RunCorrelationSignal) => void;
 export type UserQuestionEventCallback = (event: UserQuestionUpdatedEvent) => void;
-
+export type ToolApprovalEventCallback = (event: ToolApprovalUpdatedEvent) => void;
 export interface DebugRequestOptions {
   includePrompt: boolean;
   includeReasoning: boolean;
@@ -51,4 +52,6 @@ export interface IChatService {
   onRunReconnect?(callback: () => void): () => void;
   subscribeUserQuestion?(callback: UserQuestionEventCallback): () => void;
   onQuestionProtocolError?(callback: () => void): () => void;
+  subscribeToolApproval?(callback: ToolApprovalEventCallback): () => void;
+  onToolApprovalProtocolError?(callback: () => void): () => void;
 }

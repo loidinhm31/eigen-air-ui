@@ -14,11 +14,11 @@ export function ToolCallCard({ call, result }: Props) {
   const name = toolName(call);
   const Renderer = resolveToolRenderer(name);
   return (
-    <div className="border-border bg-muted/50 mx-4 my-2 rounded-md border font-mono text-xs">
+    <div className="border-border bg-muted/50 mx-4 my-2 min-w-0 max-w-full overflow-hidden rounded-md border font-mono text-xs break-words">
       <button
         onClick={() => setExpanded(!expanded)}
         aria-expanded={expanded}
-        className="hover:bg-muted/80 flex w-full items-center gap-2 px-3 py-2 transition-colors"
+        className="hover:bg-muted/80 flex w-full min-w-0 items-center gap-2 px-3 py-2 transition-colors"
       >
         <Wrench size={12} className="text-primary shrink-0" />
         <span className="truncate font-medium">{name ?? "unknown tool"}</span>
@@ -27,7 +27,7 @@ export function ToolCallCard({ call, result }: Props) {
         </span>
       </button>
       {expanded && (
-        <div className="border-border border-t px-3 py-2">
+        <div className="border-border border-t px-3 py-2 min-w-0 max-w-full overflow-hidden">
           <Renderer call={call} result={result} />
         </div>
       )}

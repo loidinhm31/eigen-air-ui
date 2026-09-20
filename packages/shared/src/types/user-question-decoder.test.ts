@@ -150,8 +150,54 @@ describe("G3 user-question decoders", () => {
     expect(decodeChatHistoryResponse({ messages: [{ role: "assistant", content: "done" }] })).toEqual({
       messages: [{ role: "assistant", content: "done" }],
     });
+    expect(
+      decodeChatHistoryResponse({
+        messages: [
+          { role: "user", content: "hello" },
+          {
+            role: "assistant",
+            content: "",
+            tool_calls: [
+              {
+                id: "call-1",
+                name: "user_question",
+                arguments: { kind: "short_text", prompt: "Color?" },
+              },
+            ],
+          },
+          {
+            role: "tool",
+            content: "response_received",
+            tool_call_id: "call-1",
+          },
+          {
+            role: "assistant",
+            content: "Got it",
+            debug: {
+              provider: "openai_compatible",
+              model: "test-model",
+              system_prompt: "sys",
+              reasoning: { requested: true, available: true, text: "thought" },
+            },
+          },
+        ],
+      }).messages
+    ).toHaveLength(4);
     expect(() =>
       decodeChatHistoryResponse({ messages: [{ role: "assistant", content: "x".repeat(65 * 1024) }] })
+    ).toThrow();
+    expect(() =>
+      decodeChatHistoryResponse({ messages: [{ role: "unsupported", content: "hi" }] })
+    ).toThrow();
+    expect(() =>
+      decodeChatHistoryResponse({
+        messages: [{ role: "assistant", content: "", tool_calls: [{ name: "missing_id" }] }],
+      })
+    ).toThrow();
+    expect(() =>
+      decodeChatHistoryResponse({
+        messages: [{ role: "tool", content: "ok", unknown_key: true }],
+      })
     ).toThrow();
     const run = {
       schema_version: 1,

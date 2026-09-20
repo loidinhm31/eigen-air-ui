@@ -22,6 +22,7 @@ vi.mock("../../adapters/factory/ServiceFactory.js", () => ({
     },
     onRunReconnect: () => () => undefined,
   }),
+  getServiceAccessContext: () => ({}),
 }));
 
 function runSummary(): RunSummaryDto {

@@ -126,8 +126,14 @@ export class UserQuestionController {
         active.forEach((question) => this.questionRunIds.add(question.run_id));
 
         const history = this.options.getHistory
-          ? await this.options.getHistory(context.sessionId, abort.signal)
+          ? await this.options.getHistory(context.sessionId, abort.signal).catch(() => undefined)
           : undefined;
+        if (!this.isCurrent(generation, contextEpoch, abort)) return false;
+        const decodedHistory = history
+          ? decodeChatHistoryResponse(history)
+          : undefined;
+        if (decodedHistory) this.options.onHistorySnapshot?.(decodedHistory);
+
         const runSnapshots = this.options.getRunSnapshot
           ? await Promise.all(
               active.map((question) =>
@@ -136,17 +142,11 @@ export class UserQuestionController {
             )
           : [];
 
-        if (!this.isCurrent(generation, contextEpoch, abort)) return false;
-        const decodedHistory = this.options.getHistory
-          ? decodeChatHistoryResponse(history)
-          : undefined;
         for (let index = 0; index < runSnapshots.length; index += 1) {
           const runSnapshot = runSnapshots[index];
           if (runSnapshot === undefined) throw new Error("Run snapshot unavailable");
           decodeRunSnapshot(runSnapshot, active[index]?.run_id);
         }
-        if (decodedHistory) this.options.onHistorySnapshot?.(decodedHistory);
-
         const details = await Promise.all(
           active.map((question) =>
             this.options.service.get(

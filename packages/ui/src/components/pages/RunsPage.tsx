@@ -1,7 +1,7 @@
 import * as React from "react";
 import type { RunEventDto, RunSummaryDto } from "@nonclaw-ui/shared/types";
 import { HttpRunAdapter, type RunAccessContext } from "../../adapters/http/HttpRunAdapter.js";
-import { getChatService } from "../../adapters/factory/ServiceFactory.js";
+import { getChatService, getServiceAccessContext } from "../../adapters/factory/ServiceFactory.js";
 import { useConnectionStore } from "../../stores/connectionStore.js";
 import { useRunInspectorStore } from "../../stores/runInspectorStore.js";
 import { RunInspector } from "../organisms/RunInspector.js";
@@ -9,8 +9,18 @@ import { Button } from "../atoms/Button.js";
 const NO_RUN_ACCESS: RunAccessContext = {};
 /** Server-authenticated state supplied by the embedding host; defaults deny. */
 interface RunsPageProps { access?: RunAccessContext }
-export function RunsPage({ access = NO_RUN_ACCESS }: RunsPageProps) {
+export function RunsPage({ access: propAccess }: RunsPageProps) {
   const url = useConnectionStore((state) => state.url);
+  const access = React.useMemo(() => {
+    const serviceAccess = getServiceAccessContext();
+    if (!propAccess) return serviceAccess;
+    return {
+      ...serviceAccess,
+      ...propAccess,
+      authToken: propAccess.authToken ?? serviceAccess.authToken,
+      capabilities: propAccess.capabilities ?? serviceAccess.capabilities,
+    };
+  }, [propAccess]);
   const { authToken, capabilities, identityKey } = access;
   const {
     snapshots,

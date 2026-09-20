@@ -23,7 +23,8 @@ describe("HttpRunAdapter", () => {
       authToken: "secret",
     }).get("run", true);
     expect(fetch.mock.calls[0][0]).toContain("include_debug=true");
-    expect(fetch.mock.calls[0][1].headers.Authorization).toBe("Bearer secret");
+    expect(fetch.mock.calls[0][1].credentials).toBe("omit");
+    expect(new Headers(fetch.mock.calls[0][1].headers).get("Authorization")).toBe("Bearer secret");
     await new HttpRunAdapter("http://daemon").get("run", true);
     expect(fetch.mock.calls[1][0]).not.toContain("include_debug");
   });
@@ -51,7 +52,8 @@ describe("HttpRunAdapter", () => {
     await expect(adapter.export("run/a")).resolves.toBeInstanceOf(Blob);
     await expect(adapter.delete("run/a")).resolves.toBeUndefined();
     expect(fetch.mock.calls[0][0]).toBe("http://daemon/v1/runs/run%2Fa/export");
-    expect(fetch.mock.calls[0][1].headers.Authorization).toBe("Bearer secret");
+    expect(fetch.mock.calls[0][1].credentials).toBe("omit");
+    expect(new Headers(fetch.mock.calls[0][1].headers).get("Authorization")).toBe("Bearer secret");
     expect(fetch.mock.calls[1][0]).toBe("http://daemon/v1/runs/run%2Fa");
     expect(fetch.mock.calls[1][1]).toMatchObject({ method: "DELETE" });
   });

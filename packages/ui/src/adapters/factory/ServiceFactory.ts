@@ -6,8 +6,10 @@ import type { IConfigService } from "./interfaces/IConfigService.js";
 import type { ISessionService } from "./interfaces/ISessionService.js";
 import type { IVaultKnowledgeService } from "./interfaces/IVaultKnowledgeService.js";
 import type { IUserQuestionService } from "./interfaces/IUserQuestionService.js";
+import type { IToolApprovalService } from "./interfaces/IToolApprovalService.js";
 import type { HttpRunAdapter } from "../http/HttpRunAdapter.js";
 import type { RunAccessContext } from "../http/HttpRunAdapter.js";
+import { getStoredAuthToken } from "./tokenStorage.js";
 
 let chatService: IChatService | null = null;
 let memoryService: IMemoryService | null = null;
@@ -17,8 +19,11 @@ let configService: IConfigService | null = null;
 let sessionService: ISessionService | null = null;
 let vaultKnowledgeService: IVaultKnowledgeService | null = null;
 let userQuestionService: IUserQuestionService | null = null;
+let toolApprovalService: IToolApprovalService | null = null;
 let runService: HttpRunAdapter | null = null;
-let serviceAccessContext: RunAccessContext = {};
+let serviceAccessContext: RunAccessContext = {
+  authToken: typeof window !== "undefined" ? getStoredAuthToken() : undefined,
+};
 let serviceAccessRevision = 0;
 
 // Registered by the app entry (init.ts) so UI components can trigger re-init
@@ -57,7 +62,14 @@ export function setServiceAccessContext(context: RunAccessContext | undefined): 
 }
 
 export function getServiceAccessContext(): RunAccessContext {
-  return { ...serviceAccessContext, accessRevision: serviceAccessRevision };
+  const token =
+    serviceAccessContext.authToken ||
+    (typeof window !== "undefined" ? getStoredAuthToken() : undefined);
+  return {
+    ...serviceAccessContext,
+    ...(token ? { authToken: token } : {}),
+    accessRevision: serviceAccessRevision,
+  };
 }
 
 export function setChatService(s: IChatService) {
@@ -82,6 +94,9 @@ export function setSessionService(s: ISessionService) {
 }
 export function setVaultKnowledgeService(s: IVaultKnowledgeService) {
   vaultKnowledgeService = s;
+}
+export function setToolApprovalService(s: IToolApprovalService) {
+  toolApprovalService = s;
 }
 export function setUserQuestionService(s: IUserQuestionService) {
   userQuestionService = s;
@@ -122,6 +137,12 @@ export function getUserQuestionService(): IUserQuestionService {
   if (!userQuestionService) throw new Error("IUserQuestionService not initialized");
   return userQuestionService;
 }
+
+export function getToolApprovalService(): IToolApprovalService {
+  if (!toolApprovalService) throw new Error("IToolApprovalService not initialized");
+  return toolApprovalService;
+}
+
 export function getRunService(): HttpRunAdapter {
   if (!runService) throw new Error("HttpRunAdapter not initialized");
   return runService;
@@ -136,5 +157,6 @@ export type {
   ISessionService,
   IVaultKnowledgeService,
   IUserQuestionService,
+  IToolApprovalService,
 };
 export type { StreamEventCallback } from "./interfaces/IChatService.js";

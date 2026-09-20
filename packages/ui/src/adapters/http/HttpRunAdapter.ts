@@ -1,21 +1,21 @@
 import type { RunListResponseDto, RunSnapshotDto } from "@nonclaw-ui/shared/types";
+import {
+  fetchWithAccess,
+  type AccessContext,
+  type AccessSource,
+  type RunCapabilities,
+} from "./AuthenticatedHttpRequest.js";
 
 const MAX_RUN_RESPONSE_BYTES = 8 * 1024 * 1024;
 const MAX_RUN_ERROR_MESSAGE_BYTES = 512;
 
-export type RunCapabilities = ReadonlySet<"run:read:debug" | "run:export" | "run:delete">;
+export type { RunCapabilities };
 
 /** Authenticated host state. It is consumed in memory and never serialized by this adapter. */
-export interface RunAccessContext {
-  capabilities?: RunCapabilities;
-  authToken?: string;
-  /** Changes when the authenticated principal or role set changes. */
-  identityKey?: string;
-  /** Monotonic in-memory fence for token/principal rotation. */
-  accessRevision?: number;
-}
+export type RunAccessContext = AccessContext;
 
-type RunAccessSource = RunAccessContext | (() => RunAccessContext);
+type RunAccessSource = AccessSource;
+
 
 function safeRunErrorMessage(value: unknown): string | undefined {
   if (
@@ -59,19 +59,11 @@ export class HttpRunAdapter {
   ) {}
 
   private accessContext(): RunAccessContext {
-    return typeof this.access === "function" ? this.access() : this.access;
+    return (typeof this.access === "function" ? this.access() : this.access) ?? {};
   }
 
   private async response(path: string, init?: RequestInit): Promise<Response> {
-    const access = this.accessContext();
-    const response = await fetch(`${this.baseUrl}${path}`, {
-      ...init,
-      credentials: "include",
-      headers: {
-        ...(init?.headers ?? {}),
-        ...(access.authToken ? { Authorization: `Bearer ${access.authToken}` } : {}),
-      },
-    });
+    const response = await fetchWithAccess(this.baseUrl, path, this.access, init);
     if (!response.ok) {
       const message = await readSafeRunErrorMessage(response);
       const error = new Error(message ?? `Run request failed: ${response.status}`);

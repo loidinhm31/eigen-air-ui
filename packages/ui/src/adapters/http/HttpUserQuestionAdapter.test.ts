@@ -39,11 +39,10 @@ describe("HttpUserQuestionAdapter", () => {
       "http://daemon/v1/user-questions?session_id=session%2Fa",
       expect.objectContaining({ cache: "no-store", signal })
     );
-    expect(fetch.mock.calls[0]?.[1].headers).toMatchObject({
-      Authorization: "Bearer auth-secret",
-      Accept: "application/json",
-    });
-    expect(fetch.mock.calls[0]?.[1]).toMatchObject({ credentials: "include" });
+    const headers = new Headers(fetch.mock.calls[0]?.[1].headers);
+    expect(headers.get("Authorization")).toBe("Bearer auth-secret");
+    expect(headers.get("Accept")).toBe("application/json");
+    expect(fetch.mock.calls[0]?.[1]).toMatchObject({ credentials: "omit" });
   });
 
   it("reads rotated host credentials at request time without persisting them", async () => {
@@ -56,8 +55,12 @@ describe("HttpUserQuestionAdapter", () => {
     await adapter.list({ sessionId: "session-1" });
     access = { authToken: "second-token", identityKey: "identity-2" };
     await adapter.list({ sessionId: "session-1" });
-    expect(fetch.mock.calls[0]?.[1].headers.Authorization).toBe("Bearer first-token");
-    expect(fetch.mock.calls[1]?.[1].headers.Authorization).toBe("Bearer second-token");
+    expect(new Headers(fetch.mock.calls[0]?.[1].headers).get("Authorization")).toBe(
+      "Bearer first-token"
+    );
+    expect(new Headers(fetch.mock.calls[1]?.[1].headers).get("Authorization")).toBe(
+      "Bearer second-token"
+    );
     expect(JSON.stringify(adapter)).not.toContain("second-token");
   });
 

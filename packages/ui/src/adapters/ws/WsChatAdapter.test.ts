@@ -3,13 +3,27 @@ import { describe, expect, it, vi } from "vitest";
 const wsHarness = vi.hoisted(() => {
   const harness = {
     nextResponse: undefined as unknown,
-    client: undefined as { emit: (event: unknown) => void } | undefined,
+    responses: [] as unknown[],
+    sent: [] as Array<{ method: string; params: unknown; fence?: unknown }>,
+    disconnectedCount: 0,
+    connectedCount: 0,
+    reconnectHandler: undefined as ((fence?: unknown) => Promise<void>) | undefined,
+    client: undefined as FakeWsClient | undefined,
+    reset() {
+      this.nextResponse = undefined;
+      this.responses = [];
+      this.sent = [];
+      this.disconnectedCount = 0;
+      this.connectedCount = 0;
+      this.reconnectHandler = undefined;
+    },
   };
   class FakeWsClient {
+    readonly url: string;
     private handlers: Array<(event: unknown) => void> = [];
 
     constructor(url: string) {
-      void url;
+      this.url = url;
       harness.client = this;
     }
 
@@ -23,11 +37,21 @@ const wsHarness = vi.hoisted(() => {
 
     onConnectionStatus() {}
     onProtocolError() {}
-    onReconnect() {}
-    disconnect() {}
-    async connect() {}
+    onReconnect(handler: (fence?: unknown) => Promise<void>) {
+      harness.reconnectHandler = handler;
+    }
+    disconnect() {
+      harness.disconnectedCount++;
+    }
+    async connect() {
+      harness.connectedCount++;
+    }
 
-    async send() {
+    async send(method: string, params: unknown, fence?: unknown) {
+      harness.sent.push({ method, params, fence });
+      if (harness.responses.length > 0) {
+        return harness.responses.shift();
+      }
       return harness.nextResponse;
     }
 
@@ -40,6 +64,9 @@ const wsHarness = vi.hoisted(() => {
 
 vi.mock("./WsClient.js", () => ({ WsClient: wsHarness.FakeWsClient }));
 import { buildChatSendParams, buildDebugRequest, projectRunCorrelation } from "./WsChatAdapter.js";
+import { useConnectionStore } from "../../stores/connectionStore.js";
+
+
 
 describe("buildDebugRequest", () => {
   it("omits debug payload when all toggles are disabled", () => {
@@ -190,3 +217,172 @@ describe("buildChatSendParams", () => {
     expect(params).not.toHaveProperty("instructions");
   });
 });
+
+describe("WsChatAdapter auth and connection lifecycle", () => {
+  it("sends connect params with token when provider supplies token and resolves session", async () => {
+    wsHarness.harness.reset();
+    useConnectionStore.getState().setSessionId("resolved-session");
+    const { WsChatAdapter } = await import("./WsChatAdapter.js");
+    const adapter = new WsChatAdapter("ws://localhost:18790/ws", () => ({
+      authToken: "ws-sentinel-token",
+    }));
+
+    wsHarness.harness.responses = [
+      {
+        ok: true,
+        data: {
+          session_id: "resolved-session",
+          agent: "default",
+          version: "v1",
+        },
+      },
+      {
+        ok: true,
+        data: {
+          sessions: [{ id: "resolved-session" }],
+        },
+      },
+    ];
+
+    const result = await adapter.connect();
+    expect(result.session_id).toBe("resolved-session");
+    expect(result.version).toBe("v1");
+    expect(wsHarness.harness.connectedCount).toBe(1);
+    expect(wsHarness.harness.sent[0]).toEqual({
+      method: "connect",
+      params: { token: "ws-sentinel-token" },
+      fence: undefined,
+    });
+    expect(wsHarness.harness.client?.url).toBe("ws://localhost:18790/ws");
+    expect(wsHarness.harness.client?.url).not.toContain("ws-sentinel-token");
+  });
+
+  it("sends empty params when no token is supplied by provider", async () => {
+    wsHarness.harness.reset();
+    useConnectionStore.getState().setSessionId("default-session");
+    const { WsChatAdapter } = await import("./WsChatAdapter.js");
+    const adapter = new WsChatAdapter("ws://localhost:18790/ws");
+
+    wsHarness.harness.responses = [
+      {
+        ok: true,
+        data: {
+          session_id: "default-session",
+          agent: "default",
+          version: "v1",
+        },
+      },
+      {
+        ok: true,
+        data: {
+          sessions: [{ id: "default-session" }],
+        },
+      },
+    ];
+
+    await adapter.connect();
+    expect(wsHarness.harness.sent[0]).toEqual({
+      method: "connect",
+      params: {},
+      fence: undefined,
+    });
+  });
+
+  it("supports explicit connect token overriding provider", async () => {
+    wsHarness.harness.reset();
+    useConnectionStore.getState().setSessionId("default-session");
+    const { WsChatAdapter } = await import("./WsChatAdapter.js");
+    const adapter = new WsChatAdapter("ws://localhost:18790/ws", () => ({
+      authToken: "provider-token",
+    }));
+
+    wsHarness.harness.responses = [
+      {
+        ok: true,
+        data: {
+          session_id: "default-session",
+          agent: "default",
+          version: "v1",
+        },
+      },
+      {
+        ok: true,
+        data: {
+          sessions: [{ id: "default-session" }],
+        },
+      },
+    ];
+
+    await adapter.connect("explicit-override-token");
+    expect(wsHarness.harness.sent[0]).toEqual({
+      method: "connect",
+      params: { token: "explicit-override-token" },
+      fence: undefined,
+    });
+  });
+
+  it("disconnects socket and rejects on failed connect response", async () => {
+    wsHarness.harness.reset();
+    const { WsChatAdapter } = await import("./WsChatAdapter.js");
+    const adapter = new WsChatAdapter("ws://localhost:18790/ws", () => ({
+      authToken: "invalid-token",
+    }));
+
+    wsHarness.harness.responses = [
+      {
+        ok: false,
+        error: { message: "unauthorized" },
+      },
+    ];
+
+    await expect(adapter.connect()).rejects.toThrow("unauthorized");
+    expect(wsHarness.harness.disconnectedCount).toBe(1);
+  });
+
+  it("reads rotated token from access provider on reconnect", async () => {
+    wsHarness.harness.reset();
+    useConnectionStore.getState().setSessionId("sess-1");
+    let currentToken = "token-alpha";
+    const { WsChatAdapter } = await import("./WsChatAdapter.js");
+    const adapter = new WsChatAdapter("ws://localhost:18790/ws", () => ({
+      authToken: currentToken,
+    }));
+
+    wsHarness.harness.responses = [
+      {
+        ok: true,
+        data: { session_id: "sess-1", agent: "default", version: "v1" },
+      },
+      {
+        ok: true,
+        data: { sessions: [{ id: "sess-1" }] },
+      },
+    ];
+    await adapter.connect();
+    expect(wsHarness.harness.sent[0].params).toEqual({ token: "token-alpha" });
+
+    // Rotate token
+    currentToken = "token-beta";
+    wsHarness.harness.sent = [];
+    wsHarness.harness.responses = [
+      {
+        ok: true,
+        data: { session_id: "sess-1", agent: "default", version: "v1" },
+      },
+      {
+        ok: true,
+        data: { sessions: [{ id: "sess-1" }] },
+      },
+    ];
+
+    expect(wsHarness.harness.reconnectHandler).toBeDefined();
+    await wsHarness.harness.reconnectHandler!({ signal: { aborted: false } });
+
+    expect(wsHarness.harness.sent[0]).toEqual({
+      method: "connect",
+      params: { token: "token-beta" },
+      fence: { signal: { aborted: false } },
+    });
+  });
+});
+

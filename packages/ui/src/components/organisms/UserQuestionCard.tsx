@@ -1,4 +1,5 @@
 import * as React from "react";
+import { Spinner } from "../atoms/Spinner.js";
 
 export type UserQuestionKind = "single_choice" | "short_text" | "multiline";
 
@@ -24,6 +25,7 @@ export interface UserQuestionCardProps {
   readonly onCancel: () => void;
   readonly disabled?: boolean;
   readonly submitting?: boolean;
+  readonly loading?: boolean;
   readonly error?: string | null;
   readonly status?: string | null;
   /** Focus the first native control after a genuinely new question is mounted. */
@@ -31,7 +33,7 @@ export interface UserQuestionCardProps {
 }
 
 const CARD_CLASS =
-  "border-border bg-card space-y-4 rounded-lg border p-4 text-card-foreground shadow-sm";
+  "border-border bg-card space-y-4 rounded-lg border p-4 text-card-foreground shadow-sm min-w-0 max-w-full overflow-hidden break-words";
 const CONTROL_CLASS =
   "flex min-h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
 const ACTION_CLASS =
@@ -40,7 +42,6 @@ const ACTION_CLASS =
 function isSupportedQuestionKind(kind: string): kind is UserQuestionKind {
   return kind === "single_choice" || kind === "short_text" || kind === "multiline";
 }
-
 export function UserQuestionCard({
   question,
   draft,
@@ -49,6 +50,7 @@ export function UserQuestionCard({
   onCancel,
   disabled = false,
   submitting = false,
+  loading = false,
   error = null,
   status = null,
   focus = false,
@@ -62,7 +64,8 @@ export function UserQuestionCard({
     firstControlRef.current = element;
   };
   const supported = isSupportedQuestionKind(question.kind);
-  const controlsDisabled = disabled || submitting;
+  const busy = submitting || loading;
+  const controlsDisabled = disabled || busy;
   const describedBy = [question.help ? helpId : null, error ? errorId : null]
     .filter((value): value is string => value !== null)
     .join(" ");
@@ -70,7 +73,8 @@ export function UserQuestionCard({
     ? status
       ? `Unsupported question type. ${status}`
       : "Unsupported question type."
-    : (status ?? (submitting ? "Submitting…" : "Please provide input."));
+    : (status ??
+      (submitting ? "Submitting…" : loading ? "Agent is working…" : "Please provide input."));
 
   React.useEffect(() => {
     if (focus && supported && !controlsDisabled) {
@@ -91,9 +95,10 @@ export function UserQuestionCard({
           id={`${id}-status`}
           role="status"
           aria-live="polite"
-          className="text-muted-foreground text-xs"
+          className="text-muted-foreground flex items-center gap-2 text-xs"
         >
-          {statusMessage}
+          {busy && <Spinner size="sm" className="shrink-0" aria-hidden="true" />}
+          <span>{statusMessage}</span>
         </p>
       )}
       {error && (
@@ -116,7 +121,7 @@ export function UserQuestionCard({
   );
 
   return (
-    <article aria-labelledby={headingId} aria-busy={submitting} className={CARD_CLASS}>
+    <article aria-labelledby={headingId} aria-busy={busy} className={CARD_CLASS}>
       <header className="space-y-2">
         <h2 id={headingId} className="text-base font-semibold">
           Agent question

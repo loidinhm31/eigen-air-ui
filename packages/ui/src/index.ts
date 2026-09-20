@@ -14,6 +14,7 @@ export {
   setSessionService,
   setVaultKnowledgeService,
   setUserQuestionService,
+  setToolApprovalService,
   setRunService,
   getChatService,
   getMemoryService,
@@ -23,12 +24,21 @@ export {
   getSessionService,
   getVaultKnowledgeService,
   getUserQuestionService,
+  getToolApprovalService,
   getRunService,
   registerReinitFn,
   reinitServices,
   hasReinitFn,
+  setServiceAccessContext,
+  getServiceAccessContext,
 } from "./adapters/factory/ServiceFactory.js";
-export { initServicesForDaemonUrl } from "./adapters/factory/init-services.js";
+export {
+  getStoredAuthToken,
+  saveStoredAuthToken,
+  clearStoredAuthToken,
+  getStoredTokenRetention,
+  computeExpiresAt,
+} from "./adapters/factory/tokenStorage.js";
 export type {
   IChatService,
   IMemoryService,
@@ -38,6 +48,7 @@ export type {
   ISessionService,
   IVaultKnowledgeService,
   IUserQuestionService,
+  IToolApprovalService,
   StreamEventCallback,
 } from "./adapters/factory/ServiceFactory.js";
 export { WsChatAdapter } from "./adapters/ws/WsChatAdapter.js";
@@ -53,3 +64,7 @@ export { HttpSkillAdapter } from "./adapters/http/HttpSkillAdapter.js";
 export { HttpConfigAdapter } from "./adapters/http/HttpConfigAdapter.js";
 export { HttpVaultKnowledgeAdapter } from "./adapters/http/HttpVaultKnowledgeAdapter.js";
 export { HttpUserQuestionAdapter, UserQuestionHttpError } from "./adapters/http/HttpUserQuestionAdapter.js";
+export { HttpToolApprovalAdapter, ToolApprovalHttpError } from "./adapters/http/HttpToolApprovalAdapter.js";
+export { ToolApprovalController } from "./components/organisms/toolApprovalController.js";
+
+export { initServicesForDaemonUrl, normalizeDaemonUrl } from "./adapters/factory/init-services.js";

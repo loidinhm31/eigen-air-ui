@@ -4,6 +4,7 @@ import { HttpSkillAdapter } from "../http/HttpSkillAdapter.js";
 import { HttpToolAdapter } from "../http/HttpToolAdapter.js";
 import { HttpVaultKnowledgeAdapter } from "../http/HttpVaultKnowledgeAdapter.js";
 import { HttpUserQuestionAdapter } from "../http/HttpUserQuestionAdapter.js";
+import { HttpToolApprovalAdapter } from "../http/HttpToolApprovalAdapter.js";
 import { HttpRunAdapter } from "../http/HttpRunAdapter.js";
 import { WsChatAdapter } from "../ws/WsChatAdapter.js";
 import {
@@ -15,25 +16,61 @@ import {
   setToolService,
   setVaultKnowledgeService,
   setUserQuestionService,
+  setToolApprovalService,
   setRunService,
   getServiceAccessContext,
 } from "./ServiceFactory.js";
 
+export interface NormalizedDaemonUrls {
+  httpUrl: string;
+  wsUrl: string;
+}
+
+export function normalizeDaemonUrl(daemonUrl: string): NormalizedDaemonUrls {
+  let parsed: URL;
+  try {
+    parsed = new URL(daemonUrl);
+  } catch {
+    throw new Error("Invalid daemon URL");
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("Invalid daemon URL protocol: expected http or https");
+  }
+
+  if (parsed.username || parsed.password) {
+    throw new Error("Invalid daemon URL: userinfo is not allowed");
+  }
+
+  if (parsed.search) {
+    throw new Error("Invalid daemon URL: query parameters are not allowed");
+  }
+
+  if (parsed.hash) {
+    throw new Error("Invalid daemon URL: fragments are not allowed");
+  }
+
+  const normalizedPath = parsed.pathname.replace(/\/+$/, "");
+  const httpUrl = `${parsed.protocol}//${parsed.host}${normalizedPath}`;
+  const wsProtocol = parsed.protocol === "https:" ? "wss:" : "ws:";
+  const wsUrl = `${wsProtocol}//${parsed.host}${normalizedPath}/ws`;
+
+  return { httpUrl, wsUrl };
+}
+
 export function initServicesForDaemonUrl(daemonUrl: string): void {
-  const normalizedUrl = daemonUrl.replace(/\/+$/, "");
-  const wsUrl = normalizedUrl.startsWith("https")
-    ? normalizedUrl.replace("https", "wss") + "/ws"
-    : normalizedUrl.replace("http", "ws") + "/ws";
+  const { httpUrl, wsUrl } = normalizeDaemonUrl(daemonUrl);
 
   const access = () => getServiceAccessContext();
   const wsAdapter = new WsChatAdapter(wsUrl, access);
   setChatService(wsAdapter);
   setSessionService(wsAdapter);
-  setMemoryService(new HttpMemoryAdapter(normalizedUrl));
-  setToolService(new HttpToolAdapter(normalizedUrl));
-  setSkillService(new HttpSkillAdapter(normalizedUrl));
-  setConfigService(new HttpConfigAdapter(normalizedUrl));
-  setVaultKnowledgeService(new HttpVaultKnowledgeAdapter(normalizedUrl));
-  setUserQuestionService(new HttpUserQuestionAdapter(normalizedUrl, access));
-  setRunService(new HttpRunAdapter(normalizedUrl, access));
+  setMemoryService(new HttpMemoryAdapter(httpUrl, access));
+  setToolService(new HttpToolAdapter(httpUrl, access));
+  setSkillService(new HttpSkillAdapter(httpUrl, access));
+  setConfigService(new HttpConfigAdapter(httpUrl, access));
+  setVaultKnowledgeService(new HttpVaultKnowledgeAdapter(httpUrl, access));
+  setUserQuestionService(new HttpUserQuestionAdapter(httpUrl, access));
+  setToolApprovalService(new HttpToolApprovalAdapter(httpUrl, access));
+  setRunService(new HttpRunAdapter(httpUrl, access));
 }

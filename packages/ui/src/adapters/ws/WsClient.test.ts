@@ -48,6 +48,152 @@ describe("decodeInboundWsEvent", () => {
     expect(decodeInboundWsEvent(malformed)).toBeUndefined();
   });
 });
+describe("WsClient requests", () => {
+  it("falls back to getRandomValues when randomUUID is unavailable", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const sent: string[] = [];
+    class FakeWebSocket {
+      static readonly OPEN = 1;
+      static readonly CLOSED = 3;
+      readyState = 0;
+      onopen: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+      onmessage: ((event: { data: string }) => void) | null = null;
+
+      constructor() {
+        sockets.push(this);
+      }
+
+      open() {
+        this.readyState = FakeWebSocket.OPEN;
+        this.onopen?.();
+      }
+
+      close() {
+        this.readyState = FakeWebSocket.CLOSED;
+      }
+
+      send(value: string) {
+        sent.push(value);
+      }
+    }
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    vi.stubGlobal("crypto", {
+      getRandomValues: (values: Uint8Array) => values.fill(0x11),
+    });
+
+    const client = new WsClient("ws://daemon");
+    const connected = client.connect();
+    sockets[0]?.open();
+    await connected;
+
+    const pending = client.send("ping", {});
+    const request = JSON.parse(sent[0] ?? "") as { id: string };
+    sockets[0]?.onmessage?.({
+      data: JSON.stringify({ type: "res", version: "v1", id: request.id, ok: true }),
+    });
+
+    await expect(pending).resolves.toMatchObject({ ok: true });
+    expect(request.id).toBe("11111111-1111-4111-9111-111111111111");
+    client.disconnect();
+  });
+  it("prefers native randomUUID when available", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const sent: string[] = [];
+    const randomUUID = vi.fn().mockReturnValue("native-id");
+    const getRandomValues = vi.fn();
+    class FakeWebSocket {
+      static readonly OPEN = 1;
+      static readonly CLOSED = 3;
+      readyState = 0;
+      onopen: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+      onmessage: ((event: { data: string }) => void) | null = null;
+
+      constructor() {
+        sockets.push(this);
+      }
+
+      open() {
+        this.readyState = FakeWebSocket.OPEN;
+        this.onopen?.();
+      }
+
+      close() {
+        this.readyState = FakeWebSocket.CLOSED;
+      }
+
+      send(value: string) {
+        sent.push(value);
+      }
+    }
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    vi.stubGlobal("crypto", { randomUUID, getRandomValues });
+
+    const client = new WsClient("ws://daemon");
+    const connected = client.connect();
+    sockets[0]?.open();
+    await connected;
+
+    const pending = client.send("ping", {});
+    const request = JSON.parse(sent[0] ?? "") as { id: string };
+    sockets[0]?.onmessage?.({
+      data: JSON.stringify({ type: "res", version: "v1", id: request.id, ok: true }),
+    });
+
+    await expect(pending).resolves.toMatchObject({ ok: true });
+    expect(request.id).toBe("native-id");
+    expect(randomUUID).toHaveBeenCalledOnce();
+    expect(getRandomValues).not.toHaveBeenCalled();
+    client.disconnect();
+  });
+
+  it("rejects when Web Crypto cannot generate request IDs", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const sent: string[] = [];
+    class FakeWebSocket {
+      static readonly OPEN = 1;
+      static readonly CLOSED = 3;
+      readyState = 0;
+      onopen: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+      onmessage: ((event: { data: string }) => void) | null = null;
+
+      constructor() {
+        sockets.push(this);
+      }
+
+      open() {
+        this.readyState = FakeWebSocket.OPEN;
+        this.onopen?.();
+      }
+
+      close() {
+        this.readyState = FakeWebSocket.CLOSED;
+      }
+
+      send(value: string) {
+        sent.push(value);
+      }
+    }
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    vi.stubGlobal("crypto", undefined);
+
+    const client = new WsClient("ws://daemon");
+    const connected = client.connect();
+    sockets[0]?.open();
+    await connected;
+
+    await expect(client.send("ping", {})).rejects.toThrow("Web Crypto API unavailable");
+    expect(sent).toHaveLength(0);
+    client.disconnect();
+  });
+});
+
+
 
 describe("WsClient lifecycle", () => {
   it("recovers established socket errors and preserves re-auth after explicit disconnect", async () => {

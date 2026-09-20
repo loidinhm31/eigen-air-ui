@@ -21,7 +21,18 @@ const serviceMocks = vi.hoisted(() => ({
   cancelQuestion: vi.fn(),
   getRunSnapshot: vi.fn(),
   questionCallback: undefined as ((event: unknown) => void) | undefined,
+  questionServiceAvailable: true,
 }));
+
+class ResizeObserverMock {
+  constructor(_callback: ResizeObserverCallback) {}
+
+  observe() {}
+
+  unobserve() {}
+
+  disconnect() {}
+}
 
 vi.mock("../../adapters/factory/ServiceFactory.js", () => ({
   getChatService: () => ({
@@ -37,12 +48,15 @@ vi.mock("../../adapters/factory/ServiceFactory.js", () => ({
   }),
   getSessionService: () => ({ createSession: serviceMocks.createSession }),
   getSkillService: () => ({ list: serviceMocks.listSkills }),
-  getUserQuestionService: () => ({
-    list: serviceMocks.listQuestions,
-    get: serviceMocks.getQuestion,
-    resolve: serviceMocks.resolveQuestion,
-    cancel: serviceMocks.cancelQuestion,
-  }),
+  getUserQuestionService: () => {
+    if (!serviceMocks.questionServiceAvailable) throw new Error("question service unavailable");
+    return {
+      list: serviceMocks.listQuestions,
+      get: serviceMocks.getQuestion,
+      resolve: serviceMocks.resolveQuestion,
+      cancel: serviceMocks.cancelQuestion,
+    };
+  },
   getRunService: () => ({ get: serviceMocks.getRunSnapshot }),
   getServiceAccessContext: () => ({}),
 }));
@@ -84,6 +98,7 @@ async function selectTestSkill(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("ChatPanel selected skill lifecycle", () => {
+  vi.stubGlobal("ResizeObserver", ResizeObserverMock);
   afterEach(() => cleanup());
 
   beforeEach(() => {
@@ -107,9 +122,11 @@ describe("ChatPanel selected skill lifecycle", () => {
     serviceMocks.cancelQuestion.mockReset();
     serviceMocks.getRunSnapshot.mockReset().mockResolvedValue(TEST_RUN_SNAPSHOT);
     serviceMocks.questionCallback = undefined;
+    serviceMocks.questionServiceAvailable = true;
     useConnectionStore.setState({ status: "connected", sessionId: "session-1" });
     useChatStore.setState({
       messages: [],
+      messageRevision: 0,
       isStreaming: false,
       streamingContent: "",
       streamStatus: null,
@@ -180,6 +197,29 @@ describe("ChatPanel selected skill lifecycle", () => {
     expect((screen.getByPlaceholderText("Message nonclaw...") as HTMLInputElement).disabled).toBe(
       true
     );
+    const questionInput = screen.getByLabelText("What should the note say?");
+    await user.type(questionInput, "red");
+    await user.click(screen.getByRole("button", { name: "Answer" }));
+    expect(await screen.findByText("red")).toBeTruthy();
+    expect(localStorage.getItem(STORAGE_KEYS.CHAT_MESSAGES) ?? "").not.toContain("red");
+  });
+  it("does not let a late history response overwrite newer messages", async () => {
+    serviceMocks.questionServiceAvailable = false;
+    let releaseHistory!: (history: { messages: [] }) => void;
+    const staleHistory = new Promise<{ messages: [] }>((resolve) => {
+      releaseHistory = resolve;
+    });
+    serviceMocks.getHistory.mockReset().mockImplementationOnce(() => staleHistory);
+    render(<ChatPanel />);
+
+    await waitFor(() => expect(serviceMocks.getHistory).toHaveBeenCalledOnce());
+    useChatStore.getState().replaceMessages([{ role: "assistant", content: "resumed answer" }]);
+    releaseHistory({ messages: [] });
+
+    expect(await screen.findByText("resumed answer")).toBeTruthy();
+    expect(useChatStore.getState().messages).toEqual([
+      { role: "assistant", content: "resumed answer" },
+    ]);
   });
 
   it("sends a selected ID once, then command choice clears the chip and stays ordinary text", async () => {

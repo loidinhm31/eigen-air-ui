@@ -12,9 +12,12 @@ import { UserQuestionController } from "./userQuestionController.js";
 import { useConnectionStore } from "../../stores/connectionStore.js";
 import { useChatStore } from "../../stores/chatStore.js";
 import { pendingQuestionSnapshot, useUserQuestionStore } from "../../stores/userQuestionStore.js";
+import { Spinner } from "../atoms/Spinner.js";
 
 interface PendingQuestionRegionProps {
   onUserInitiatedResolved?: () => void;
+  onAnswerSubmitted?: (questionId: string, answer: string) => void;
+  onAnswerRejected?: (questionId: string) => void;
 }
 
 function tryGetQuestionService(daemonUrl: string): IUserQuestionService | undefined {
@@ -43,7 +46,11 @@ function tryGetRunSnapshot(runId: string, signal: AbortSignal): Promise<unknown>
   }
 }
 
-export function PendingQuestionRegion({ onUserInitiatedResolved }: PendingQuestionRegionProps) {
+export function PendingQuestionRegion({
+  onUserInitiatedResolved,
+  onAnswerSubmitted,
+  onAnswerRejected,
+}: PendingQuestionRegionProps) {
   const daemonUrl = useConnectionStore((state) => state.url);
   const sessionId = useConnectionStore((state) => state.sessionId);
   const connectionStatus = useConnectionStore((state) => state.status);
@@ -176,10 +183,7 @@ export function PendingQuestionRegion({ onUserInitiatedResolved }: PendingQuesti
     }
   }, [onUserInitiatedResolved, questionId]);
   React.useEffect(() => {
-    if (
-      questionId !== previousQuestionId.current ||
-      questionState !== "pending"
-    ) {
+    if (questionId !== previousQuestionId.current || questionState !== "pending") {
       setDraft("");
     }
     previousQuestionId.current = questionId;
@@ -201,24 +205,32 @@ export function PendingQuestionRegion({ onUserInitiatedResolved }: PendingQuesti
   if (!controller || !question) return null;
   const controlsDisabled = store.status !== "ready" || store.mutationQuestionId !== undefined;
   const mutationAvailable = controller.canMutate(question.question_id);
-  const status =
-    !question.request || !mutationAvailable
-      ? controller.isAccepted(question.question_id) ||
-        question.state === "answered" ||
-        question.state === "continuing"
-        ? "Response accepted; agent is resuming…"
-        : "Waiting for authorized input."
+  const answerAccepted =
+    controller.isAccepted(question.question_id) ||
+    question.state === "answered" ||
+    question.state === "continuing";
+  const loading =
+    store.mutationQuestionId === question.question_id ||
+    answerAccepted ||
+    (question.request !== undefined &&
+      (store.status === "loading" || store.status === "reconciling" || store.status === "offline"));
+  const status = answerAccepted
+    ? store.status === "offline"
+      ? "Answer received; reconnecting to the agent…"
+      : "Answer received; agent is continuing…"
+    : !question.request || !mutationAvailable
+      ? "Waiting for authorized input."
       : store.status === "offline"
-      ? "Reconnecting; checking current question state"
-      : store.status === "reconciling" || store.status === "loading"
-        ? "Checking current question state…"
-        : store.status === "submitting"
-          ? "Submitting…"
-          : undefined;
+        ? "Reconnecting; checking current question state"
+        : store.status === "reconciling" || store.status === "loading"
+          ? "Checking current question state…"
+          : store.status === "submitting"
+            ? "Submitting…"
+            : undefined;
 
   return (
     <div
-      className="mx-4 my-3"
+      className="mx-4 my-3 min-w-0 max-w-full overflow-hidden"
       data-testid="pending-question-region"
       data-question-state={question.state}
     >
@@ -234,12 +246,16 @@ export function PendingQuestionRegion({ onUserInitiatedResolved }: PendingQuesti
             // reconnect, or unmount cannot leave plaintext in the card state.
             setDraft("");
             focusAfterQuestionId.current = questionId;
+            onAnswerSubmitted?.(questionId, value);
             void controller.resolve(questionId, value).then((committed) => {
               if (committed) return;
               const current = useUserQuestionStore.getState().snapshots[questionId];
-              if (!controller.isAccepted(questionId) &&
-                  current?.state !== "answered" &&
-                  current?.state !== "continuing") {
+              if (
+                !controller.isAccepted(questionId) &&
+                current?.state !== "answered" &&
+                current?.state !== "continuing"
+              ) {
+                onAnswerRejected?.(questionId);
                 focusAfterQuestionId.current = undefined;
               }
             });
@@ -251,26 +267,36 @@ export function PendingQuestionRegion({ onUserInitiatedResolved }: PendingQuesti
             void controller.cancel(questionId).then((committed) => {
               if (committed) return;
               const current = useUserQuestionStore.getState().snapshots[questionId];
-              if (!controller.isAccepted(questionId) &&
-                  current?.state !== "answered" &&
-                  current?.state !== "continuing") {
+              if (
+                !controller.isAccepted(questionId) &&
+                current?.state !== "answered" &&
+                current?.state !== "continuing"
+              ) {
                 focusAfterQuestionId.current = undefined;
               }
             });
           }}
           disabled={controlsDisabled || !mutationAvailable}
           submitting={store.mutationQuestionId === question.question_id}
+          loading={loading}
           error={store.error}
           status={status}
           focus={shouldFocusQuestion}
         />
       ) : (
-        <p role="status" aria-live="polite" className="rounded-md border border-border p-3 text-sm">
-          {controller.isAccepted(question.question_id) ||
-          question.state === "answered" ||
-          question.state === "continuing"
-            ? "Response accepted; agent is resuming the question."
-            : "Agent question pending. Input is unavailable until authorized question details arrive."}
+        <p
+          role="status"
+          aria-live="polite"
+          aria-busy={loading}
+          className="border-border flex items-center gap-2 rounded-md border p-3 text-sm"
+        >
+          {loading && <Spinner size="sm" className="shrink-0" aria-hidden="true" />}
+          <span>
+            {status ??
+              (answerAccepted
+                ? "Answer received; agent is continuing."
+                : "Agent question pending. Input is unavailable until authorized question details arrive.")}
+          </span>
         </p>
       )}
     </div>

@@ -13,15 +13,14 @@ import type {
   IUserQuestionService,
   UserQuestionQuery,
 } from "../factory/interfaces/IUserQuestionService.js";
+import { fetchWithAccess, type AccessSource } from "./AuthenticatedHttpRequest.js";
 
 export interface UserQuestionAccessContext {
   authToken?: string;
   identityKey?: string;
 }
 
-type UserQuestionAccessSource =
-  | UserQuestionAccessContext
-  | (() => UserQuestionAccessContext);
+export type UserQuestionAccessSource = AccessSource;
 
 export class UserQuestionHttpError extends Error {
   readonly kind: UserQuestionHttpErrorKind;
@@ -78,22 +77,15 @@ export class HttpUserQuestionAdapter implements IUserQuestionService {
     private readonly access: UserQuestionAccessSource = {}
   ) {}
 
-  private accessContext(): UserQuestionAccessContext {
-    return typeof this.access === "function" ? this.access() : this.access;
-  }
-
   private async response(path: string, init: RequestInit = {}): Promise<Response> {
     try {
-      const access = this.accessContext();
-      const response = await fetch(`${this.baseUrl}${path}`, {
+      const response = await fetchWithAccess(this.baseUrl, path, this.access, {
         ...init,
         cache: "no-store",
-        credentials: "include",
         headers: {
           Accept: "application/json",
           ...(init.body ? { "Content-Type": "application/json" } : {}),
           ...(init.headers ?? {}),
-          ...(access.authToken ? { Authorization: `Bearer ${access.authToken}` } : {}),
         },
       });
       if (response.ok) return response;

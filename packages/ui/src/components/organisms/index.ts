@@ -7,3 +7,4 @@ export { PendingQuestionRegion } from "./PendingQuestionRegion.js";
 export { UserQuestionCard } from "./UserQuestionCard.js";
 export { EpisodeBrowser } from "./EpisodeBrowser.js";
 export { RunInspector } from "./RunInspector.js";
+export { PendingToolApprovalRegion } from "./PendingToolApprovalRegion.js";

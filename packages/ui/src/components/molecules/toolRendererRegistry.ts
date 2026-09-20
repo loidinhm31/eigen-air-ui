@@ -132,11 +132,18 @@ function writeString(value: string, writer: BoundedWriter) {
 function Display({ label, shown }: { label: string; shown: ReturnType<typeof serializeBounded> }) {
   return h(
     "div",
-    null,
-    h("span", { className: "text-muted-foreground" }, `${label}: `),
-    h("pre", { className: "mt-1 overflow-x-auto whitespace-pre-wrap text-foreground" }, shown.text),
+    { className: "min-w-0 max-w-full overflow-hidden" },
+    h("span", { className: "text-muted-foreground font-semibold" }, `${label}: `),
+    h(
+      "pre",
+      {
+        className:
+          "mt-1 max-h-72 max-w-full overflow-auto rounded bg-background/50 p-2 text-foreground whitespace-pre-wrap break-words break-all text-[11px] leading-relaxed",
+      },
+      shown.text
+    ),
     shown.truncated &&
-      h("p", { className: "text-muted-foreground italic" }, `${label} truncated for display`)
+      h("p", { className: "text-muted-foreground italic text-[11px] mt-1" }, `${label} truncated for display`)
   );
 }
 
@@ -168,10 +175,10 @@ export function GenericToolRenderer({ call, result }: ToolRendererProps) {
 
   return h(
     "div",
-    { className: "space-y-2", "data-testid": "generic-tool-renderer" },
+    { className: "space-y-2 min-w-0 max-w-full overflow-hidden", "data-testid": "generic-tool-renderer" },
     h(
       "p",
-      { className: "text-muted-foreground" },
+      { className: "text-muted-foreground break-all" },
       `call id: ${typeof callId === "string" ? callId : "unavailable"}`
     ),
     h(Display, {

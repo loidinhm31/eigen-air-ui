@@ -22,6 +22,7 @@ import type {
   SessionsListResponse,
   WsEvent,
   UserQuestionUpdatedEvent,
+  ToolApprovalUpdatedEvent,
 } from "@nonclaw-ui/shared/types";
 import { decodeChatHistoryResponse, decodeChatSendResponse } from "@nonclaw-ui/shared/types";
 import { WS_METHODS } from "@nonclaw-ui/shared/constants";
@@ -73,6 +74,7 @@ export function projectRunCorrelation(event: WsEvent): RunCorrelationSignal | un
     event_id: event.event_id,
     event_seq: event.event_seq,
     occurred_at_ms: event.occurred_at_ms,
+    ...(event.session_id ? { session_id: event.session_id } : {}),
     ...(lifecycle ? { lifecycle_status: lifecycle } : {}),
     ...(snapshotRefetchRequired ? { snapshot_refetch_required: true } : {}),
   };
@@ -85,6 +87,8 @@ export class WsChatAdapter implements IChatService, ISessionService {
   private readonly runSubscribers = new Set<RunCorrelationCallback>();
   private readonly reconnectSubscribers = new Set<() => void>();
   private readonly questionSubscribers = new Set<(event: UserQuestionUpdatedEvent) => void>();
+  private readonly approvalSubscribers = new Set<(event: ToolApprovalUpdatedEvent) => void>();
+  private readonly approvalProtocolSubscribers = new Set<() => void>();
   private readonly questionProtocolSubscribers = new Set<() => void>();
   private readonly waitingHandlers = new Set<(event: WsEvent) => void>();
   private readonly accessProvider?: WsAccessProvider;
@@ -93,6 +97,9 @@ export class WsChatAdapter implements IChatService, ISessionService {
     this.accessProvider = accessProvider;
     this.client = new WsClient(wsUrl);
     this.client.onEvent((event) => {
+      if (event.event === "tool_approval.updated") {
+        this.approvalSubscribers.forEach((callback) => callback(event));
+      }
       if (event.event === "user_question.updated") {
         this.questionSubscribers.forEach((callback) => callback(event));
       }
@@ -105,6 +112,7 @@ export class WsChatAdapter implements IChatService, ISessionService {
     });
     this.client.onProtocolError(() => {
       this.questionProtocolSubscribers.forEach((callback) => callback());
+      this.approvalProtocolSubscribers.forEach((callback) => callback());
     });
     this.client.onReconnect(async (fence) => {
       try {
@@ -131,6 +139,16 @@ export class WsChatAdapter implements IChatService, ISessionService {
   subscribeUserQuestion(callback: (event: UserQuestionUpdatedEvent) => void): () => void {
     this.questionSubscribers.add(callback);
     return () => this.questionSubscribers.delete(callback);
+  }
+
+  subscribeToolApproval(callback: (event: ToolApprovalUpdatedEvent) => void): () => void {
+    this.approvalSubscribers.add(callback);
+    return () => this.approvalSubscribers.delete(callback);
+  }
+
+  onToolApprovalProtocolError(callback: () => void): () => void {
+    this.approvalProtocolSubscribers.add(callback);
+    return () => this.approvalProtocolSubscribers.delete(callback);
   }
 
   onQuestionProtocolError(callback: () => void): () => void {
@@ -170,7 +188,11 @@ export class WsChatAdapter implements IChatService, ISessionService {
   }
 
   private async authenticate(fence?: WsReconnectFence): Promise<ConnectResponse> {
-    if (this.accessProvider) this.token = this.accessProvider().authToken;
+    if (fence && this.accessProvider) {
+      this.token = this.accessProvider().authToken;
+    } else if (this.token === undefined && this.accessProvider) {
+      this.token = this.accessProvider().authToken;
+    }
     const res = await this.client.send<{ token?: string }, ConnectResponse>(
       WS_METHODS.CONNECT,
       this.token ? { token: this.token } : {},

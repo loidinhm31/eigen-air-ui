@@ -1,11 +1,15 @@
 import type { IToolService } from "../factory/interfaces/IToolService.js";
 import type { Tool, ToolInvokeResult } from "@nonclaw-ui/shared/types";
+import { fetchWithAccess, type AccessSource } from "./AuthenticatedHttpRequest.js";
 
 export class HttpToolAdapter implements IToolService {
-  constructor(private readonly baseUrl: string) {}
+  constructor(
+    private readonly baseUrl: string,
+    private readonly access?: AccessSource
+  ) {}
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, init);
+    const res = await fetchWithAccess(this.baseUrl, path, this.access, init);
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error((err as { message?: string }).message ?? `Request failed: ${res.status}`);

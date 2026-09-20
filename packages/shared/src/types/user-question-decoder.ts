@@ -1,4 +1,4 @@
-import type { ChatMessage, RunSnapshotDto } from "./api.js";
+import type { ChatDebugData, ChatMessage, RunSnapshotDto, ToolCallItem } from "./api.js";
 import type { ChatCompletedResponse, ChatWaitingForInputResponse } from "./user-question.js";
 import type {
   UserQuestionAnswer,
@@ -15,6 +15,7 @@ import type {
 import { USER_QUESTION_SCHEMA } from "./user-question.js";
 import type { ChatHistoryResponse, WsEvent, WsFrame, WsRes } from "./ws.js";
 import { decodeTaskProgressSnapshot } from "./task-progress-decoder.js";
+import { decodeToolApprovalEvent } from "./tool-approval-decoder.js";
 
 const MAX_WS_FRAME_BYTES = 64 * 1024;
 const MAX_ID_BYTES = 512;
@@ -306,20 +307,90 @@ export function decodeUserQuestionAnswer(
 }
 
 function decodeChatMessage(value: unknown): ChatMessage {
-  if (!isRecord(value) || !hasOnlyKeys(value, ["id", "role", "content", "debug"])) fail();
   if (
-    value.id !== undefined && !isNonEmptyString(value.id, MAX_ID_BYTES) ||
-    !["user", "assistant", "system"].includes(value.role as string) ||
-    !isNonEmptyString(value.content, MAX_HISTORY_CONTENT_BYTES)
+    !isRecord(value) ||
+    !hasOnlyKeys(value, ["id", "role", "content", "debug", "tool_calls", "tool_call_id"])
   ) {
     fail();
   }
-  // G3 asks only for a history barrier. Debug payloads are optional and are
-  // deliberately ignored here so they cannot become a question-state input.
+  if (
+    (value.id !== undefined && !isNonEmptyString(value.id, MAX_ID_BYTES)) ||
+    !["user", "assistant", "system", "tool"].includes(value.role as string) ||
+    typeof value.content !== "string" ||
+    utf8Bytes(value.content) > MAX_HISTORY_CONTENT_BYTES
+  ) {
+    fail();
+  }
+  if (value.tool_call_id !== undefined && !isNonEmptyString(value.tool_call_id, MAX_ID_BYTES)) {
+    fail();
+  }
+  let toolCalls: ToolCallItem[] | undefined;
+  if (value.tool_calls !== undefined) {
+    if (!Array.isArray(value.tool_calls) || value.tool_calls.length > 64) fail();
+    toolCalls = value.tool_calls.map((call) => {
+      if (
+        !isRecord(call) ||
+        !hasOnlyKeys(call, ["id", "name", "arguments"]) ||
+        !isNonEmptyString(call.id, MAX_ID_BYTES) ||
+        !isNonEmptyString(call.name, 256)
+      ) {
+        fail();
+      }
+      return {
+        id: call.id as string,
+        name: call.name as string,
+        arguments: call.arguments,
+      };
+    });
+  }
+  let debug: ChatDebugData | undefined;
+  if (value.debug !== undefined && value.debug !== null) {
+    if (
+      !isRecord(value.debug) ||
+      !hasOnlyKeys(value.debug, [
+        "provider",
+        "model",
+        "active_skill",
+        "system_prompt",
+        "reasoning",
+      ]) ||
+      !boundedRunString(value.debug.provider) ||
+      !boundedRunString(value.debug.model)
+    ) {
+      fail();
+    }
+    if (value.debug.active_skill !== undefined && value.debug.active_skill !== null) {
+      if (
+        !isRecord(value.debug.active_skill) ||
+        !hasOnlyKeys(value.debug.active_skill, ["name", "score"]) ||
+        !boundedRunString(value.debug.active_skill.name) ||
+        typeof value.debug.active_skill.score !== "number" ||
+        !Number.isFinite(value.debug.active_skill.score)
+      ) {
+        fail();
+      }
+    }
+    if (!nullableRunString(value.debug.system_prompt)) fail();
+    if (value.debug.reasoning !== undefined && value.debug.reasoning !== null) {
+      if (
+        !isRecord(value.debug.reasoning) ||
+        !hasOnlyKeys(value.debug.reasoning, ["requested", "available", "text"]) ||
+        typeof value.debug.reasoning.requested !== "boolean" ||
+        typeof value.debug.reasoning.available !== "boolean" ||
+        !nullableRunString(value.debug.reasoning.text)
+      ) {
+        fail();
+      }
+    }
+    debug = value.debug as unknown as ChatDebugData;
+  }
   return {
     ...(value.id !== undefined ? { id: value.id as string } : {}),
     role: value.role as ChatMessage["role"],
     content: value.content as string,
+    ...(toolCalls !== undefined ? { tool_calls: toolCalls } : {}),
+    ...(value.tool_call_id !== undefined ? { tool_call_id: value.tool_call_id as string } : {}),
+    ...(debug !== undefined ? { debug } : {}),
   };
 }
 
@@ -622,8 +693,6 @@ export function decodeUserQuestionEvent(value: unknown): UserQuestionUpdatedEven
     fail();
   if (
     value.type !== "event" ||
-    value.version !== "v1" ||
-    value.event !== "user_question.updated" ||
     !isRecord(value.payload)
   )
     fail();
@@ -693,6 +762,7 @@ export function decodeWsFrame(value: unknown): WsFrame | undefined {
   if (value.type === "res") return decodeResponse(value) as WsRes;
   if (value.type !== "event") return undefined;
   if (value.event === "user_question.updated") return decodeUserQuestionEvent(value);
+  if (value.event === "tool_approval.updated") return decodeToolApprovalEvent(value);
   if (value.event === "task_progress.updated") return value as unknown as WsEvent;
   if (typeof value.event !== "string" || !isRecord(value.payload)) return undefined;
   return value as unknown as WsEvent;

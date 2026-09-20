@@ -2,7 +2,7 @@
 
 import type { TaskProgressSnapshotDto } from "./task-progress.js";
 
-export type MessageRole = "user" | "assistant" | "system";
+export type MessageRole = "user" | "assistant" | "system" | "tool";
 
 export interface ChatDebugSkill {
   name: string;
@@ -23,10 +23,18 @@ export interface ChatDebugData {
   reasoning?: ChatDebugReasoning | null;
 }
 
+export interface ToolCallItem {
+  id: string;
+  name: string;
+  arguments?: unknown;
+}
+
 export interface ChatMessage {
   id?: string;
   role: MessageRole;
   content: string;
+  tool_calls?: ToolCallItem[];
+  tool_call_id?: string;
   debug?: ChatDebugData;
 }
 
