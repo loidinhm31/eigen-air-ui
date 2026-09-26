@@ -24,6 +24,7 @@ const mockChatDisconnect = vi.fn();
 const mockConfigHealth = vi.fn();
 const mockConfigGetConfig = vi.fn();
 const mockConfigGetStatus = vi.fn();
+const mockConfigGetReadiness = vi.fn();
 
 vi.mock("../../adapters/factory/ServiceFactory.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../adapters/factory/ServiceFactory.js")>();
@@ -44,6 +45,7 @@ vi.mock("../../adapters/factory/ServiceFactory.js", async (importOriginal) => {
       health: mockConfigHealth,
       getConfig: mockConfigGetConfig,
       getStatus: mockConfigGetStatus,
+      getReadiness: mockConfigGetReadiness,
     }),
   };
 });
@@ -71,6 +73,11 @@ beforeEach(() => {
     model: "claude-3-7-sonnet",
     uptime_secs: 120,
     memory_count: 5,
+  });
+  mockConfigGetReadiness.mockResolvedValue({
+    status: "ready",
+    retryable: false,
+    details: { stages: [] },
   });
   mockChatConnect.mockResolvedValue({
     version: "0.2.0",

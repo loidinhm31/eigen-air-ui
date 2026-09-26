@@ -7,6 +7,7 @@ import { STORAGE_KEYS } from "@nonclaw-ui/shared/constants";
 import { useChatStore } from "../../stores/chatStore.js";
 import { useConnectionStore } from "../../stores/connectionStore.js";
 import { useDebugSettingsStore } from "../../stores/debugSettingsStore.js";
+import { useReadinessStore } from "../../stores/readinessStore.js";
 import { ChatPanel } from "./ChatPanel.js";
 
 const serviceMocks = vi.hoisted(() => ({
@@ -135,6 +136,12 @@ describe("ChatPanel selected skill lifecycle", () => {
     useDebugSettingsStore.setState({
       showPromptDebug: false,
       showReasoningDebug: false,
+    });
+    useReadinessStore.setState({
+      phase: "ready",
+      canInfer: true,
+      snapshot: { status: "ready", retryable: false, details: { stages: [] } },
+      error: null,
     });
   });
 
@@ -399,5 +406,49 @@ describe("ChatPanel selected skill lifecycle", () => {
     expect(persisted).not.toContain("live-prompt-fixture");
     expect(persisted).not.toContain("live-reasoning-fixture");
     expect(JSON.parse(persisted).state.messages.at(-1).debug).toBeUndefined();
+  });
+
+  it("blocks composer and displays loading placeholder when model is starting", () => {
+    useReadinessStore.setState({
+      phase: "starting",
+      canInfer: false,
+      snapshot: {
+        status: "starting",
+        retryable: true,
+        details: { stages: [{ name: "model_load", status: "running" }] },
+      },
+      error: null,
+    });
+    render(<ChatPanel />);
+
+    const composer = screen.getByPlaceholderText("Model is loading...");
+    expect(composer.hasAttribute("disabled")).toBe(true);
+    const sendBtn = screen.getByRole("button", { name: "Send" });
+    expect(sendBtn.hasAttribute("disabled")).toBe(true);
+  });
+
+  it("blocks composer and displays disconnected placeholder when disconnected", () => {
+    useConnectionStore.setState({ status: "disconnected" });
+    render(<ChatPanel />);
+
+    const composer = screen.getByPlaceholderText("Connect to nonclaw to start...");
+    expect(composer.hasAttribute("disabled")).toBe(true);
+    const sendBtn = screen.getByRole("button", { name: "Send" });
+    expect(sendBtn.hasAttribute("disabled")).toBe(true);
+  });
+
+  it("restores input draft when message submission fails", async () => {
+    serviceMocks.sendMessage.mockRejectedValue(new Error("Provider is starting; retry shortly."));
+    const user = userEvent.setup();
+    render(<ChatPanel />);
+
+    const composer = screen.getByPlaceholderText("Message nonclaw...");
+    await user.type(composer, "my important question");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByText(/Provider is starting; retry shortly\./)).toBeTruthy();
+    const inputEl = screen.getByPlaceholderText("Message nonclaw...") as HTMLInputElement;
+    expect(inputEl.value).toBe("my important question");
+    expect(useChatStore.getState().messages).toHaveLength(0);
   });
 });

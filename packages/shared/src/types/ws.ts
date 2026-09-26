@@ -15,6 +15,7 @@ import type {
   UserQuestionUpdatedEvent,
 } from "./user-question.js";
 import type { ToolApprovalUpdatedEvent } from "./tool-approval.js";
+import type { ProviderReadinessSnapshot } from "./readiness.js";
 
 // --- Frame types ---
 
@@ -177,6 +178,7 @@ export interface AgentStatusResponse {
   model: string;
   uptime_secs: number;
   memory_count: number;
+  readiness?: ProviderReadinessSnapshot;
 }
 
 export type ChatSendResponse = ChatCompletedResponse | ChatWaitingForInputResponse;

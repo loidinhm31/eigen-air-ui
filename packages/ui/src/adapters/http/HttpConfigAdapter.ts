@@ -1,5 +1,5 @@
 import type { IConfigService } from "../factory/interfaces/IConfigService.js";
-import type { HealthStatus, ServerConfig, AgentStatusResponse } from "@nonclaw-ui/shared/types";
+import type { HealthStatus, ServerConfig, AgentStatusResponse, ProviderReadinessSnapshot } from "@nonclaw-ui/shared/types";
 import { fetchWithAccess, type AccessSource, type HttpRequestMode } from "./AuthenticatedHttpRequest.js";
 
 export class HttpConfigAdapter implements IConfigService {
@@ -26,7 +26,25 @@ export class HttpConfigAdapter implements IConfigService {
   }
 
   getStatus(): Promise<AgentStatusResponse> {
-    return this.request("/v1/agents/default");
+    return this.request("/v1/status");
+  }
+
+  async getReadiness(signal?: AbortSignal): Promise<ProviderReadinessSnapshot> {
+    const res = await fetchWithAccess(
+      this.baseUrl,
+      "/readyz",
+      this.access,
+      { cache: "no-store", signal },
+      "public"
+    );
+    if (res.status !== 200 && res.status !== 503) {
+      const err = await res.json().catch(() => null);
+      const msg = err && typeof err === "object" && "message" in err && typeof err.message === "string"
+        ? err.message
+        : undefined;
+      throw new Error(msg ?? `Readiness check failed: ${res.status}`);
+    }
+    return (await res.json()) as ProviderReadinessSnapshot;
   }
 }
 

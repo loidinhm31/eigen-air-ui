@@ -14,6 +14,7 @@ interface ChatStore {
   streamStatus: string | null;
   streamError: string | null;
   addMessage(msg: ChatMessage): void;
+  removeMessage(id: string): void;
   replaceMessages(messages: ChatMessage[]): void;
   beginStream(status?: string): void;
   appendChunk(chunk: string): void;
@@ -92,6 +93,11 @@ export const useChatStore = create<ChatStore>()(
       addMessage: (msg) =>
         set((s) => ({
           messages: [...s.messages, msg].slice(-MAX_PERSISTED_MESSAGES),
+          messageRevision: s.messageRevision + 1,
+        })),
+      removeMessage: (id) =>
+        set((s) => ({
+          messages: s.messages.filter((m) => m.id !== id),
           messageRevision: s.messageRevision + 1,
         })),
       replaceMessages: (messages) =>

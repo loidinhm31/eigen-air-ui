@@ -48,6 +48,7 @@ export function ChatPanel() {
     streamStatus,
     streamError,
     addMessage,
+    removeMessage,
     replaceMessages,
     beginStream,
     appendChunk,
@@ -78,9 +79,21 @@ export function ChatPanel() {
   const canInfer = useReadinessStore((state) => state.canInfer);
   const retryReadiness = useReadinessStore((state) => state.retry);
 
-  const readinessBlocksComposer = readinessPhase !== "idle" && !canInfer;
+  const isConnected = connectionStatus === "connected";
+  const readinessBlocksComposer =
+    !isConnected || !canInfer || (readinessPhase !== "ready" && readinessPhase !== "degraded_cpu");
   const composerBlocked =
-    questionBlocksComposer || approvalBlocksComposer || readinessBlocksComposer;
+    !isConnected || questionBlocksComposer || approvalBlocksComposer || readinessBlocksComposer;
+  const composerPlaceholder =
+    connectionStatus === "connecting"
+      ? "Connecting to nonclaw..."
+      : connectionStatus === "disconnected"
+      ? "Connect to nonclaw to start..."
+      : readinessPhase === "failed"
+      ? "Model unavailable"
+      : readinessBlocksComposer
+      ? "Model is loading..."
+      : "Message nonclaw...";
   const setSessionId = useConnectionStore((state) => state.setSessionId);
   const showPromptDebug = useDebugSettingsStore((state) => state.showPromptDebug);
   const showReasoningDebug = useDebugSettingsStore((state) => state.showReasoningDebug);
@@ -261,16 +274,20 @@ export function ChatPanel() {
     showReasoningDebug,
   ]);
 
-  async function sendPrompt(msg: string, allowToolLimitContinue = false, selectedSkillId?: string) {
-    if (!msg.trim() || isStreaming || composerBlocked) return;
+  async function sendPrompt(
+    msg: string,
+    allowToolLimitContinue = false,
+    selectedSkillId?: string
+  ): Promise<boolean> {
+    if (!msg.trim() || isStreaming || composerBlocked) return false;
     setToolCalls({});
     setToolResults({});
     setMemoryNotice(null);
     setLimitContinuePrompt(null);
     updateStreamingDebug(undefined);
-    addMessage({ role: "user", content: msg });
+    const clientMsgId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    addMessage({ id: clientMsgId, role: "user", content: msg });
     beginStream("Submitting message...");
-
     let latestRunId: string | undefined;
     const chosenSkill = selectedSkillId
       ? skills.find((skill) => skill.id === selectedSkillId)
@@ -333,7 +350,7 @@ export function ChatPanel() {
       if (!("content" in result)) {
         finishStream();
         updateStreamingDebug(undefined);
-        return;
+        return true;
       }
       let finalDebug = result.debug ?? streamingDebugRef.current;
       if (!finalDebug && (debug || showPromptDebug || showReasoningDebug) && latestRunId) {
@@ -402,9 +419,14 @@ export function ChatPanel() {
       } else if (result.memory_reason === "sensitive_content") {
         setMemoryNotice("Memory not saved because the transcript may contain sensitive content");
       }
+      return true;
     } catch (e) {
       updateStreamingDebug(undefined);
       setStreamError(String(e));
+      if (!latestRunId) {
+        removeMessage(clientMsgId);
+      }
+      return false;
     }
   }
 
@@ -415,7 +437,10 @@ export function ChatPanel() {
     setInput("");
     setSelectedSkill(null);
     setPaletteOpen(false);
-    await sendPrompt(msg, false, selectedSkillId);
+    const accepted = await sendPrompt(msg, false, selectedSkillId);
+    if (!accepted) {
+      setInput((current) => (current ? current : msg));
+    }
   }
 
   function handlePaletteSelect(outcome: PaletteSelection) {
@@ -625,7 +650,7 @@ export function ChatPanel() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleComposerKeyDown}
-            placeholder={readinessBlocksComposer ? "Model is loading..." : "Message nonclaw..."}
+            placeholder={composerPlaceholder}
             disabled={isStreaming || composerBlocked}
             className="flex-1"
           />
