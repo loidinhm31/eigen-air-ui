@@ -1,10 +1,10 @@
 {
-  "extends": "@nonclaw-ui/tsconfig/react-library.json",
+  "extends": "@eigen-air-ui/tsconfig/react-library.json",
   "compilerOptions": {
     "rootDir": "./src",
     "outDir": "./dist",
     "baseUrl": ".",
-    "paths": { "@nonclaw-ui/ui/*": ["./src/*"] }
+    "paths": { "@eigen-air-ui/ui/*": ["./src/*"] }
   },
   "include": ["src"]
 }

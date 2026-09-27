@@ -3,8 +3,8 @@ import type {
   UserQuestionListResponse,
   UserQuestionMutationResponse,
   UserQuestionSnapshot,
-} from "@nonclaw-ui/shared/types";
-import type { RunSnapshotDto } from "@nonclaw-ui/shared/types";
+} from "@eigen-air-ui/shared/types";
+import type { RunSnapshotDto } from "@eigen-air-ui/shared/types";
 import type { IUserQuestionService } from "../../adapters/factory/interfaces/IUserQuestionService.js";
 import { UserQuestionHttpError } from "../../adapters/http/HttpUserQuestionAdapter.js";
 import { useUserQuestionStore } from "../../stores/userQuestionStore.js";

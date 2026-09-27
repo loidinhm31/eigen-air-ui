@@ -6,7 +6,7 @@ import { Input } from "../atoms/Input.js";
 import { Button } from "../atoms/Button.js";
 import { Spinner } from "../atoms/Spinner.js";
 import { ScrollArea } from "../atoms/ScrollArea.js";
-import type { Skill, SkillSearchResult } from "@nonclaw-ui/shared/types";
+import type { Skill, SkillSearchResult } from "@eigen-air-ui/shared/types";
 
 export function SkillBrowser() {
   const [query, setQuery] = useState("");

@@ -23,9 +23,9 @@ import type {
   WsEvent,
   UserQuestionUpdatedEvent,
   ToolApprovalUpdatedEvent,
-} from "@nonclaw-ui/shared/types";
-import { decodeChatHistoryResponse, decodeChatSendResponse } from "@nonclaw-ui/shared/types";
-import { WS_METHODS } from "@nonclaw-ui/shared/constants";
+} from "@eigen-air-ui/shared/types";
+import { decodeChatHistoryResponse, decodeChatSendResponse } from "@eigen-air-ui/shared/types";
+import { WS_METHODS } from "@eigen-air-ui/shared/constants";
 import { useConnectionStore } from "../../stores/connectionStore.js";
 
 type WsAccessProvider = () => { authToken?: string };

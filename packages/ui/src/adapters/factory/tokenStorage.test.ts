@@ -7,7 +7,7 @@ import {
   clearStoredAuthToken,
   computeExpiresAt,
 } from "./tokenStorage.js";
-import { STORAGE_KEYS } from "@nonclaw-ui/shared/constants";
+import { STORAGE_KEYS } from "@eigen-air-ui/shared/constants";
 
 beforeEach(() => {
   localStorage.clear();

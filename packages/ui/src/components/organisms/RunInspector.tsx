@@ -1,4 +1,4 @@
-import type { RunSnapshotDto } from "@nonclaw-ui/shared/types";
+import type { RunSnapshotDto } from "@eigen-air-ui/shared/types";
 import { RunTimeline } from "../molecules/RunTimeline.js";
 import { MemoryLineagePanel } from "../molecules/MemoryLineagePanel.js";
 

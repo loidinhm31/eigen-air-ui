@@ -6,7 +6,7 @@ import type {
   UserQuestionUpdatedEvent,
   ToolApprovalUpdatedEvent,
   WsEvent,
-} from "@nonclaw-ui/shared/types";
+} from "@eigen-air-ui/shared/types";
 
 export type StreamEventCallback = (event: WsEvent) => void;
 /** Correlation-only event: no payload/debug is retained by the Runs bridge. */

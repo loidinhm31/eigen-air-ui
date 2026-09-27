@@ -1,6 +1,6 @@
 import * as React from "react";
-import { cn, buildDebugTrace, copyDebugTrace } from "@nonclaw-ui/shared/utils";
-import type { ChatMessage } from "@nonclaw-ui/shared/types";
+import { cn, buildDebugTrace, copyDebugTrace } from "@eigen-air-ui/shared/utils";
+import type { ChatMessage } from "@eigen-air-ui/shared/types";
 import { Check, Copy } from "lucide-react";
 import { useDebugSettingsStore } from "../../stores/debugSettingsStore.js";
 import { useConnectionStore } from "../../stores/connectionStore.js";

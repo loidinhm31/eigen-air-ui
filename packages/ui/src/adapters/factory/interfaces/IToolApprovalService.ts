@@ -2,7 +2,7 @@ import type {
   ToolApprovalListResponse,
   ToolApprovalResolveDecision,
   ToolApprovalSnapshot,
-} from "@nonclaw-ui/shared/types";
+} from "@eigen-air-ui/shared/types";
 
 export interface ToolApprovalListQuery {
   sessionId: string;

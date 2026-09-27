@@ -3,7 +3,7 @@ import * as React from "react";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { STORAGE_KEYS } from "@nonclaw-ui/shared/constants";
+import { STORAGE_KEYS } from "@eigen-air-ui/shared/constants";
 import { useChatStore } from "../../stores/chatStore.js";
 import { useConnectionStore } from "../../stores/connectionStore.js";
 import { useDebugSettingsStore } from "../../stores/debugSettingsStore.js";

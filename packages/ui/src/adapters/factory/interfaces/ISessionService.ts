@@ -1,4 +1,4 @@
-import type { Session } from "@nonclaw-ui/shared/types";
+import type { Session } from "@eigen-air-ui/shared/types";
 
 export interface ISessionService {
   listSessions(): Promise<Session[]>;

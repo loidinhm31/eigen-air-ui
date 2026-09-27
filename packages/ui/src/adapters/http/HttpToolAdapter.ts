@@ -1,5 +1,5 @@
 import type { IToolService } from "../factory/interfaces/IToolService.js";
-import type { Tool, ToolInvokeResult } from "@nonclaw-ui/shared/types";
+import type { Tool, ToolInvokeResult } from "@eigen-air-ui/shared/types";
 import { fetchWithAccess, type AccessSource } from "./AuthenticatedHttpRequest.js";
 
 export class HttpToolAdapter implements IToolService {

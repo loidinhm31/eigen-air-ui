@@ -2,7 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ToolApprovalSnapshot } from "@nonclaw-ui/shared/types";
+import type { ToolApprovalSnapshot } from "@eigen-air-ui/shared/types";
 import { ToolApprovalCard, type ToolApprovalCardProps } from "./ToolApprovalCard.js";
 
 afterEach(cleanup);

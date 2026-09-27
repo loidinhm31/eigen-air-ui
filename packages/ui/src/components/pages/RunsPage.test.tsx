@@ -3,7 +3,7 @@ import * as React from "react";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { RunSnapshotDto, RunSummaryDto } from "@nonclaw-ui/shared/types";
+import type { RunSnapshotDto, RunSummaryDto } from "@eigen-air-ui/shared/types";
 import { useConnectionStore } from "../../stores/connectionStore.js";
 import { useRunInspectorStore } from "../../stores/runInspectorStore.js";
 import { RunsPage } from "./RunsPage.js";

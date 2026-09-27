@@ -1,5 +1,5 @@
 import type { IConfigService } from "../factory/interfaces/IConfigService.js";
-import type { HealthStatus, ServerConfig, AgentStatusResponse, ProviderReadinessSnapshot } from "@nonclaw-ui/shared/types";
+import type { HealthStatus, ServerConfig, AgentStatusResponse, ProviderReadinessSnapshot } from "@eigen-air-ui/shared/types";
 import { fetchWithAccess, type AccessSource, type HttpRequestMode } from "./AuthenticatedHttpRequest.js";
 
 export class HttpConfigAdapter implements IConfigService {

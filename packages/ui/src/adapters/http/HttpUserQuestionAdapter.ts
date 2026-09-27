@@ -8,7 +8,7 @@ import {
   type UserQuestionListResponse,
   type UserQuestionMutationResponse,
   type UserQuestionSnapshot,
-} from "@nonclaw-ui/shared/types";
+} from "@eigen-air-ui/shared/types";
 import type {
   IUserQuestionService,
   UserQuestionQuery,

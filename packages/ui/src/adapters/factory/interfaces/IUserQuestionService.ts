@@ -3,7 +3,7 @@ import type {
   UserQuestionListResponse,
   UserQuestionMutationResponse,
   UserQuestionSnapshot,
-} from "@nonclaw-ui/shared/types";
+} from "@eigen-air-ui/shared/types";
 
 export interface UserQuestionQuery {
   sessionId: string;

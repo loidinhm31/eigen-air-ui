@@ -1,8 +1,8 @@
 import { useEffect } from "react";
 import { BrowserRouter } from "react-router-dom";
-import { NonclawApp } from "@nonclaw-ui/ui/embed";
-import { getConfigService, getChatService } from "@nonclaw-ui/ui";
-import { useConnectionStore } from "@nonclaw-ui/ui/stores";
+import { NonclawApp } from "@eigen-air-ui/ui/embed";
+import { getConfigService, getChatService } from "@eigen-air-ui/ui";
+import { useConnectionStore } from "@eigen-air-ui/ui/stores";
 
 /** Delays in ms between successive health-check retries (5 total attempts). */
 const RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000];

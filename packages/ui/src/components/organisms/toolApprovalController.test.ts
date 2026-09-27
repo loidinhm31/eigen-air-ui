@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   ToolApprovalListResponse,
   ToolApprovalSnapshot,
-} from "@nonclaw-ui/shared/types";
+} from "@eigen-air-ui/shared/types";
 import type { IToolApprovalService } from "../../adapters/factory/interfaces/IToolApprovalService.js";
 import { ToolApprovalHttpError } from "../../adapters/http/HttpToolApprovalAdapter.js";
 import { useToolApprovalStore } from "../../stores/toolApprovalStore.js";

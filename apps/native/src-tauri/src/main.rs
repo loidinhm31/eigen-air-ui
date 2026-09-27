@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    nonclaw_ui_app_lib::run()
+    eigen_air_ui_app_lib::run()
 }

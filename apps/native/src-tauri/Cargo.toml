@@ -1,12 +1,12 @@
 [package]
-name = "nonclaw-ui-app"
+name = "eigen-air-ui-app"
 version = "0.1.0"
-description = "nonclaw Desktop UI"
+description = "eigen-air Desktop UI"
 authors = []
 edition = "2021"
 
 [lib]
-name = "nonclaw_ui_app_lib"
+name = "eigen_air_ui_app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -21,3 +21,5 @@ serde_json = "1"
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+
+[workspace]

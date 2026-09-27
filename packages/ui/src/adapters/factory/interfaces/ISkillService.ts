@@ -1,4 +1,4 @@
-import type { Skill, SkillSearchResult } from "@nonclaw-ui/shared/types";
+import type { Skill, SkillSearchResult } from "@eigen-air-ui/shared/types";
 
 export interface ISkillService {
   list(): Promise<Skill[]>;

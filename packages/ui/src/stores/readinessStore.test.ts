@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useReadinessStore } from "./readinessStore.js";
-import type { ProviderReadinessSnapshot } from "@nonclaw-ui/shared/types";
+import type { ProviderReadinessSnapshot } from "@eigen-air-ui/shared/types";
 
 describe("readinessStore", () => {
   beforeEach(() => {

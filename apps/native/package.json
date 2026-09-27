@@ -1,5 +1,5 @@
 {
-  "name": "@nonclaw-ui/native",
+  "name": "@eigen-air-ui/native",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -11,8 +11,8 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@nonclaw-ui/shared": "workspace:*",
-    "@nonclaw-ui/ui": "workspace:*",
+    "@eigen-air-ui/shared": "workspace:*",
+    "@eigen-air-ui/ui": "workspace:*",
     "@tauri-apps/api": "^2.5.0",
     "@tauri-apps/plugin-opener": "^2.3.0",
     "react": "^19.1.0",
@@ -20,8 +20,8 @@
     "react-router-dom": "^7.5.3"
   },
   "devDependencies": {
-    "@nonclaw-ui/eslint-config": "workspace:*",
-    "@nonclaw-ui/tsconfig": "workspace:*",
+    "@eigen-air-ui/eslint-config": "workspace:*",
+    "@eigen-air-ui/tsconfig": "workspace:*",
     "@tailwindcss/vite": "^4.1.17",
     "@tauri-apps/cli": "^2.5.0",
     "@types/react": "^19.1.6",

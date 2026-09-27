@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { UserQuestionSnapshot, UserQuestionUpdatedEvent } from "@nonclaw-ui/shared/types";
+import type { UserQuestionSnapshot, UserQuestionUpdatedEvent } from "@eigen-air-ui/shared/types";
 import {
   pendingQuestionSnapshot,
   reconcileUserQuestionEvent,

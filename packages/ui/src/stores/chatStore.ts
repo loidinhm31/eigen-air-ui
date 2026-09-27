@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import type { ChatMessage } from "@nonclaw-ui/shared/types";
-import { STORAGE_KEYS } from "@nonclaw-ui/shared/constants";
+import type { ChatMessage } from "@eigen-air-ui/shared/types";
+import { STORAGE_KEYS } from "@eigen-air-ui/shared/constants";
 
 const MAX_PERSISTED_MESSAGES = 200;
 const DEFAULT_STREAM_STATUS = "Working on it...";

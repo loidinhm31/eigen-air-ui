@@ -1,5 +1,5 @@
 {
-  "extends": "@nonclaw-ui/tsconfig/base.json",
+  "extends": "@eigen-air-ui/tsconfig/base.json",
   "compilerOptions": {
     "rootDir": "./src",
     "outDir": "./dist",

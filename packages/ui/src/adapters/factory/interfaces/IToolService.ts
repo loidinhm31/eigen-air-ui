@@ -1,4 +1,4 @@
-import type { Tool, ToolInvokeResult } from "@nonclaw-ui/shared/types";
+import type { Tool, ToolInvokeResult } from "@eigen-air-ui/shared/types";
 
 export interface IToolService {
   list(): Promise<Tool[]>;

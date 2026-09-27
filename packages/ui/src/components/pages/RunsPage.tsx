@@ -1,5 +1,5 @@
 import * as React from "react";
-import type { RunEventDto, RunSummaryDto } from "@nonclaw-ui/shared/types";
+import type { RunEventDto, RunSummaryDto } from "@eigen-air-ui/shared/types";
 import { HttpRunAdapter, type RunAccessContext } from "../../adapters/http/HttpRunAdapter.js";
 import { getChatService, getServiceAccessContext } from "../../adapters/factory/ServiceFactory.js";
 import { useConnectionStore } from "../../stores/connectionStore.js";

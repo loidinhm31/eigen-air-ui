@@ -13,12 +13,12 @@ import {
   saveStoredAuthToken,
   clearStoredAuthToken,
 } from "../../adapters/factory/tokenStorage.js";
-import type { TokenRetention } from "@nonclaw-ui/shared/constants";
+import type { TokenRetention } from "@eigen-air-ui/shared/constants";
 import { Input } from "../atoms/Input.js";
 import { Button } from "../atoms/Button.js";
 import { Badge } from "../atoms/Badge.js";
 import { Card, CardContent, CardHeader, CardTitle } from "../atoms/Card.js";
-import type { ServerConfig, AgentStatusResponse } from "@nonclaw-ui/shared/types";
+import type { ServerConfig, AgentStatusResponse } from "@eigen-air-ui/shared/types";
 import { ConnectionMetadataCards } from "./ConnectionMetadataCards.js";
 
 export interface ConnectionStatusProps {

@@ -1,4 +1,4 @@
-import type { RunListResponseDto, RunSnapshotDto } from "@nonclaw-ui/shared/types";
+import type { RunListResponseDto, RunSnapshotDto } from "@eigen-air-ui/shared/types";
 import {
   fetchWithAccess,
   type AccessContext,

@@ -1,4 +1,4 @@
-import type { Skill } from "@nonclaw-ui/shared/types";
+import type { Skill } from "@eigen-air-ui/shared/types";
 
 export const BUILT_IN_COMMANDS = [
   {

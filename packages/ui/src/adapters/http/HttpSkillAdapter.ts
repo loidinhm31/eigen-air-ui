@@ -1,5 +1,5 @@
 import type { ISkillService } from "../factory/interfaces/ISkillService.js";
-import type { Skill, SkillSearchResult } from "@nonclaw-ui/shared/types";
+import type { Skill, SkillSearchResult } from "@eigen-air-ui/shared/types";
 import { fetchWithAccess, type AccessSource } from "./AuthenticatedHttpRequest.js";
 
 export class HttpSkillAdapter implements ISkillService {

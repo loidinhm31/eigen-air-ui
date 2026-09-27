@@ -4,7 +4,7 @@ import type {
   ToolApprovalSafeSummary,
   ToolApprovalProgramSafeSummary,
   ToolApprovalTemplateSafeSummary,
-} from "@nonclaw-ui/shared/types";
+} from "@eigen-air-ui/shared/types";
 import { Button } from "../atoms/Button.js";
 import { Spinner } from "../atoms/Spinner.js";
 

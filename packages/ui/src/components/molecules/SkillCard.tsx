@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Badge } from "../atoms/Badge.js";
-import type { Skill, SkillSearchResult } from "@nonclaw-ui/shared/types";
+import type { Skill, SkillSearchResult } from "@eigen-air-ui/shared/types";
 
 type Props =
   | { skill: Skill; score?: never }

@@ -2,7 +2,7 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { RunSnapshotDto } from "@nonclaw-ui/shared/types";
+import type { RunSnapshotDto } from "@eigen-air-ui/shared/types";
 import { RunInspector } from "./RunInspector.js";
 
 function fixture(): RunSnapshotDto {

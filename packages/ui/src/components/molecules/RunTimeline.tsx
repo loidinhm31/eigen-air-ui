@@ -1,4 +1,4 @@
-import type { RunEventDto } from "@nonclaw-ui/shared/types";
+import type { RunEventDto } from "@eigen-air-ui/shared/types";
 
 function timestamp(ms: number) {
   return new Date(ms).toLocaleString();

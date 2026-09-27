@@ -1,4 +1,4 @@
-import type { RunMemoryLineageDto } from "@nonclaw-ui/shared/types";
+import type { RunMemoryLineageDto } from "@eigen-air-ui/shared/types";
 
 export function MemoryLineagePanel({ lineage }: { lineage: RunMemoryLineageDto[] }) {
   return (

@@ -1,2 +1,2 @@
-import { config } from "@nonclaw-ui/eslint-config/base";
+import { config } from "@eigen-air-ui/eslint-config/base";
 export default config;

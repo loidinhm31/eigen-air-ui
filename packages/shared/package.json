@@ -1,5 +1,5 @@
 {
-  "name": "@nonclaw-ui/shared",
+  "name": "@eigen-air-ui/shared",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -19,8 +19,8 @@
     "tailwind-merge": "^3.3.0"
   },
   "devDependencies": {
-    "@nonclaw-ui/eslint-config": "workspace:*",
-    "@nonclaw-ui/tsconfig": "workspace:*",
+    "@eigen-air-ui/eslint-config": "workspace:*",
+    "@eigen-air-ui/tsconfig": "workspace:*",
     "typescript": "^5.8.3"
   }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { RunEventDto, RunSnapshotDto } from "@nonclaw-ui/shared/types";
+import type { RunEventDto, RunSnapshotDto } from "@eigen-air-ui/shared/types";
 import {
   applyRunEvent,
   installSnapshot,

@@ -1,4 +1,4 @@
-import { STORAGE_KEYS, type TokenRetention, type StoredTokenPayload } from "@nonclaw-ui/shared/constants";
+import { STORAGE_KEYS, type TokenRetention, type StoredTokenPayload } from "@eigen-air-ui/shared/constants";
 
 const RETENTION_MS_MAP: Record<Exclude<TokenRetention, "session" | "forever">, number> = {
   "1h": 60 * 60 * 1_000,

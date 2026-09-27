@@ -6,7 +6,7 @@ import {
   type ToolApprovalListResponse,
   type ToolApprovalResolveDecision,
   type ToolApprovalSnapshot,
-} from "@nonclaw-ui/shared/types";
+} from "@eigen-air-ui/shared/types";
 import type { IToolApprovalService } from "../factory/interfaces/IToolApprovalService.js";
 import { fetchWithAccess, type AccessSource } from "./AuthenticatedHttpRequest.js";
 

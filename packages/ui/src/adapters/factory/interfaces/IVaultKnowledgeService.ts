@@ -3,7 +3,7 @@ import type {
   KnowledgeRelation,
   VaultItem,
   VaultItemRequest,
-} from "@nonclaw-ui/shared/types";
+} from "@eigen-air-ui/shared/types";
 
 export interface IVaultKnowledgeService {
   listVaultItems(query?: string): Promise<VaultItem[]>;

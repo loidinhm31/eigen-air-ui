@@ -3,7 +3,7 @@ import type {
   ToolApprovalSnapshot,
   ToolApprovalState,
   ToolApprovalUpdatedEvent,
-} from "@nonclaw-ui/shared/types";
+} from "@eigen-air-ui/shared/types";
 
 export type ToolApprovalSyncStatus =
   | "idle"

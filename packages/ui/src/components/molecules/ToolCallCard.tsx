@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useState } from "react";
 import { ChevronDown, ChevronRight, Wrench } from "lucide-react";
-import type { ToolCallPayload, ToolResultPayload } from "@nonclaw-ui/shared/types";
+import type { ToolCallPayload, ToolResultPayload } from "@eigen-air-ui/shared/types";
 import { resolveToolRenderer, toolName } from "./toolRendererRegistry.js";
 
 interface Props {

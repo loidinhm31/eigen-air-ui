@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { UserQuestionSnapshot, UserQuestionUpdatedEvent } from "@nonclaw-ui/shared/types";
+import type { UserQuestionSnapshot, UserQuestionUpdatedEvent } from "@eigen-air-ui/shared/types";
 
 export type UserQuestionSyncStatus =
   | "idle"

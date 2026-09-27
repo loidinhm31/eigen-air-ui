@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { STORAGE_KEYS } from "@nonclaw-ui/shared/constants";
+import { STORAGE_KEYS } from "@eigen-air-ui/shared/constants";
 
 class MemoryStorage implements Storage {
   private readonly store = new Map<string, string>();

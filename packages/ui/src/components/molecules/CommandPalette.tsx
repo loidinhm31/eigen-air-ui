@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Command, X } from "lucide-react";
-import type { Skill } from "@nonclaw-ui/shared/types";
+import type { Skill } from "@eigen-air-ui/shared/types";
 import { Button } from "../atoms/Button.js";
 import { Input } from "../atoms/Input.js";
 import {

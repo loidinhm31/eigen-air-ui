@@ -26,10 +26,10 @@ importers:
 
   apps/native:
     dependencies:
-      '@nonclaw-ui/shared':
+      '@eigen-air-ui/shared':
         specifier: workspace:*
         version: link:../../packages/shared
-      '@nonclaw-ui/ui':
+      '@eigen-air-ui/ui':
         specifier: workspace:*
         version: link:../../packages/ui
       '@tauri-apps/api':
@@ -48,10 +48,10 @@ importers:
         specifier: ^7.5.3
         version: 7.13.2(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
     devDependencies:
-      '@nonclaw-ui/eslint-config':
+      '@eigen-air-ui/eslint-config':
         specifier: workspace:*
         version: link:../../packages/eslint-config
-      '@nonclaw-ui/tsconfig':
+      '@eigen-air-ui/tsconfig':
         specifier: workspace:*
         version: link:../../packages/tsconfig
       '@tailwindcss/vite':
@@ -81,10 +81,10 @@ importers:
 
   apps/web:
     dependencies:
-      '@nonclaw-ui/shared':
+      '@eigen-air-ui/shared':
         specifier: workspace:*
         version: link:../../packages/shared
-      '@nonclaw-ui/ui':
+      '@eigen-air-ui/ui':
         specifier: workspace:*
         version: link:../../packages/ui
       react:
@@ -97,10 +97,10 @@ importers:
         specifier: ^7.5.3
         version: 7.13.2(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
     devDependencies:
-      '@nonclaw-ui/eslint-config':
+      '@eigen-air-ui/eslint-config':
         specifier: workspace:*
         version: link:../../packages/eslint-config
-      '@nonclaw-ui/tsconfig':
+      '@eigen-air-ui/tsconfig':
         specifier: workspace:*
         version: link:../../packages/tsconfig
       '@tailwindcss/vite':
@@ -170,10 +170,10 @@ importers:
         specifier: ^3.3.0
         version: 3.5.0
     devDependencies:
-      '@nonclaw-ui/eslint-config':
+      '@eigen-air-ui/eslint-config':
         specifier: workspace:*
         version: link:../eslint-config
-      '@nonclaw-ui/tsconfig':
+      '@eigen-air-ui/tsconfig':
         specifier: workspace:*
         version: link:../tsconfig
       typescript:
@@ -184,7 +184,7 @@ importers:
 
   packages/ui:
     dependencies:
-      '@nonclaw-ui/shared':
+      '@eigen-air-ui/shared':
         specifier: workspace:*
         version: link:../shared
       '@radix-ui/react-avatar':
@@ -221,10 +221,10 @@ importers:
         specifier: ^5.0.3
         version: 5.0.12(@types/react@19.2.14)(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4))
     devDependencies:
-      '@nonclaw-ui/eslint-config':
+      '@eigen-air-ui/eslint-config':
         specifier: workspace:*
         version: link:../eslint-config
-      '@nonclaw-ui/tsconfig':
+      '@eigen-air-ui/tsconfig':
         specifier: workspace:*
         version: link:../tsconfig
       '@tailwindcss/vite':

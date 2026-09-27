@@ -1,7 +1,7 @@
 import * as React from "react";
 import { Pencil, Trash2 } from "lucide-react";
 import { Button } from "../atoms/Button.js";
-import type { MemoryEntry } from "@nonclaw-ui/shared/types";
+import type { MemoryEntry } from "@eigen-air-ui/shared/types";
 
 interface Props {
   entry: MemoryEntry;

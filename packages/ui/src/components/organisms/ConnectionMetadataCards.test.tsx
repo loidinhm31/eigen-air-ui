@@ -3,7 +3,7 @@ import * as React from "react";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { ConnectionMetadataCards } from "./ConnectionMetadataCards.js";
-import type { AgentStatusResponse } from "@nonclaw-ui/shared/types";
+import type { AgentStatusResponse } from "@eigen-air-ui/shared/types";
 
 afterEach(() => {
   cleanup();

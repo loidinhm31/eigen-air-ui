@@ -1,12 +1,12 @@
-import { useConnectionStore } from "@nonclaw-ui/ui/stores";
+import { useConnectionStore } from "@eigen-air-ui/ui/stores";
 import {
   registerReinitFn,
   initServicesForDaemonUrl,
   setServiceAccessContext,
   getStoredAuthToken,
   saveStoredAuthToken,
-} from "@nonclaw-ui/ui";
-import { DEFAULT_AUTH_TOKEN, DEFAULT_DAEMON_URL } from "@nonclaw-ui/shared/constants";
+} from "@eigen-air-ui/ui";
+import { DEFAULT_AUTH_TOKEN, DEFAULT_DAEMON_URL } from "@eigen-air-ui/shared/constants";
 
 export function initServices() {
   if (typeof window !== "undefined") {

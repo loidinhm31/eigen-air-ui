@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { STORAGE_KEYS } from "@nonclaw-ui/shared/constants";
+import { STORAGE_KEYS } from "@eigen-air-ui/shared/constants";
 
 interface DebugSettingsStore {
   showPromptDebug: boolean;

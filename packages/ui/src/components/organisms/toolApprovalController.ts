@@ -3,7 +3,7 @@ import {
   type ToolApprovalSnapshot,
   type ToolApprovalUpdatedEvent,
   ToolApprovalDecodeError,
-} from "@nonclaw-ui/shared/types";
+} from "@eigen-air-ui/shared/types";
 import type { IToolApprovalService } from "../../adapters/factory/interfaces/IToolApprovalService.js";
 import { ToolApprovalHttpError } from "../../adapters/http/HttpToolApprovalAdapter.js";
 import {

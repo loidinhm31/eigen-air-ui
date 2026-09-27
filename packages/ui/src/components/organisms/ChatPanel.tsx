@@ -25,7 +25,7 @@ import { useUserQuestionStore } from "../../stores/userQuestionStore.js";
 import { useToolApprovalStore } from "../../stores/toolApprovalStore.js";
 import { useReadinessStore } from "../../stores/readinessStore.js";
 import { ModelReadinessBanner } from "../molecules/ModelReadinessBanner.js";
-import { buildDebugTrace, copyDebugTrace } from "@nonclaw-ui/shared/utils";
+import { buildDebugTrace, copyDebugTrace } from "@eigen-air-ui/shared/utils";
 import { useBasePathNavigation } from "../../embed/base-path-navigation.js";
 import type {
   ChatDebugData,
@@ -33,7 +33,7 @@ import type {
   ToolCallPayload,
   ToolResultPayload,
   WsEvent,
-} from "@nonclaw-ui/shared/types";
+} from "@eigen-air-ui/shared/types";
 
 const PROVIDER_WAIT_STATUS = "Waiting for agent response...";
 const TOOL_LIMIT_CONTINUE_PROMPT =

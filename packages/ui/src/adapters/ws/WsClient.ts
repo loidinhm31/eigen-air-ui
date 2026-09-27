@@ -6,8 +6,8 @@ import {
   type WsReq,
   type WsRes,
   type WsEvent,
-} from "@nonclaw-ui/shared/types";
-import { MAX_RECONNECT_ATTEMPTS, RECONNECT_DELAY_MS } from "@nonclaw-ui/shared/constants";
+} from "@eigen-air-ui/shared/types";
+import { MAX_RECONNECT_ATTEMPTS, RECONNECT_DELAY_MS } from "@eigen-air-ui/shared/constants";
 
 type PendingRequest = {
   resolve: (res: WsRes) => void;

@@ -3,7 +3,7 @@ import type {
   EpisodicMemory,
   MemoryEntry,
   MemorySearchResult,
-} from "@nonclaw-ui/shared/types";
+} from "@eigen-air-ui/shared/types";
 
 export interface IMemoryService {
   list(): Promise<MemoryEntry[]>;

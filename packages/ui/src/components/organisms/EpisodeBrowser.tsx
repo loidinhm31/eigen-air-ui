@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { getMemoryService, getVaultKnowledgeService } from "../../adapters/factory/ServiceFactory.js";
 import { Button } from "../atoms/Button.js";
 import { useMemoryStore } from "../../stores/memoryStore.js";
-import type { EpisodicMemory, KnowledgeFact } from "@nonclaw-ui/shared/types";
+import type { EpisodicMemory, KnowledgeFact } from "@eigen-air-ui/shared/types";
 
 interface EpisodeCardProps {
   episode: EpisodicMemory;

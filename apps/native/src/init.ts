@@ -1,8 +1,8 @@
-import { useConnectionStore } from "@nonclaw-ui/ui/stores";
+import { useConnectionStore } from "@eigen-air-ui/ui/stores";
 import {
   registerReinitFn,
   initServicesForDaemonUrl,
-} from "@nonclaw-ui/ui";
+} from "@eigen-air-ui/ui";
 
 export function initServices() {
   initServicesForDaemonUrl(useConnectionStore.getState().url);

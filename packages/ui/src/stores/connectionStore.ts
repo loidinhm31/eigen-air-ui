@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import type { ConnectionState, ConnectionStatus } from "@nonclaw-ui/shared/types";
-import { DEFAULT_DAEMON_URL, STORAGE_KEYS } from "@nonclaw-ui/shared/constants";
+import type { ConnectionState, ConnectionStatus } from "@eigen-air-ui/shared/types";
+import { DEFAULT_DAEMON_URL, STORAGE_KEYS } from "@eigen-air-ui/shared/constants";
 
 interface ConnectionStore extends ConnectionState {
   setUrl(url: string): void;

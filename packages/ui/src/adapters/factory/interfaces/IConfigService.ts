@@ -1,4 +1,4 @@
-import type { HealthStatus, ServerConfig, AgentStatusResponse, ProviderReadinessSnapshot } from "@nonclaw-ui/shared/types";
+import type { HealthStatus, ServerConfig, AgentStatusResponse, ProviderReadinessSnapshot } from "@eigen-air-ui/shared/types";
 
 export interface IConfigService {
   health(): Promise<HealthStatus>;

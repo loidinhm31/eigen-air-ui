@@ -1,6 +1,6 @@
 import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
-import { cn } from "@nonclaw-ui/shared/utils";
+import { cn } from "@eigen-air-ui/shared/utils";
 
 const spinnerVariants = cva("animate-spin text-muted-foreground", {
   variants: {

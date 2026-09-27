@@ -6,7 +6,7 @@ import { Button } from "../atoms/Button.js";
 import { Input } from "../atoms/Input.js";
 import { Spinner } from "../atoms/Spinner.js";
 import { ScrollArea } from "../atoms/ScrollArea.js";
-import type { Tool } from "@nonclaw-ui/shared/types";
+import type { Tool } from "@eigen-air-ui/shared/types";
 
 export function ToolsPanel() {
   const [tools, setTools] = useState<Tool[]>([]);

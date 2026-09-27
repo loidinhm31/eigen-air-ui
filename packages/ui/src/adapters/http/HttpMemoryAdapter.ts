@@ -4,7 +4,7 @@ import type {
   EpisodicMemory,
   MemoryEntry,
   MemorySearchResult,
-} from "@nonclaw-ui/shared/types";
+} from "@eigen-air-ui/shared/types";
 import { fetchWithAccess, type AccessSource } from "./AuthenticatedHttpRequest.js";
 
 export class HttpMemoryAdapter implements IMemoryService {

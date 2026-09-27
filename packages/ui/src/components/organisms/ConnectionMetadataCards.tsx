@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../atoms/Card.js";
-import type { ServerConfig, AgentStatusResponse } from "@nonclaw-ui/shared/types";
+import type { ServerConfig, AgentStatusResponse } from "@eigen-air-ui/shared/types";
 
 export interface ConnectionMetadataCardsProps {
   agentStatus: AgentStatusResponse | null;

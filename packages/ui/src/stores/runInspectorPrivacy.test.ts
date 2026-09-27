@@ -2,7 +2,7 @@
 // @ts-expect-error Node test runtime provides fs; UI build intentionally has no Node types.
 import { existsSync, readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it } from "vitest";
-import { STORAGE_KEYS } from "@nonclaw-ui/shared/constants";
+import { STORAGE_KEYS } from "@eigen-air-ui/shared/constants";
 import { useChatStore } from "./chatStore.js";
 import { useConnectionStore } from "./connectionStore.js";
 import { useRunInspectorStore } from "./runInspectorStore.js";

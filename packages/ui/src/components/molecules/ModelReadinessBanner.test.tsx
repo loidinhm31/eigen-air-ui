@@ -4,7 +4,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ModelReadinessBanner } from "./ModelReadinessBanner.js";
-import type { ProviderReadinessSnapshot } from "@nonclaw-ui/shared/types";
+import type { ProviderReadinessSnapshot } from "@eigen-air-ui/shared/types";
 
 afterEach(() => {
   cleanup();

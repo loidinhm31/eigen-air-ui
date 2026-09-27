@@ -7,7 +7,7 @@ import {
   type UserQuestionSnapshot,
   type UserQuestionUpdatedEvent,
   UserQuestionDecodeError,
-} from "@nonclaw-ui/shared/types";
+} from "@eigen-air-ui/shared/types";
 import type { IUserQuestionService } from "../../adapters/factory/interfaces/IUserQuestionService.js";
 import { UserQuestionHttpError } from "../../adapters/http/HttpUserQuestionAdapter.js";
 import {

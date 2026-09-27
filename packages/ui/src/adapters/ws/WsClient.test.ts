@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { WsEvent } from "@nonclaw-ui/shared/types";
-import { RECONNECT_DELAY_MS } from "@nonclaw-ui/shared/constants";
+import type { WsEvent } from "@eigen-air-ui/shared/types";
+import { RECONNECT_DELAY_MS } from "@eigen-air-ui/shared/constants";
 import { decodeInboundWsEvent, WsClient } from "./WsClient.js";
 
 afterEach(() => {

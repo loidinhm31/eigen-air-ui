@@ -13,13 +13,13 @@ import {
 } from "lucide-react";
 import { Button } from "../atoms/Button.js";
 import { Card, CardContent } from "../atoms/Card.js";
-import { cn } from "@nonclaw-ui/shared/utils";
+import { cn } from "@eigen-air-ui/shared/utils";
 import type { ReadinessPhase } from "../../stores/readinessStore.js";
 import type {
   ProviderReadinessSnapshot,
   ReadinessStageInfo,
   ReadinessStageStatus,
-} from "@nonclaw-ui/shared/types";
+} from "@eigen-air-ui/shared/types";
 
 export interface ModelReadinessBannerProps {
   phase: ReadinessPhase;

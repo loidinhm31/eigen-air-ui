@@ -17,7 +17,7 @@ import {
   saveStoredAuthToken,
   clearStoredAuthToken,
 } from "../../adapters/factory/tokenStorage.js";
-import { STORAGE_KEYS } from "@nonclaw-ui/shared/constants";
+import { STORAGE_KEYS } from "@eigen-air-ui/shared/constants";
 
 const mockChatConnect = vi.fn();
 const mockChatDisconnect = vi.fn();

@@ -8,7 +8,7 @@ import { Button } from "../atoms/Button.js";
 import { NativeScrollArea } from "../atoms/NativeScrollArea.js";
 import { Spinner } from "../atoms/Spinner.js";
 import { Badge } from "../atoms/Badge.js";
-import type { Session } from "@nonclaw-ui/shared/types";
+import type { Session } from "@eigen-air-ui/shared/types";
 
 export function SessionsPage() {
   const [sessions, setSessions] = useState<Session[]>([]);

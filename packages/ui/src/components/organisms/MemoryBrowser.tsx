@@ -4,7 +4,7 @@ import { getMemoryService } from "../../adapters/factory/ServiceFactory.js";
 import { MemoryItem } from "../molecules/MemoryItem.js";
 import { Input } from "../atoms/Input.js";
 import { Button } from "../atoms/Button.js";
-import type { MemoryEntry } from "@nonclaw-ui/shared/types";
+import type { MemoryEntry } from "@eigen-air-ui/shared/types";
 import { useMemoryStore } from "../../stores/memoryStore.js";
 
 function parseValue(value: string): unknown {

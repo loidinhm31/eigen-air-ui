@@ -2,7 +2,7 @@ import * as React from "react";
 import { Outlet, NavLink } from "react-router-dom";
 import { MessageSquare, Brain, Wrench, BookOpen, Settings, History, Activity } from "lucide-react";
 import { StatusBadge } from "../molecules/StatusBadge.js";
-import { cn } from "@nonclaw-ui/shared/utils";
+import { cn } from "@eigen-air-ui/shared/utils";
 
 const NAV_ITEMS = [
   { to: "", icon: MessageSquare, label: "Chat" },

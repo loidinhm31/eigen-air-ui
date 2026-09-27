@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { ToolApprovalSnapshot } from "@nonclaw-ui/shared/types";
+import type { ToolApprovalSnapshot } from "@eigen-air-ui/shared/types";
 import {
   pendingApprovalSnapshot,
   useToolApprovalStore,

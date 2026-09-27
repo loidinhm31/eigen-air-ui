@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { ProviderReadinessSnapshot, ReadinessState } from "@nonclaw-ui/shared/types";
+import type { ProviderReadinessSnapshot, ReadinessState } from "@eigen-air-ui/shared/types";
 
 export type ReadinessPhase = "idle" | "checking" | "starting" | "ready" | "degraded_cpu" | "failed";
 
