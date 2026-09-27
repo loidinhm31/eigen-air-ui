@@ -26,26 +26,26 @@ import {
 /** Backoff delays between successive health-check retries (4 gaps = 5 attempts). */
 const RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000];
 
-interface NonclawAppProps {
+interface EigenAirAppProps {
   useRouter?: boolean;
-  /** Route prefix used by parent router (e.g. "/nonclaw"). Routing is handled by React Router context — this prop is reserved for future use. */
+  /** Route prefix used by parent router (e.g. "/eigen-air"). Routing is handled by React Router context — this prop is reserved for future use. */
   basePath?: string;
   embedded?: boolean;
   className?: string;
-  /** Called when the app requests logout. Currently reserved — nonclaw daemon uses its own auth. */
+  /** Called when the app requests logout. Currently reserved — eigen-air daemon uses its own auth. */
   onLogoutRequest?: () => void;
   /** Ephemeral authenticated run access supplied by an embedding host. */
   runAccess?: RunAccessContext;
 }
 
-export function NonclawApp({
+export function EigenAirApp({
   useRouter = true,
   basePath,
   embedded: _embedded,
   className,
   onLogoutRequest: _onLogoutRequest,
   runAccess,
-}: NonclawAppProps) {
+}: EigenAirAppProps) {
   const daemonUrl = useConnectionStore((state) => state.url);
   const appLayerOwnsLifecycle = hasReinitFn();
   const resolvedBasePath = React.useMemo(() => resolveBasePath(basePath), [basePath]);
@@ -91,7 +91,7 @@ export function NonclawApp({
           setStatus("connected", conn.version);
           return;
         } catch (e) {
-          console.warn(`[NonclawApp] Connect failed (attempt ${i + 1}):`, e);
+          console.warn(`[EigenAirApp] Connect failed (attempt ${i + 1}):`, e);
           if (i === RETRY_DELAYS_MS.length && !cancelled) setStatus("disconnected");
         }
       }
@@ -125,4 +125,4 @@ export function NonclawApp({
 
   return useRouter ? <MemoryRouter>{inner}</MemoryRouter> : inner;
 }
-NonclawApp.displayName = "NonclawApp";
+EigenAirApp.displayName = "EigenAirApp";

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "nonclaw",
+  "productName": "eigen-air",
   "version": "0.1.0",
-  "identifier": "io.nonclaw.ui",
+  "identifier": "io.eigen-air.ui",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "nonclaw",
+        "title": "eigen-air",
         "width": 1200,
         "height": 800,
         "resizable": true,

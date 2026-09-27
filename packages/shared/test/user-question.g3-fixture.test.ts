@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   decodeUserQuestionEvent,
@@ -9,8 +10,48 @@ import {
   decodeWsFrameJson,
 } from "../src/types/user-question-decoder.js";
 
-const configuredBackendRoot = process.env["NON" + "CLAW_DIR"];
-const backendRoot = configuredBackendRoot ?? "/home/loidinh/WS/nonclaw";
+function resolveBackendRoot(): string {
+  if (process.env.EIGEN_AIR_DIR) {
+    return resolve(process.env.EIGEN_AIR_DIR);
+  }
+  const testDir =
+    typeof __dirname !== "undefined"
+      ? __dirname
+      : fileURLToPath(new URL(".", import.meta.url));
+  const candidateDirect = [
+    resolve(testDir, "../../../eigen-air"),
+    resolve(testDir, "../../../../../eigen-air"),
+    resolve(process.cwd(), "../../../eigen-air"),
+  ];
+  for (const c of candidateDirect) {
+    if (existsSync(join(c, "Cargo.toml"))) return c;
+  }
+  const searchRoots = [
+    resolve(testDir, "../../../../../.."),
+    resolve(process.cwd(), "../../.."),
+  ];
+  for (const root of searchRoots) {
+    if (existsSync(root)) {
+      try {
+        const entries = readdirSync(root, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.isDirectory()) {
+            const manifest = join(root, entry.name, "Cargo.toml");
+            if (existsSync(manifest)) {
+              const content = readFileSync(manifest, "utf8");
+              if (content.includes('name = "eigen-air"')) {
+                return join(root, entry.name);
+              }
+            }
+          }
+        }
+      } catch {}
+    }
+  }
+  return resolve(testDir, "../../../eigen-air");
+}
+
+const backendRoot = resolveBackendRoot();
 const fixturePath = join(backendRoot, "test-fixtures/contracts/g3-user-question-v1.json");
 const fixtureBytes = readFileSync(fixturePath);
 const fixture = JSON.parse(fixtureBytes.toString("utf8")) as {

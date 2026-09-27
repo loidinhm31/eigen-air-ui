@@ -134,7 +134,7 @@
       "verification_status": "unverified"
     }
   ],
-  "schema": "nonclaw.g6.task-progress-ws-v1",
+  "schema": "eigen-air.g6.task-progress-ws-v1",
   "unknown_schema": [
     {
       "event": "task_progress.updated",

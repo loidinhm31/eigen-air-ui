@@ -2,7 +2,7 @@
 import * as React from "react";
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { NonclawApp } from "./NonclawApp.js";
+import { EigenAirApp } from "./EigenAirApp.js";
 import { useConnectionStore } from "../stores/connectionStore.js";
 import * as ServiceFactory from "../adapters/factory/ServiceFactory.js";
 
@@ -56,7 +56,7 @@ afterEach(() => {
   cleanup();
 });
 
-describe("NonclawApp", () => {
+describe("EigenAirApp", () => {
   it("passes ephemeral runAccess context to ServiceFactory", () => {
     const runAccess = {
       authToken: "embedded-host-token",
@@ -64,19 +64,19 @@ describe("NonclawApp", () => {
       capabilities: new Set<"run:read:debug">(["run:read:debug"]),
     };
 
-    render(<NonclawApp runAccess={runAccess} />);
+    render(<EigenAirApp runAccess={runAccess} />);
 
     expect(ServiceFactory.setServiceAccessContext).toHaveBeenCalledWith(runAccess);
   });
 
   it("does not call setServiceAccessContext in standalone mode, preserving in-memory token across daemonUrl changes", () => {
-    const { rerender } = render(<NonclawApp />);
+    const { rerender } = render(<EigenAirApp />);
 
     expect(ServiceFactory.setServiceAccessContext).not.toHaveBeenCalled();
 
     // Changing daemonUrl should not reset service access context
     useConnectionStore.setState({ url: "http://localhost:19000" });
-    rerender(<NonclawApp />);
+    rerender(<EigenAirApp />);
 
     expect(ServiceFactory.setServiceAccessContext).not.toHaveBeenCalled();
   });

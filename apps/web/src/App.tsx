@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { BrowserRouter } from "react-router-dom";
-import { NonclawApp } from "@eigen-air-ui/ui/embed";
+import { EigenAirApp } from "@eigen-air-ui/ui/embed";
 import { getConfigService, getChatService } from "@eigen-air-ui/ui";
 import { useConnectionStore } from "@eigen-air-ui/ui/stores";
 
@@ -48,7 +48,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <NonclawApp useRouter={false} />
+      <EigenAirApp useRouter={false} />
     </BrowserRouter>
   );
 }

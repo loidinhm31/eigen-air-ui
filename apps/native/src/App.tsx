@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { BrowserRouter } from "react-router-dom";
-import { NonclawApp } from "@eigen-air-ui/ui/embed";
+import { EigenAirApp } from "@eigen-air-ui/ui/embed";
 import { getConfigService, getChatService } from "@eigen-air-ui/ui";
 import { useConnectionStore } from "@eigen-air-ui/ui/stores";
 
@@ -18,10 +18,7 @@ export default function App() {
         if (cancelled) return;
 
         if (attempt > 0) {
-          await new Promise<void>((res) => {
-            const t = setTimeout(res, RETRY_DELAYS_MS[attempt - 1]);
-            const iv = setInterval(() => { if (cancelled) { clearTimeout(t); clearInterval(iv); res(); } }, 100);
-          });
+          await new Promise<void>((res) => setTimeout(res, RETRY_DELAYS_MS[attempt - 1]));
         }
         if (cancelled) return;
 
@@ -50,7 +47,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <NonclawApp useRouter={false} />
+      <EigenAirApp useRouter={false} />
     </BrowserRouter>
   );
 }

@@ -64,9 +64,9 @@ async function installG4Fixture(page: Page, options: G4FixtureOptions = {}) {
   };
 
   await page.addInitScript((sessionId) => {
-    localStorage.setItem("nonclaw-daemon-url", "http://127.0.0.1:18791");
-    localStorage.setItem("nonclaw-session-id", sessionId);
-    localStorage.removeItem("nonclaw-chat-messages");
+    localStorage.setItem("eigen-air-daemon-url", "http://127.0.0.1:18791");
+    localStorage.setItem("eigen-air-session-id", sessionId);
+    localStorage.removeItem("eigen-air-chat-messages");
   }, SESSION_ID);
 
   await page.route("**/v1/skills", (route) => route.fulfill({ json: [] }));
@@ -358,7 +358,7 @@ test("executes Allow Once approval flow: sends CAS mutation, disables duplicate 
   await page.goto("/");
   await expect(page.getByText("connected", { exact: true })).toBeVisible();
 
-  const composer = page.getByPlaceholder("Message nonclaw...");
+  const composer = page.getByPlaceholder("Message eigen-air...");
   await composer.fill("run ls in workspace");
   await page.getByRole("button", { name: "Send" }).click();
 
@@ -415,7 +415,7 @@ test("executes Deny approval flow: sends deny decision, skips tool execution, fi
   await page.goto("/");
   await expect(page.getByText("connected", { exact: true })).toBeVisible();
 
-  const composer = page.getByPlaceholder("Message nonclaw...");
+  const composer = page.getByPlaceholder("Message eigen-air...");
   await composer.fill("run ls in workspace");
   await page.getByRole("button", { name: "Send" }).click();
 
@@ -458,7 +458,7 @@ test("handles approval expiration: card disappears, failure text renders, compos
   await page.goto("/");
   await expect(page.getByText("connected", { exact: true })).toBeVisible();
 
-  const composer = page.getByPlaceholder("Message nonclaw...");
+  const composer = page.getByPlaceholder("Message eigen-air...");
   await composer.fill("run uname -a in workspace");
   await page.getByRole("button", { name: "Send" }).click();
 

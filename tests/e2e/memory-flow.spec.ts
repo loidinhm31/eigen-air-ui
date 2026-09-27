@@ -2,9 +2,9 @@ import { expect, test } from "@playwright/test";
 
 test("real daemon memory lifecycle", async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem("nonclaw-daemon-url", "http://127.0.0.1:18791");
-    localStorage.removeItem("nonclaw-session-id");
-    localStorage.removeItem("nonclaw-chat-messages");
+    localStorage.setItem("eigen-air-daemon-url", "http://127.0.0.1:18791");
+    localStorage.removeItem("eigen-air-session-id");
+    localStorage.removeItem("eigen-air-chat-messages");
   });
   await page.goto("/");
   await expect(page.getByText("connected")).toBeVisible({ timeout: 30_000 });
@@ -24,7 +24,7 @@ test("real daemon memory lifecycle", async ({ page }) => {
   await expect(page.getByText("No working memories")).toBeVisible();
 
   await page.getByRole("link", { name: "Chat" }).click();
-  const message = page.getByPlaceholder("Message nonclaw...");
+  const message = page.getByPlaceholder("Message eigen-air...");
   await message.fill("!remember chat-key chat-value");
   await page.getByRole("button", { name: "Send" }).click();
   await expect(page.getByText("Remembered: chat-key = chat-value")).toBeVisible();

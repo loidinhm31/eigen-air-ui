@@ -41,7 +41,7 @@ export function reinitServices(): void {
 
 /**
  * Returns true when an app-layer init function has been registered.
- * Used by NonclawApp to skip its own adapter creation in apps/web mode,
+ * Used by EigenAirApp to skip its own adapter creation in apps/web mode,
  * where init.ts already owns the service lifecycle.
  */
 export function hasReinitFn(): boolean {

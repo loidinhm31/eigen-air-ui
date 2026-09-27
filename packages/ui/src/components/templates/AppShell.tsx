@@ -19,7 +19,7 @@ export function AppShell() {
     <div className="flex h-screen overflow-hidden bg-background text-foreground">
       <nav className="flex w-52 shrink-0 flex-col border-r border-border bg-card">
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <span className="text-sm font-semibold">nonclaw</span>
+          <span className="text-sm font-semibold">eigen-air</span>
           <StatusBadge />
         </div>
         <div className="flex-1 overflow-y-auto py-2">

@@ -28,9 +28,9 @@ async function installDeterministicChatFixture(page: Page) {
   const sentChatParams: Array<Record<string, unknown>> = [];
 
   await page.addInitScript((sessionId) => {
-    localStorage.setItem("nonclaw-daemon-url", "http://127.0.0.1:18791");
-    localStorage.setItem("nonclaw-session-id", sessionId);
-    localStorage.removeItem("nonclaw-chat-messages");
+    localStorage.setItem("eigen-air-daemon-url", "http://127.0.0.1:18791");
+    localStorage.setItem("eigen-air-session-id", sessionId);
+    localStorage.removeItem("eigen-air-chat-messages");
   }, SESSION.id);
 
   await page.route("**/v1/skills", async (route) => {
@@ -117,7 +117,7 @@ test("renders hostile Markdown without network or executable UI and keeps unknow
   await expect(page.getByRole("link", { name: "unsafe link" })).toHaveCount(0);
   expect(evilRequests).toEqual([]);
 
-  await page.getByPlaceholder("Message nonclaw...").fill("exercise unknown tool");
+  await page.getByPlaceholder("Message eigen-air...").fill("exercise unknown tool");
   await page.getByRole("button", { name: "Send" }).click();
   await page.getByRole("button", { name: /future_tool/ }).click();
   await expect(page.getByTestId("generic-tool-renderer")).toContainText("result (unparsed text)");
@@ -132,7 +132,7 @@ test("stale selected skill fails visibly and sends stable ID without instruction
 
   await page.getByRole("button", { name: "Open commands and skills" }).click();
   await page.getByRole("option", { name: /Stale skill/ }).click();
-  await page.getByPlaceholder("Message nonclaw...").fill("ordinary request");
+  await page.getByPlaceholder("Message eigen-air...").fill("ordinary request");
   await page.getByRole("button", { name: "Send" }).click();
 
   await expect(page.getByText(/Selected skill is unavailable/)).toBeVisible();

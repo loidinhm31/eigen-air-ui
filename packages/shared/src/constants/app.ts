@@ -17,12 +17,12 @@ export const DEFAULT_WS_URL =
     : "ws://localhost:18790/ws";
 
 export const STORAGE_KEYS = {
-  DAEMON_URL: "nonclaw-daemon-url",
-  SESSION_ID: "nonclaw-session-id",
-  AUTH_TOKEN: "nonclaw-auth-token",
-  CHAT_MESSAGES: "nonclaw-chat-messages",
-  DEBUG_SETTINGS: "nonclaw-debug-settings",
-  THEME: "nonclaw-theme",
+  DAEMON_URL: "eigen-air-daemon-url",
+  SESSION_ID: "eigen-air-session-id",
+  AUTH_TOKEN: "eigen-air-auth-token",
+  CHAT_MESSAGES: "eigen-air-chat-messages",
+  DEBUG_SETTINGS: "eigen-air-debug-settings",
+  THEME: "eigen-air-theme",
 } as const;
 
 export type TokenRetention = "session" | "1h" | "24h" | "7d" | "30d" | "forever";

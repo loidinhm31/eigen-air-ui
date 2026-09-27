@@ -1,5 +1,5 @@
 {
-  "schema": "nonclaw.g2.ws-v1-run-events",
+  "schema": "eigen-air.g2.ws-v1-run-events",
   "legacy": [
     {
       "type": "event",
@@ -7,7 +7,12 @@
       "event": "run.started",
       "payload": { "run_id": "request-1" }
     },
-    { "type": "event", "version": "v1", "event": "run.delta", "payload": { "delta": "hello" } },
+    {
+      "type": "event",
+      "version": "v1",
+      "event": "run.delta",
+      "payload": { "delta": "hello" }
+    },
     {
       "type": "event",
       "version": "v1",
@@ -108,7 +113,10 @@
       "type": "event",
       "version": "v1",
       "event": "run.delta",
-      "payload": { "delta": "hello", "snapshot_refetch_required": true }
+      "payload": {
+        "delta": "hello",
+        "snapshot_refetch_required": true
+      }
     }
   ]
 }

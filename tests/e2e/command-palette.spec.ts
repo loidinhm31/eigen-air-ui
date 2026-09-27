@@ -2,9 +2,9 @@ import { expect, test } from "@playwright/test";
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem("nonclaw-daemon-url", "http://127.0.0.1:18791");
-    localStorage.removeItem("nonclaw-session-id");
-    localStorage.removeItem("nonclaw-chat-messages");
+    localStorage.setItem("eigen-air-daemon-url", "http://127.0.0.1:18791");
+    localStorage.removeItem("eigen-air-session-id");
+    localStorage.removeItem("eigen-air-chat-messages");
   });
   await page.route("**/v1/skills", async (route) => {
     await route.fulfill({
@@ -43,7 +43,7 @@ test("selects a skill by keyboard and sends only its stable ID", async ({ page }
   await page.keyboard.press("Enter");
 
   await expect(page.getByText("Skill: Code review")).toBeVisible();
-  const composer = page.getByPlaceholder("Message nonclaw...");
+  const composer = page.getByPlaceholder("Message eigen-air...");
   await expect(composer).toBeFocused();
   await composer.fill("review this change");
   await page.keyboard.press("Enter");
@@ -98,7 +98,7 @@ test("inserts a built-in command without auto-sending", async ({ page }) => {
 
   await page.goto("/");
   await expect(page.getByText("connected", { exact: true })).toBeVisible({ timeout: 30_000 });
-  const composer = page.getByPlaceholder("Message nonclaw...");
+  const composer = page.getByPlaceholder("Message eigen-air...");
   await composer.focus();
   await page.keyboard.press("/");
   const palette = page.getByRole("combobox");

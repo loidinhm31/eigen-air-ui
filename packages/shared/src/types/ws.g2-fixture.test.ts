@@ -59,7 +59,7 @@ function decodeEvent(value: unknown): WsEvent {
 describe("G2 Rust WS fixtures", () => {
   it("matches the Rust-generated canonical fixture payload", () => {
     const canonical = createHash("sha256").update(JSON.stringify(fixture)).digest("hex");
-    expect(canonical).toBe("aaeb46e9f603ce0ff1e5baf4f114ecf6fb5db6711a9e8a491102c12bea50a24f");
+    expect(canonical).toBe("62c4f6e19edd33ba8e9310f575dc29dfc50730be3242e0204930df77d6d79b48");
   });
 
   it("decodes legacy omission and enriched correlation", () => {

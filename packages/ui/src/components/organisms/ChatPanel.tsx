@@ -86,14 +86,14 @@ export function ChatPanel() {
     !isConnected || questionBlocksComposer || approvalBlocksComposer || readinessBlocksComposer;
   const composerPlaceholder =
     connectionStatus === "connecting"
-      ? "Connecting to nonclaw..."
+      ? "Connecting to eigen-air..."
       : connectionStatus === "disconnected"
-      ? "Connect to nonclaw to start..."
+      ? "Connect to eigen-air to start..."
       : readinessPhase === "failed"
       ? "Model unavailable"
       : readinessBlocksComposer
       ? "Model is loading..."
-      : "Message nonclaw...";
+      : "Message eigen-air...";
   const setSessionId = useConnectionStore((state) => state.setSessionId);
   const showPromptDebug = useDebugSettingsStore((state) => state.showPromptDebug);
   const showReasoningDebug = useDebugSettingsStore((state) => state.showReasoningDebug);

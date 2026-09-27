@@ -2,19 +2,19 @@ import { expect, test } from "@playwright/test";
 
 test("restores and continues persisted sessions across reconnects", async ({ page }) => {
   await page.addInitScript(() => {
-    if (sessionStorage.getItem("nonclaw-e2e-session-resume-init")) {
+    if (sessionStorage.getItem("eigen-air-e2e-session-resume-init")) {
       return;
     }
-    localStorage.setItem("nonclaw-daemon-url", "http://127.0.0.1:18791");
-    localStorage.removeItem("nonclaw-session-id");
-    localStorage.removeItem("nonclaw-chat-messages");
-    sessionStorage.setItem("nonclaw-e2e-session-resume-init", "1");
+    localStorage.setItem("eigen-air-daemon-url", "http://127.0.0.1:18791");
+    localStorage.removeItem("eigen-air-session-id");
+    localStorage.removeItem("eigen-air-chat-messages");
+    sessionStorage.setItem("eigen-air-e2e-session-resume-init", "1");
   });
 
   await page.goto("/");
   await expect(page.getByText("connected", { exact: true })).toBeVisible({ timeout: 30_000 });
 
-  const messageInput = page.getByPlaceholder("Message nonclaw...");
+  const messageInput = page.getByPlaceholder("Message eigen-air...");
   const sessionLabel = page.getByText(/^Session:/);
 
   const initialSession = await sessionLabel.textContent();

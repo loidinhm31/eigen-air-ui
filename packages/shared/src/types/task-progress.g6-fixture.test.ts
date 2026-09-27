@@ -46,7 +46,7 @@ function sequencedEvent(cursor: Cursor): unknown {
 describe("G6 Rust task-progress fixture", () => {
   it("pins the exact backend-generated fixture bytes", () => {
     expect(createHash("sha256").update(bytes).digest("hex")).toBe(
-      "f7ea148def5ed5c2aa40fe595553f197260c0c09d0b65e2e5b28b85137ebe01c"
+      "cfb20094c5781623ce8a688f9b298fc7889331c916758ee49205ef63f34652be"
     );
   });
 

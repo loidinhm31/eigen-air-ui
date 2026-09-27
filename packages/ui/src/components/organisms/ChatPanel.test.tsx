@@ -196,12 +196,12 @@ describe("ChatPanel selected skill lifecycle", () => {
     const user = userEvent.setup();
     render(<ChatPanel />);
 
-    await user.type(screen.getByPlaceholderText("Message nonclaw..."), "start");
+    await user.type(screen.getByPlaceholderText("Message eigen-air..."), "start");
     await user.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(serviceMocks.sendMessage).toHaveBeenCalledOnce());
     expect(await screen.findByRole("heading", { name: "Agent question" })).toBeTruthy();
     expect(useChatStore.getState().isStreaming).toBe(false);
-    expect((screen.getByPlaceholderText("Message nonclaw...") as HTMLInputElement).disabled).toBe(
+    expect((screen.getByPlaceholderText("Message eigen-air...") as HTMLInputElement).disabled).toBe(
       true
     );
     const questionInput = screen.getByLabelText("What should the note say?");
@@ -237,7 +237,7 @@ describe("ChatPanel selected skill lifecycle", () => {
     await selectTestSkill(user);
     expect(screen.getByText("Skill: Code review")).toBeTruthy();
 
-    const composer = screen.getByPlaceholderText("Message nonclaw...") as HTMLInputElement;
+    const composer = screen.getByPlaceholderText("Message eigen-air...") as HTMLInputElement;
     await user.type(composer, "review this");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
@@ -270,7 +270,7 @@ describe("ChatPanel selected skill lifecycle", () => {
     const user = userEvent.setup();
     render(<ChatPanel />);
 
-    const composer = screen.getByPlaceholderText("Message nonclaw...");
+    const composer = screen.getByPlaceholderText("Message eigen-air...");
     await user.type(composer, "start");
     await user.click(screen.getByRole("button", { name: "Send" }));
     await screen.findByRole("button", { name: "Continue" });
@@ -300,7 +300,7 @@ describe("ChatPanel selected skill lifecycle", () => {
     render(<ChatPanel />);
 
     await selectTestSkill(user);
-    await user.type(screen.getByPlaceholderText("Message nonclaw..."), "review this");
+    await user.type(screen.getByPlaceholderText("Message eigen-air..."), "review this");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     expect(
@@ -312,7 +312,7 @@ describe("ChatPanel selected skill lifecycle", () => {
     expect(serviceMocks.sendMessage).toHaveBeenCalledTimes(1);
 
     serviceMocks.sendMessage.mockResolvedValueOnce({ content: "retry done", tool_calls_made: 0 });
-    await user.type(screen.getByPlaceholderText("Message nonclaw..."), "manual retry");
+    await user.type(screen.getByPlaceholderText("Message eigen-air..."), "manual retry");
     await user.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(serviceMocks.sendMessage).toHaveBeenCalledTimes(2));
     expect(serviceMocks.sendMessage.mock.calls[1]?.[3]).not.toHaveProperty("selectedSkillId");
@@ -332,7 +332,7 @@ describe("ChatPanel selected skill lifecycle", () => {
     useConnectionStore.getState().setSessionId("history-session");
     await waitFor(() => expect(screen.queryByText("Skill: Code review")).toBeNull());
 
-    await user.type(screen.getByPlaceholderText("Message nonclaw..."), "after history change");
+    await user.type(screen.getByPlaceholderText("Message eigen-air..."), "after history change");
     await user.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(serviceMocks.sendMessage).toHaveBeenCalledOnce());
     expect(serviceMocks.sendMessage.mock.calls[0]?.[3]).not.toHaveProperty("selectedSkillId");
@@ -349,7 +349,7 @@ describe("ChatPanel selected skill lifecycle", () => {
     expect(await screen.findByText(/Installed skills unavailable/)).toBeTruthy();
     await user.click(screen.getByRole("option", { name: /!count/ }));
 
-    const composer = screen.getByPlaceholderText("Message nonclaw...") as HTMLInputElement;
+    const composer = screen.getByPlaceholderText("Message eigen-air...") as HTMLInputElement;
     expect(composer.value).toBe("!count");
     expect(document.activeElement).toBe(composer);
     expect(serviceMocks.sendMessage).not.toHaveBeenCalled();
@@ -359,7 +359,7 @@ describe("ChatPanel selected skill lifecycle", () => {
     const user = userEvent.setup();
     render(<ChatPanel />);
 
-    const composer = screen.getByPlaceholderText("Message nonclaw...") as HTMLInputElement;
+    const composer = screen.getByPlaceholderText("Message eigen-air...") as HTMLInputElement;
     await user.click(composer);
     await user.keyboard("/");
 
@@ -393,7 +393,7 @@ describe("ChatPanel selected skill lifecycle", () => {
     const user = userEvent.setup();
     render(<ChatPanel />);
 
-    await user.type(screen.getByPlaceholderText("Message nonclaw..."), "show debug");
+    await user.type(screen.getByPlaceholderText("Message eigen-air..."), "show debug");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     expect(await screen.findByText("live-prompt-fixture")).toBeTruthy();
@@ -431,7 +431,7 @@ describe("ChatPanel selected skill lifecycle", () => {
     useConnectionStore.setState({ status: "disconnected" });
     render(<ChatPanel />);
 
-    const composer = screen.getByPlaceholderText("Connect to nonclaw to start...");
+    const composer = screen.getByPlaceholderText("Connect to eigen-air to start...");
     expect(composer.hasAttribute("disabled")).toBe(true);
     const sendBtn = screen.getByRole("button", { name: "Send" });
     expect(sendBtn.hasAttribute("disabled")).toBe(true);
@@ -442,12 +442,12 @@ describe("ChatPanel selected skill lifecycle", () => {
     const user = userEvent.setup();
     render(<ChatPanel />);
 
-    const composer = screen.getByPlaceholderText("Message nonclaw...");
+    const composer = screen.getByPlaceholderText("Message eigen-air...");
     await user.type(composer, "my important question");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     expect(await screen.findByText(/Provider is starting; retry shortly\./)).toBeTruthy();
-    const inputEl = screen.getByPlaceholderText("Message nonclaw...") as HTMLInputElement;
+    const inputEl = screen.getByPlaceholderText("Message eigen-air...") as HTMLInputElement;
     expect(inputEl.value).toBe("my important question");
     expect(useChatStore.getState().messages).toHaveLength(0);
   });

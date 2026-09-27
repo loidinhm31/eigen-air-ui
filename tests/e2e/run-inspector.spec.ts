@@ -4,9 +4,9 @@ const SESSION_ID = "g2-run-inspector-session";
 
 async function installRunAppFixture(page: Page) {
   await page.addInitScript((sessionId) => {
-    localStorage.setItem("nonclaw-daemon-url", "http://127.0.0.1:18791");
-    localStorage.setItem("nonclaw-session-id", sessionId);
-    localStorage.removeItem("nonclaw-chat-messages");
+    localStorage.setItem("eigen-air-daemon-url", "http://127.0.0.1:18791");
+    localStorage.setItem("eigen-air-session-id", sessionId);
+    localStorage.removeItem("eigen-air-chat-messages");
   }, SESSION_ID);
   await page.route("**/health", (route) =>
     route.fulfill({ json: { status: "ok", version: "0.2.0" } })

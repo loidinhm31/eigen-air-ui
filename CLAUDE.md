@@ -5,9 +5,10 @@ daemon. It is a PNPM/Turborepo workspace with a Vite web app and a Tauri v2
 desktop shell. The apps connect to the daemon over REST and WebSocket on
 `localhost:18790`.
 
-The UI's component name, browser storage keys, and Tauri product identity are
-still in the Phase 04 cutover scope; Phase 03 changed the checkout and package
-workspace identities only.
+The shared embed component is `EigenAirApp`, exported from
+`@eigen-air-ui/ui/embed`. Browser storage uses the `eigen-air-*` namespace,
+and Tauri's product identifier is `io.eigen-air.ui`. Previous-brand browser
+keys and desktop profile data are not automatically migrated.
 
 ## Workspace
 
@@ -44,3 +45,10 @@ pnpm test:e2e
 
 `pnpm test:run` runs the package Vitest suite. `pnpm test:e2e` runs Playwright
 and needs its configured backend and browser prerequisites.
+
+Set `EIGEN_AIR_DIR` to the backend checkout when it is outside Playwright's
+discovery layout:
+
+```bash
+EIGEN_AIR_DIR=/path/to/eigen-air pnpm test:e2e
+```
