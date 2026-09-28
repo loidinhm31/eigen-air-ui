@@ -4,29 +4,61 @@ import { HttpRunAdapter } from "./HttpRunAdapter.js";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("HttpRunAdapter", () => {
-  it("bounds list requests, encodes cursors, and defaults to metadata", async () => {
+  it("bounds list requests, encodes cursors and session_id, and defaults to metadata", async () => {
     const fetch = vi
       .fn()
       .mockResolvedValue({ ok: true, json: async () => ({ schema_version: 1, runs: [] }) });
     vi.stubGlobal("fetch", fetch);
-    await new HttpRunAdapter("http://daemon").list("opaque + cursor", 999);
+    await new HttpRunAdapter("http://daemon").list({
+      cursor: "opaque + cursor",
+      limit: 999,
+      sessionId: "session/a",
+    });
     expect(fetch.mock.calls[0][0]).toContain("limit=100");
     expect(fetch.mock.calls[0][0]).toContain("cursor=opaque+%2B+cursor");
+    expect(fetch.mock.calls[0][0]).toContain("session_id=session%2Fa");
     await new HttpRunAdapter("http://daemon").get("run/a");
     expect(fetch.mock.calls[1][0]).not.toContain("include_debug");
   });
-  it("requires an injected capability for debug and keeps token in memory", async () => {
+  it("requires an injected capability for debug, passes cursors, and omits debug cursor when debug disabled", async () => {
     const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
     vi.stubGlobal("fetch", fetch);
-    await new HttpRunAdapter("http://daemon", {
+    const authAdapter = new HttpRunAdapter("http://daemon", {
       capabilities: new Set(["run:read:debug"]),
       authToken: "secret",
-    }).get("run", true);
+    });
+    await authAdapter.get("run", {
+      includeDebug: true,
+      debugCursor: "dbg+cursor",
+      eventCursor: "evt+cursor",
+      toolCursor: "tool+cursor",
+      lineageCursor: "lin+cursor",
+    });
     expect(fetch.mock.calls[0][0]).toContain("include_debug=true");
+    expect(fetch.mock.calls[0][0]).toContain("debug_cursor=dbg%2Bcursor");
+    expect(fetch.mock.calls[0][0]).toContain("event_cursor=evt%2Bcursor");
+    expect(fetch.mock.calls[0][0]).toContain("tool_cursor=tool%2Bcursor");
+    expect(fetch.mock.calls[0][0]).toContain("lineage_cursor=lin%2Bcursor");
     expect(fetch.mock.calls[0][1].credentials).toBe("omit");
     expect(new Headers(fetch.mock.calls[0][1].headers).get("Authorization")).toBe("Bearer secret");
-    await new HttpRunAdapter("http://daemon").get("run", true);
+
+    // When includeDebug is false, debug_cursor must be rejected/omitted even if capability is present
+    await authAdapter.get("run", {
+      includeDebug: false,
+      debugCursor: "dbg+cursor",
+      eventCursor: "evt+cursor",
+    });
     expect(fetch.mock.calls[1][0]).not.toContain("include_debug");
+    expect(fetch.mock.calls[1][0]).not.toContain("debug_cursor");
+    expect(fetch.mock.calls[1][0]).toContain("event_cursor=evt%2Bcursor");
+
+    // Without debug capability, include_debug and debug_cursor must be omitted
+    await new HttpRunAdapter("http://daemon").get("run", {
+      includeDebug: true,
+      debugCursor: "dbg+cursor",
+    });
+    expect(fetch.mock.calls[2][0]).not.toContain("include_debug");
+    expect(fetch.mock.calls[2][0]).not.toContain("debug_cursor");
   });
   it("preserves generic status for UI clearing and denies unavailable mutations", async () => {
     const fetch = vi.fn().mockResolvedValue({ ok: false, status: 403, json: async () => ({}) });

@@ -109,4 +109,16 @@ describe("G6 Rust task-progress fixture", () => {
     }
     expect(() => decodeTaskProgressWsEvent(fixture.zero_state[0])).not.toThrow();
   });
+  it("accepts null trace_id, parent_run_id, and root_run_id for root runs", () => {
+    const raw = {
+      ...(fixture.rest_zero_state[0] as Record<string, unknown>),
+      trace_id: null,
+      parent_run_id: null,
+      root_run_id: null,
+    };
+    const decoded = decodeTaskProgressSnapshot(raw);
+    expect(decoded.trace_id).toBeNull();
+    expect(decoded.parent_run_id).toBeNull();
+    expect(decoded.root_run_id).toBeNull();
+  });
 });

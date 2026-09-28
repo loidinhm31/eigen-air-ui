@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import * as React from "react";
+import { MemoryRouter } from "react-router-dom";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -196,5 +197,110 @@ describe("RunsPage lifecycle reconciliation", () => {
       });
     });
     expect(useRunInspectorStore.getState().pending).toEqual({});
+  });
+
+  it("filters runs list by session_id from URL query and supports clearing filter", async () => {
+    const fetch = vi.fn(() => {
+      return Promise.resolve(response({ schema_version: 1, runs: [runSummary()], next_cursor: null }));
+    });
+    vi.stubGlobal("fetch", fetch);
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/runs?session_id=session-test"]}>
+        <RunsPage />
+      </MemoryRouter>
+    );
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining("session_id=session-test"),
+        expect.anything()
+      );
+    });
+    expect(screen.getByText("session-test")).toBeDefined();
+    const clearButton = screen.getByRole("button", { name: "Clear session filter" });
+    await user.click(clearButton);
+  });
+
+  it("fetches selected run directly from run_id query parameter even when absent from list", async () => {
+    const fetch = vi.fn((url: string) => {
+      if (url.includes("/v1/runs/direct-run")) {
+        return Promise.resolve(
+          response({ ...snapshot(false), run: { ...runSummary(), run_id: "direct-run" } })
+        );
+      }
+      return Promise.resolve(response({ schema_version: 1, runs: [], next_cursor: null }));
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(
+      <MemoryRouter initialEntries={["/runs?run_id=direct-run"]}>
+        <RunsPage />
+      </MemoryRouter>
+    );
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/v1/runs/direct-run"),
+        expect.anything()
+      );
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("article", { name: /Run direct-run/ })).toBeDefined();
+    });
+  });
+
+  it("paginates runs list when Load more runs is clicked", async () => {
+    const fetch = vi.fn((url: string) => {
+      if (url.includes("cursor=page-2-cursor")) {
+        return Promise.resolve(
+          response({
+            schema_version: 1,
+            runs: [{ ...runSummary(), run_id: "run-b" }],
+            next_cursor: null,
+          })
+        );
+      }
+      return Promise.resolve(
+        response({
+          schema_version: 1,
+          runs: [runSummary()],
+          next_cursor: "page-2-cursor",
+        })
+      );
+    });
+    vi.stubGlobal("fetch", fetch);
+    const user = userEvent.setup();
+    render(<RunsPage />);
+    const loadMoreButton = await screen.findByRole("button", { name: "Load more runs" });
+    await user.click(loadMoreButton);
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining("cursor=page-2-cursor"),
+        expect.anything()
+      );
+    });
+    expect(await screen.findByRole("button", { name: "run-b" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "run-a" })).toBeDefined();
+  });
+
+  it("shows partial-export note when cursors remain on the selected run", async () => {
+    const fetch = vi.fn((url: string) => {
+      if (url.includes("/v1/runs/run-a")) {
+        return Promise.resolve(
+          response({
+            ...snapshot(false),
+            next_event_cursor: "more-events",
+          })
+        );
+      }
+      return Promise.resolve(response({ schema_version: 1, runs: [runSummary()], next_cursor: null }));
+    });
+    vi.stubGlobal("fetch", fetch);
+    const user = userEvent.setup();
+    render(<RunsPage access={{ capabilities: new Set(["run:export"]) }} />);
+    await user.click(await screen.findByRole("button", { name: "run-a" }));
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Export includes snapshot page only; additional history remains on server/i)
+      ).toBeDefined();
+    });
   });
 });

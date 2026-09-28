@@ -355,7 +355,7 @@ export function ChatPanel() {
       let finalDebug = result.debug ?? streamingDebugRef.current;
       if (!finalDebug && (debug || showPromptDebug || showReasoningDebug) && latestRunId) {
         try {
-          const runSnapshot = await getRunService().get(latestRunId, true);
+          const runSnapshot = await getRunService().get(latestRunId, { includeDebug: true });
           if (runSnapshot) {
             const promptExcerpt = runSnapshot.debug_excerpts?.find(
               (e) => e.kind === "system_prompt"

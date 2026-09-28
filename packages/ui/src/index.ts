@@ -57,6 +57,8 @@ export { HttpRunAdapter } from "./adapters/http/HttpRunAdapter.js";
 export type {
   RunAccessContext,
   RunCapabilities,
+  RunListOptions,
+  RunGetOptions,
 } from "./adapters/http/HttpRunAdapter.js";
 export { HttpMemoryAdapter } from "./adapters/http/HttpMemoryAdapter.js";
 export { HttpToolAdapter } from "./adapters/http/HttpToolAdapter.js";

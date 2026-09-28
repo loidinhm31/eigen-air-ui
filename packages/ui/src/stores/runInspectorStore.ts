@@ -11,6 +11,22 @@ export type RunInspectorStatus =
   | "deleted"
   | "failed";
 
+export type RunStreamKind = "events" | "tools" | "lineage" | "debug";
+
+export interface StreamState {
+  loading: boolean;
+  error?: string;
+}
+
+export type StreamStateMap = Record<RunStreamKind, StreamState>;
+
+export const INITIAL_STREAMS: StreamStateMap = {
+  events: { loading: false },
+  tools: { loading: false },
+  lineage: { loading: false },
+  debug: { loading: false },
+};
+
 export interface RunInspectorState {
   snapshots: Record<string, RunSnapshotDto>;
   pending: Record<string, RunEventDto[]>;
@@ -24,6 +40,8 @@ export interface RunInspectorState {
     status: "pending" | "success" | "failed";
     error?: string;
   };
+  refreshGeneration?: number;
+  streams?: StreamStateMap;
 }
 
 function earliestDebugExpiry(snapshots: Record<string, RunSnapshotDto>): number | undefined {
@@ -38,7 +56,7 @@ function earliestDebugExpiry(snapshots: Record<string, RunSnapshotDto>): number 
 }
 
 function clearSnapshotDebug(snapshot: RunSnapshotDto): RunSnapshotDto {
-  if (!snapshot.debug_excerpts) return snapshot;
+  if (!snapshot.debug_excerpts && !snapshot.next_debug_cursor) return snapshot;
   return {
     ...snapshot,
     run: {
@@ -50,6 +68,7 @@ function clearSnapshotDebug(snapshot: RunSnapshotDto): RunSnapshotDto {
       },
     },
     debug_excerpts: undefined,
+    next_debug_cursor: null,
   };
 }
 
@@ -66,6 +85,7 @@ function expireSnapshotDebug(snapshot: RunSnapshotDto): RunSnapshotDto {
         unavailable_reason: "expired",
       },
     },
+    next_debug_cursor: null,
   };
 }
 
@@ -77,8 +97,13 @@ function withoutExpiredDebug(snapshot: RunSnapshotDto, now: number): RunSnapshot
 
 export function installSnapshot(
   state: RunInspectorState,
-  snapshot: RunSnapshotDto
+  snapshot: RunSnapshotDto,
+  generation?: number
 ): RunInspectorState {
+  const currentGen = state.refreshGeneration ?? 0;
+  if (generation !== undefined && generation !== currentGen) {
+    return state;
+  }
   const runId = snapshot.run.run_id;
   const pending = state.pending[runId] ?? [];
   const snapshots = { ...state.snapshots, [runId]: withoutExpiredDebug(snapshot, Date.now()) };
@@ -89,11 +114,125 @@ export function installSnapshot(
     status: "live",
     error: undefined,
     debugExpiresAtMs: earliestDebugExpiry(snapshots),
+    streams: { ...INITIAL_STREAMS },
   };
   for (const event of [...pending].sort((a, b) => a.event_seq - b.event_seq)) {
     next = applyRunEvent(next, runId, event);
   }
   return next;
+}
+
+export function mergeStreamPage(
+  state: RunInspectorState,
+  runId: string,
+  stream: RunStreamKind,
+  page: RunSnapshotDto,
+  generation?: number
+): RunInspectorState {
+  if (state.selectedRunId && state.selectedRunId !== runId) {
+    return state;
+  }
+  if (!state.snapshots[runId]) {
+    return state;
+  }
+  const currentGen = state.refreshGeneration ?? 0;
+  if (generation !== undefined && generation !== currentGen) {
+    return state;
+  }
+
+  const current = state.snapshots[runId];
+  let updatedSnapshot: RunSnapshotDto;
+
+  switch (stream) {
+    case "events": {
+      const existingIds = new Set(current.events.map((e) => e.event_id).filter(Boolean));
+      const newEvents: RunEventDto[] = [...current.events];
+      for (const ev of page.events) {
+        if (!ev.event_id || !existingIds.has(ev.event_id)) {
+          if (ev.event_id) existingIds.add(ev.event_id);
+          newEvents.push(ev);
+        }
+      }
+      newEvents.sort((a, b) => a.event_seq - b.event_seq);
+      updatedSnapshot = {
+        ...current,
+        events: newEvents,
+        next_event_cursor: page.next_event_cursor ?? null,
+      };
+      break;
+    }
+    case "tools": {
+      const existingKeys = new Set(
+        current.tool_calls.map((t) => `${t.tool_call_id}:${t.ordinal}`)
+      );
+      const newTools = [...current.tool_calls];
+      for (const tool of page.tool_calls) {
+        const key = `${tool.tool_call_id}:${tool.ordinal}`;
+        if (!existingKeys.has(key)) {
+          existingKeys.add(key);
+          newTools.push(tool);
+        }
+      }
+      newTools.sort((a, b) => a.ordinal - b.ordinal);
+      updatedSnapshot = {
+        ...current,
+        tool_calls: newTools,
+        next_tool_cursor: page.next_tool_cursor ?? null,
+      };
+      break;
+    }
+    case "lineage": {
+      const existingSeqs = new Set(current.memory_lineage.map((m) => m.lineage_seq));
+      const newLineage = [...current.memory_lineage];
+      for (const item of page.memory_lineage) {
+        if (!existingSeqs.has(item.lineage_seq)) {
+          existingSeqs.add(item.lineage_seq);
+          newLineage.push(item);
+        }
+      }
+      newLineage.sort((a, b) => a.lineage_seq - b.lineage_seq);
+      updatedSnapshot = {
+        ...current,
+        memory_lineage: newLineage,
+        next_lineage_cursor: page.next_lineage_cursor ?? null,
+      };
+      break;
+    }
+    case "debug": {
+      const existingExcerpts = current.debug_excerpts ?? [];
+      const pageExcerpts = page.debug_excerpts ?? [];
+      const existingSeqs = new Set(existingExcerpts.map((d) => d.excerpt_seq));
+      const newExcerpts = [...existingExcerpts];
+      for (const item of pageExcerpts) {
+        if (!existingSeqs.has(item.excerpt_seq)) {
+          existingSeqs.add(item.excerpt_seq);
+          newExcerpts.push(item);
+        }
+      }
+      newExcerpts.sort((a, b) => a.excerpt_seq - b.excerpt_seq);
+      updatedSnapshot = withoutExpiredDebug(
+        {
+          ...current,
+          debug_excerpts: newExcerpts,
+          next_debug_cursor: page.next_debug_cursor ?? null,
+        },
+        Date.now()
+      );
+      break;
+    }
+  }
+
+  const snapshots = { ...state.snapshots, [runId]: updatedSnapshot };
+  const currentStreams = state.streams ?? INITIAL_STREAMS;
+  return {
+    ...state,
+    snapshots,
+    debugExpiresAtMs: earliestDebugExpiry(snapshots),
+    streams: {
+      ...currentStreams,
+      [stream]: { loading: false, error: undefined },
+    },
+  };
 }
 
 export function applyRunEvent(
@@ -135,8 +274,8 @@ export function applyRunEvent(
 
 interface RunInspectorActions {
   select(runId?: string): void;
-  begin(): void;
-  snapshot(snapshot: RunSnapshotDto): void;
+  begin(): number;
+  snapshot(snapshot: RunSnapshotDto, generation?: number): void;
   event(runId: string, event?: RunEventDto): void;
   fail(error: unknown): void;
   clearDebug(runId: string): void;
@@ -146,12 +285,17 @@ interface RunInspectorActions {
   completeOperation(kind: "export" | "delete", runId: string): void;
   failOperation(kind: "export" | "delete", runId: string, error: unknown): void;
   evict(runId: string): void;
+  beginStream(stream: RunStreamKind): boolean;
+  pageStream(runId: string, stream: RunStreamKind, page: RunSnapshotDto, generation?: number): void;
+  failStream(stream: RunStreamKind, error: unknown): void;
 }
 
 export const useRunInspectorStore = create<RunInspectorState & RunInspectorActions>((set) => ({
   snapshots: {},
   pending: {},
   status: "idle",
+  refreshGeneration: 0,
+  streams: INITIAL_STREAMS,
   select: (selectedRunId) =>
     set((state) => {
       if (selectedRunId === state.selectedRunId) return { selectedRunId };
@@ -162,10 +306,24 @@ export const useRunInspectorStore = create<RunInspectorState & RunInspectorActio
         selectedRunId,
         snapshots,
         debugExpiresAtMs: earliestDebugExpiry(snapshots),
+        refreshGeneration: (state.refreshGeneration ?? 0) + 1,
+        streams: { ...INITIAL_STREAMS },
       };
     }),
-  begin: () => set({ status: "loading", error: undefined }),
-  snapshot: (snapshot) => set((state) => installSnapshot(state, snapshot)),
+  begin: () => {
+    let nextGen = 0;
+    set((state) => {
+      nextGen = (state.refreshGeneration ?? 0) + 1;
+      return {
+        status: "loading",
+        error: undefined,
+        refreshGeneration: nextGen,
+        streams: { ...INITIAL_STREAMS },
+      };
+    });
+    return nextGen;
+  },
+  snapshot: (snapshot, generation) => set((state) => installSnapshot(state, snapshot, generation)),
   event: (runId, event) => set((state) => applyRunEvent(state, runId, event)),
   fail: (error) =>
     set({ status: "failed", error: error instanceof Error ? error.message : "Run request failed" }),
@@ -178,7 +336,7 @@ export const useRunInspectorStore = create<RunInspectorState & RunInspectorActio
     }),
   // Drop every reference, not only the active selection, on security/lifecycle boundaries.
   clear: (status = "idle") =>
-    set({
+    set((state) => ({
       snapshots: {},
       pending: {},
       status,
@@ -186,6 +344,40 @@ export const useRunInspectorStore = create<RunInspectorState & RunInspectorActio
       debugExpiresAtMs: undefined,
       error: undefined,
       operation: undefined,
+      refreshGeneration: (state.refreshGeneration ?? 0) + 1,
+      streams: { ...INITIAL_STREAMS },
+    })),
+  beginStream: (stream) => {
+    let started = false;
+    set((state) => {
+      const currentStreams = state.streams ?? INITIAL_STREAMS;
+      if (currentStreams[stream]?.loading) {
+        return state;
+      }
+      started = true;
+      return {
+        streams: {
+          ...currentStreams,
+          [stream]: { loading: true, error: undefined },
+        },
+      };
+    });
+    return started;
+  },
+  pageStream: (runId, stream, page, generation) =>
+    set((state) => mergeStreamPage(state, runId, stream, page, generation)),
+  failStream: (stream, error) =>
+    set((state) => {
+      const currentStreams = state.streams ?? INITIAL_STREAMS;
+      return {
+        streams: {
+          ...currentStreams,
+          [stream]: {
+            loading: false,
+            error: error instanceof Error ? error.message : "Page load failed",
+          },
+        },
+      };
     }),
   expire: (now = Date.now()) =>
     set((state) => {

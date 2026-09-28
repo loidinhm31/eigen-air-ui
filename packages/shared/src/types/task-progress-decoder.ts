@@ -128,9 +128,18 @@ export function decodeTaskProgressSnapshot(value: unknown): TaskProgressSnapshot
     task_id: string(snapshot.task_id, "task_id"),
     subagent_run_id: string(snapshot.subagent_run_id, "subagent_run_id"),
     run_id: string(snapshot.run_id, "run_id"),
-    trace_id: string(snapshot.trace_id, "trace_id"),
-    parent_run_id: string(snapshot.parent_run_id, "parent_run_id"),
-    root_run_id: string(snapshot.root_run_id, "root_run_id"),
+    trace_id:
+      snapshot.trace_id === null || snapshot.trace_id === undefined
+        ? null
+        : string(snapshot.trace_id, "trace_id"),
+    parent_run_id:
+      snapshot.parent_run_id === null || snapshot.parent_run_id === undefined
+        ? null
+        : string(snapshot.parent_run_id, "parent_run_id"),
+    root_run_id:
+      snapshot.root_run_id === null || snapshot.root_run_id === undefined
+        ? null
+        : string(snapshot.root_run_id, "root_run_id"),
     projection_status: status(snapshot.projection_status, PROJECTION_STATUSES, "projection_status"),
     verification_status: status(
       snapshot.verification_status,

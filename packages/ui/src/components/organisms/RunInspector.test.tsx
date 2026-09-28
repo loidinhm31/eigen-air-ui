@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
-import { render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RunSnapshotDto } from "@eigen-air-ui/shared/types";
 import { RunInspector } from "./RunInspector.js";
+
+afterEach(() => cleanup());
 
 function fixture(): RunSnapshotDto {
   return {
@@ -73,7 +75,7 @@ describe("RunInspector", () => {
     expect(screen.getByText("Status: completed")).toBeDefined();
     expect(screen.getByText(/Metadata-only view/)).toBeDefined();
     const timeline = screen.getByRole("list", { name: "Run event timeline" });
-    expect(within(timeline).getAllByRole("listitem")).toHaveLength(500);
+    expect(within(timeline).getAllByRole("listitem")).toHaveLength(501);
     const lineageHeading = screen.getByRole("heading", {
       name: "Server-proven memory lineage",
     });
@@ -124,5 +126,71 @@ describe("RunInspector", () => {
     expect(screen.getByText("sensitive plaintext")).toBeDefined();
     await user.click(screen.getByRole("button", { name: "Clear debug" }));
     expect(clearDebug).toHaveBeenCalledOnce();
+  });
+
+  it("renders 201 tool calls without truncation and calls stream pagination handlers", async () => {
+    const user = userEvent.setup();
+    const onLoadMoreEvents = vi.fn();
+    const onLoadMoreTools = vi.fn();
+    const onLoadMoreLineage = vi.fn();
+    const onLoadMoreDebug = vi.fn();
+
+    const snap: RunSnapshotDto = {
+      ...fixture(),
+      next_event_cursor: "c-events",
+      next_tool_cursor: "c-tools",
+      next_lineage_cursor: "c-lineage",
+      next_debug_cursor: "c-debug",
+      tool_calls: Array.from({ length: 201 }, (_, i) => ({
+        tool_call_id: `tool-${i}`,
+        ordinal: i,
+        tool_name: "test_tool",
+        status: "completed",
+        started_at_ms: 1,
+      })),
+      debug_excerpts: [
+        {
+          excerpt_seq: 1,
+          kind: "system_prompt",
+          plaintext: "debug snippet",
+          created_at_ms: 1,
+          expires_at_ms: Date.now() + 60_000,
+          plaintext_bytes: 13,
+          truncated: false,
+          redaction_count: 0,
+        },
+      ],
+    };
+
+    render(
+      <RunInspector
+        snapshot={snap}
+        canRequestDebug
+        onRequestDebug={vi.fn()}
+        onClearDebug={vi.fn()}
+        onLoadMoreEvents={onLoadMoreEvents}
+        onLoadMoreTools={onLoadMoreTools}
+        onLoadMoreLineage={onLoadMoreLineage}
+        onLoadMoreDebug={onLoadMoreDebug}
+      />
+    );
+
+    // Verify all 201 tool calls rendered (not sliced to 200)
+    expect(screen.getByText("201 loaded")).toBeDefined();
+    const toolsSection = screen.getByRole("heading", { name: "Tool calls" }).closest("section")!;
+    expect(within(toolsSection).getAllByRole("listitem")).toHaveLength(201);
+
+    // Click load more buttons
+    await user.click(screen.getByRole("button", { name: "Load more events" }));
+    expect(onLoadMoreEvents).toHaveBeenCalledOnce();
+
+    await user.click(screen.getByRole("button", { name: "Load more tools" }));
+    expect(onLoadMoreTools).toHaveBeenCalledOnce();
+
+    await user.click(screen.getByRole("button", { name: "Load more memory lineage" }));
+    expect(onLoadMoreLineage).toHaveBeenCalledOnce();
+
+    await user.click(screen.getByRole("button", { name: "Load more debug excerpts" }));
+    expect(onLoadMoreDebug).toHaveBeenCalledOnce();
   });
 });

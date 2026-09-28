@@ -11,6 +11,22 @@ const MAX_RUN_ERROR_MESSAGE_BYTES = 512;
 
 export type { RunCapabilities };
 
+export interface RunListOptions {
+  sessionId?: string;
+  cursor?: string;
+  limit?: number;
+  signal?: AbortSignal;
+}
+
+export interface RunGetOptions {
+  includeDebug?: boolean;
+  eventCursor?: string;
+  toolCursor?: string;
+  lineageCursor?: string;
+  debugCursor?: string;
+  signal?: AbortSignal;
+}
+
 /** Authenticated host state. It is consumed in memory and never serialized by this adapter. */
 export type RunAccessContext = AccessContext;
 
@@ -93,18 +109,34 @@ export class HttpRunAdapter {
     return response.json() as Promise<T>;
   }
 
-  list(cursor?: string, limit = 50, signal?: AbortSignal): Promise<RunListResponseDto> {
+  list(options: RunListOptions = {}): Promise<RunListResponseDto> {
+    const limit = options.limit ?? 50;
     const params = new URLSearchParams({ limit: String(Math.min(100, Math.max(1, limit))) });
-    if (cursor) params.set("cursor", cursor);
+    if (options.cursor) params.set("cursor", options.cursor);
+    if (options.sessionId) params.set("session_id", options.sessionId);
     const query = `?${params.toString()}`;
-    return this.request(`/v1/runs${query}`, { signal });
+    return this.request(`/v1/runs${query}`, { signal: options.signal });
   }
 
-  get(runId: string, includeDebug = false, signal?: AbortSignal): Promise<RunSnapshotDto> {
+  get(runId: string, options: RunGetOptions = {}): Promise<RunSnapshotDto> {
+    const params = new URLSearchParams();
     // A local UI flag is never authority; default deny until authenticated state injects capability.
-    const debug = includeDebug && this.accessContext().capabilities?.has("run:read:debug");
-    return this.request(`/v1/runs/${encodeURIComponent(runId)}${debug ? "?include_debug=true" : ""}`, {
-      signal,
+    const debug = Boolean(
+      options.includeDebug && this.accessContext().capabilities?.has("run:read:debug")
+    );
+    if (debug) {
+      params.set("include_debug", "true");
+      if (options.debugCursor) {
+        params.set("debug_cursor", options.debugCursor);
+      }
+    }
+    if (options.eventCursor) params.set("event_cursor", options.eventCursor);
+    if (options.toolCursor) params.set("tool_cursor", options.toolCursor);
+    if (options.lineageCursor) params.set("lineage_cursor", options.lineageCursor);
+
+    const query = params.toString() ? `?${params.toString()}` : "";
+    return this.request(`/v1/runs/${encodeURIComponent(runId)}${query}`, {
+      signal: options.signal,
     });
   }
 

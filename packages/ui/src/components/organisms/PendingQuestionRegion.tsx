@@ -40,7 +40,7 @@ function tryGetChatService(daemonUrl: string): IChatService | undefined {
 
 function tryGetRunSnapshot(runId: string, signal: AbortSignal): Promise<unknown> {
   try {
-    return getRunService().get(runId, false, signal);
+    return getRunService().get(runId, { includeDebug: false, signal });
   } catch {
     return Promise.reject(new Error("Run snapshot unavailable"));
   }

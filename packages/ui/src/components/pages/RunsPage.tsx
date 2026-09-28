@@ -1,12 +1,30 @@
 import * as React from "react";
+import { useLocation } from "react-router-dom";
 import type { RunEventDto, RunSummaryDto } from "@eigen-air-ui/shared/types";
 import { HttpRunAdapter, type RunAccessContext } from "../../adapters/http/HttpRunAdapter.js";
 import { getChatService, getServiceAccessContext } from "../../adapters/factory/ServiceFactory.js";
 import { useConnectionStore } from "../../stores/connectionStore.js";
 import { useRunInspectorStore } from "../../stores/runInspectorStore.js";
+import { useBasePathNavigation } from "../../embed/base-path-navigation.js";
 import { RunInspector } from "../organisms/RunInspector.js";
 import { Button } from "../atoms/Button.js";
-const NO_RUN_ACCESS: RunAccessContext = {};
+
+function useSafeBasePathNavigation() {
+  try {
+    return useBasePathNavigation();
+  } catch {
+    return { to: (p: string) => p, navigate: () => undefined };
+  }
+}
+
+function useSafeLocationSearch(): string {
+  try {
+    return useLocation().search;
+  } catch {
+    return typeof window !== "undefined" ? window.location.search : "";
+  }
+}
+
 /** Server-authenticated state supplied by the embedding host; defaults deny. */
 interface RunsPageProps { access?: RunAccessContext }
 export function RunsPage({ access: propAccess }: RunsPageProps) {
@@ -28,6 +46,7 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
     selectedRunId,
     status,
     error,
+    streams,
     select,
     begin,
     snapshot,
@@ -40,8 +59,32 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
     completeOperation,
     failOperation,
     evict,
+    beginStream,
+    pageStream,
+    failStream,
   } = useRunInspectorStore();
   const [runs, setRuns] = React.useState<RunSummaryDto[]>([]);
+  const [listNextCursor, setListNextCursor] = React.useState<string | null>(null);
+  const [listLoading, setListLoading] = React.useState(false);
+  const [listError, setListError] = React.useState<string | undefined>(undefined);
+  const { to, navigate } = useSafeBasePathNavigation();
+  const locationSearch = useSafeLocationSearch();
+  const searchParams = React.useMemo(() => new URLSearchParams(locationSearch), [locationSearch]);
+  const urlSessionId = searchParams.get("session_id")?.trim() || undefined;
+  const urlRunId = searchParams.get("run_id")?.trim() || undefined;
+  const lastOpenedRunId = React.useRef<string | undefined>(undefined);
+  const previousSessionId = React.useRef<string | undefined>(urlSessionId);
+
+  const updateUrl = React.useCallback(
+    (newRunId?: string, newSessionId?: string) => {
+      const params = new URLSearchParams();
+      if (newSessionId) params.set("session_id", newSessionId);
+      if (newRunId) params.set("run_id", newRunId);
+      const qs = params.toString();
+      navigate(`/runs${qs ? `?${qs}` : ""}`);
+    },
+    [navigate]
+  );
   const lifecycleGeneration = React.useRef(0);
   const listAbort = React.useRef<AbortController | undefined>(undefined);
   const detailAbort = React.useRef<AbortController | undefined>(undefined);
@@ -86,32 +129,70 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
     },
     [clearUnavailable, fail]
   );
-  const load = React.useCallback(async () => {
-    const generation = lifecycleGeneration.current;
-    listAbort.current?.abort();
-    const controller = new AbortController();
-    listAbort.current = controller;
-    begin();
-    try {
-      const result = await adapter.list(undefined, 50, controller.signal);
-      if (controller.signal.aborted || generation !== lifecycleGeneration.current) return;
-      correlationEnabled.current = true;
-      setRuns(result.runs);
-    } catch (reason) {
-      if (controller.signal.aborted || generation !== lifecycleGeneration.current) return;
-      handleReadError(reason);
-    }
-  }, [adapter, begin, handleReadError]);
+  const load = React.useCallback(
+    async (cursor?: string) => {
+      const generation = lifecycleGeneration.current;
+      if (!cursor) {
+        listAbort.current?.abort();
+      }
+      const controller = new AbortController();
+      if (!cursor) {
+        listAbort.current = controller;
+        begin();
+      }
+      setListLoading(true);
+      setListError(undefined);
+      try {
+        const result = await adapter.list({
+          sessionId: urlSessionId,
+          cursor,
+          limit: 50,
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted || generation !== lifecycleGeneration.current) return;
+        correlationEnabled.current = true;
+        setRuns((current) => {
+          if (!cursor) return result.runs;
+          const existingIds = new Set(current.map((r) => r.run_id));
+          const merged = [...current];
+          for (const r of result.runs) {
+            if (!existingIds.has(r.run_id)) {
+              existingIds.add(r.run_id);
+              merged.push(r);
+            }
+          }
+          return merged;
+        });
+        setListNextCursor(result.next_cursor ?? null);
+      } catch (reason) {
+        if (controller.signal.aborted || generation !== lifecycleGeneration.current) return;
+        if (!cursor) {
+          handleReadError(reason);
+        } else {
+          setListError(reason instanceof Error ? reason.message : "Failed to load more runs");
+        }
+      } finally {
+        if (generation === lifecycleGeneration.current) {
+          setListLoading(false);
+        }
+      }
+    },
+    [adapter, begin, handleReadError, urlSessionId]
+  );
   const open = React.useCallback(
     async (runId: string, includeDebug = false) => {
+      lastOpenedRunId.current = runId;
       const generation = lifecycleGeneration.current;
       detailAbort.current?.abort();
       const controller = new AbortController();
       detailAbort.current = controller;
       select(runId);
-      begin();
+      const reqGen = begin();
       try {
-        const result = await adapter.get(runId, includeDebug, controller.signal);
+        const result = await adapter.get(runId, {
+          includeDebug,
+          signal: controller.signal,
+        });
         const activeRunId = useRunInspectorStore.getState().selectedRunId;
         if (
           controller.signal.aborted ||
@@ -120,7 +201,7 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
         )
           return;
         correlationEnabled.current = true;
-        snapshot(result);
+        snapshot(result, reqGen);
       } catch (reason) {
         if (
           controller.signal.aborted ||
@@ -205,6 +286,7 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
     mutationAbort.current?.abort();
     correlationEnabled.current = false;
     setRuns([]);
+    setListNextCursor(null);
     clear("denied");
     void load();
   }, [accessKey, clear, load]);
@@ -242,8 +324,24 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
       const activeRunId = useRunInspectorStore.getState().selectedRunId;
       if (activeRunId) void open(activeRunId);
     });
-    return () => { unsubscribe?.(); reconnect?.(); };
+    return () => {
+      unsubscribe?.();
+      reconnect?.();
+    };
   }, [load, open]);
+  React.useEffect(() => {
+    if (urlRunId && urlRunId !== lastOpenedRunId.current) {
+      void open(urlRunId);
+    }
+  }, [open, urlRunId]);
+  React.useEffect(() => {
+    if (previousSessionId.current !== urlSessionId) {
+      previousSessionId.current = urlSessionId;
+      setRuns([]);
+      setListNextCursor(null);
+      void load();
+    }
+  }, [load, urlSessionId]);
   React.useEffect(() => {
     if (status === "reconciling" && selectedRunId) void open(selectedRunId);
   }, [open, selectedRunId, status]);
@@ -262,12 +360,30 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
           </Button>
         </div>
         <p className="text-muted-foreground mb-3 text-xs">Snapshots are authoritative; live events reconcile through REST.</p>
+        {urlSessionId && (
+          <div className="mb-2 flex items-center justify-between rounded bg-muted/60 p-2 text-xs">
+            <span className="truncate">
+              Session: <strong className="font-mono">{urlSessionId}</strong>
+            </span>
+            <button
+              type="button"
+              onClick={() => updateUrl(selectedRunId, undefined)}
+              className="ml-2 font-medium text-primary underline hover:text-primary/80"
+              aria-label="Clear session filter"
+            >
+              Clear
+            </button>
+          </div>
+        )}
         <ul className="space-y-1" aria-label="Available runs">
           {runs.map((run) => (
             <li key={run.run_id}>
               <button
                 type="button"
-                onClick={() => void open(run.run_id)}
+                onClick={() => {
+                  updateUrl(run.run_id, urlSessionId);
+                  void open(run.run_id);
+                }}
                 className="hover:bg-accent w-full rounded px-2 py-2 text-left focus-visible:outline focus-visible:outline-2"
                 aria-current={run.run_id === selectedRunId ? "page" : undefined}
                 aria-label={run.run_id}
@@ -278,7 +394,26 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
             </li>
           ))}
         </ul>
-        {runs.length === 0 && status !== "loading" && (
+        {listNextCursor && (
+          <div className="mt-2 pt-2 border-t border-border">
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full text-xs"
+              isLoading={listLoading}
+              disabled={listLoading}
+              onClick={() => void load(listNextCursor)}
+            >
+              Load more runs
+            </Button>
+            {listError && (
+              <p role="alert" className="mt-1 text-destructive text-xs">
+                {listError}
+              </p>
+            )}
+          </div>
+        )}
+        {runs.length === 0 && status !== "loading" && !listLoading && (
           <p className="text-muted-foreground text-sm">No runs available.</p>
         )}
       </aside>
@@ -305,7 +440,7 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
         )}
         {selected && (
           <>
-            <div className="mb-3 flex flex-wrap gap-2">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
               {canExport && (
                 <Button
                   size="sm"
@@ -326,12 +461,99 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
                   Delete
                 </Button>
               )}
+              {Boolean(
+                selected.next_event_cursor ||
+                  selected.next_tool_cursor ||
+                  selected.next_lineage_cursor ||
+                  selected.next_debug_cursor
+              ) && (
+                <span role="note" className="text-muted-foreground text-xs">
+                  Export includes snapshot page only; additional history remains on server.
+                </span>
+              )}
             </div>
             <RunInspector
               snapshot={selected}
               canRequestDebug={canRequestDebug}
               onRequestDebug={() => void open(selected.run.run_id, true)}
               onClearDebug={() => clearDebug(selected.run.run_id)}
+              streamStates={streams}
+              onLoadMoreEvents={async () => {
+                if (!selectedRunId || !selected.next_event_cursor) return;
+                if (!beginStream("events")) return;
+                const gen = useRunInspectorStore.getState().refreshGeneration ?? 0;
+                try {
+                  const page = await adapter.get(selectedRunId, {
+                    eventCursor: selected.next_event_cursor,
+                    includeDebug: false,
+                  });
+                  pageStream(selectedRunId, "events", page, gen);
+                } catch (err) {
+                  if (
+                    useRunInspectorStore.getState().refreshGeneration === gen &&
+                    useRunInspectorStore.getState().selectedRunId === selectedRunId
+                  ) {
+                    failStream("events", err);
+                  }
+                }
+              }}
+              onLoadMoreTools={async () => {
+                if (!selectedRunId || !selected.next_tool_cursor) return;
+                if (!beginStream("tools")) return;
+                const gen = useRunInspectorStore.getState().refreshGeneration ?? 0;
+                try {
+                  const page = await adapter.get(selectedRunId, {
+                    toolCursor: selected.next_tool_cursor,
+                    includeDebug: false,
+                  });
+                  pageStream(selectedRunId, "tools", page, gen);
+                } catch (err) {
+                  if (
+                    useRunInspectorStore.getState().refreshGeneration === gen &&
+                    useRunInspectorStore.getState().selectedRunId === selectedRunId
+                  ) {
+                    failStream("tools", err);
+                  }
+                }
+              }}
+              onLoadMoreLineage={async () => {
+                if (!selectedRunId || !selected.next_lineage_cursor) return;
+                if (!beginStream("lineage")) return;
+                const gen = useRunInspectorStore.getState().refreshGeneration ?? 0;
+                try {
+                  const page = await adapter.get(selectedRunId, {
+                    lineageCursor: selected.next_lineage_cursor,
+                    includeDebug: false,
+                  });
+                  pageStream(selectedRunId, "lineage", page, gen);
+                } catch (err) {
+                  if (
+                    useRunInspectorStore.getState().refreshGeneration === gen &&
+                    useRunInspectorStore.getState().selectedRunId === selectedRunId
+                  ) {
+                    failStream("lineage", err);
+                  }
+                }
+              }}
+              onLoadMoreDebug={async () => {
+                if (!selectedRunId || !selected.next_debug_cursor) return;
+                if (!beginStream("debug")) return;
+                const gen = useRunInspectorStore.getState().refreshGeneration ?? 0;
+                try {
+                  const page = await adapter.get(selectedRunId, {
+                    debugCursor: selected.next_debug_cursor,
+                    includeDebug: true,
+                  });
+                  pageStream(selectedRunId, "debug", page, gen);
+                } catch (err) {
+                  if (
+                    useRunInspectorStore.getState().refreshGeneration === gen &&
+                    useRunInspectorStore.getState().selectedRunId === selectedRunId
+                  ) {
+                    failStream("debug", err);
+                  }
+                }
+              }}
             />
           </>
         )}

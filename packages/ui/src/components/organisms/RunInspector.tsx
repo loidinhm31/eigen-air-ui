@@ -1,21 +1,31 @@
 import type { RunSnapshotDto } from "@eigen-air-ui/shared/types";
+import type { StreamStateMap } from "../../stores/runInspectorStore.js";
 import { RunTimeline } from "../molecules/RunTimeline.js";
 import { MemoryLineagePanel } from "../molecules/MemoryLineagePanel.js";
 
 const displayId = (value?: string | null) => value || "Not reported";
 
-interface RunInspectorProps {
+export interface RunInspectorProps {
   snapshot: RunSnapshotDto;
   canRequestDebug: boolean;
   onRequestDebug(): void;
   onClearDebug(): void;
+  streamStates?: StreamStateMap;
+  onLoadMoreEvents?(): void;
+  onLoadMoreTools?(): void;
+  onLoadMoreLineage?(): void;
+  onLoadMoreDebug?(): void;
 }
-
 export function RunInspector({
   snapshot,
   canRequestDebug,
   onRequestDebug,
   onClearDebug,
+  streamStates,
+  onLoadMoreEvents,
+  onLoadMoreTools,
+  onLoadMoreLineage,
+  onLoadMoreDebug,
 }: RunInspectorProps) {
   const { run } = snapshot;
   const debug = snapshot.debug_excerpts ?? [];
@@ -54,21 +64,41 @@ export function RunInspector({
         </p>
       </section>
       <section aria-labelledby="run-events-heading">
-        <h3 id="run-events-heading" className="mb-2 text-sm font-semibold">
-          Events
-        </h3>
-        <RunTimeline events={snapshot.events} />
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h3 id="run-events-heading" className="text-sm font-semibold">
+            Events
+          </h3>
+          {snapshot.events.length > 0 && (
+            <span className="text-muted-foreground text-xs">
+              {snapshot.events.length} loaded
+            </span>
+          )}
+        </div>
+        <RunTimeline
+          events={snapshot.events}
+          hasMore={Boolean(snapshot.next_event_cursor)}
+          isLoading={streamStates?.events.loading}
+          error={streamStates?.events.error}
+          onLoadMore={onLoadMoreEvents}
+        />
       </section>
       <section aria-labelledby="run-tools-heading">
-        <h3 id="run-tools-heading" className="text-sm font-semibold">
-          Tool calls
-        </h3>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h3 id="run-tools-heading" className="text-sm font-semibold">
+            Tool calls
+          </h3>
+          {snapshot.tool_calls.length > 0 && (
+            <span className="text-muted-foreground text-xs">
+              {snapshot.tool_calls.length} loaded
+            </span>
+          )}
+        </div>
         {snapshot.tool_calls.length === 0 ? (
           <p className="text-muted-foreground mt-2 text-sm">No tool call metadata was reported.</p>
         ) : (
           <ul className="mt-2 space-y-2">
-            {snapshot.tool_calls.slice(0, 200).map((tool) => (
-              <li key={tool.tool_call_id} className="border-border rounded border p-2 text-xs">
+            {snapshot.tool_calls.map((tool) => (
+              <li key={`${tool.tool_call_id}-${tool.ordinal}`} className="border-border rounded border p-2 text-xs">
                 <p className="font-medium">
                   {tool.tool_name} — {tool.status}
                 </p>
@@ -80,13 +110,44 @@ export function RunInspector({
             ))}
           </ul>
         )}
+        {snapshot.next_tool_cursor && (
+          <div className="mt-2">
+            <button
+              type="button"
+              disabled={streamStates?.tools.loading}
+              onClick={onLoadMoreTools}
+              className="text-xs font-medium text-primary hover:underline disabled:opacity-50"
+              aria-label="Load more tools"
+            >
+              {streamStates?.tools.loading ? "Loading more tools…" : "Load more tools"}
+            </button>
+            {streamStates?.tools.error && (
+              <p role="alert" className="mt-1 text-destructive text-xs">
+                {streamStates.tools.error}
+              </p>
+            )}
+          </div>
+        )}
       </section>
-      <MemoryLineagePanel lineage={snapshot.memory_lineage} />
+      <MemoryLineagePanel
+        lineage={snapshot.memory_lineage}
+        hasMore={Boolean(snapshot.next_lineage_cursor)}
+        isLoading={streamStates?.lineage.loading}
+        error={streamStates?.lineage.error}
+        onLoadMore={onLoadMoreLineage}
+      />
       <section aria-labelledby="run-debug-heading">
         <div className="flex items-center justify-between gap-2">
-          <h3 id="run-debug-heading" className="text-sm font-semibold">
-            Debug excerpts
-          </h3>
+          <div className="flex items-center gap-2">
+            <h3 id="run-debug-heading" className="text-sm font-semibold">
+              Debug excerpts
+            </h3>
+            {debug.length > 0 && (
+              <span className="text-muted-foreground text-xs">
+                {debug.length} loaded
+              </span>
+            )}
+          </div>
           {debug.length > 0 ? (
             <button
               type="button"
@@ -113,7 +174,7 @@ export function RunInspector({
           </p>
         ) : (
           <ul className="mt-2 space-y-2">
-            {debug.slice(0, 500).map((excerpt) => (
+            {debug.map((excerpt) => (
               <li key={excerpt.excerpt_seq} className="border-border rounded border p-2">
                 <p
                   className="text-muted-foreground text-xs"
@@ -129,6 +190,24 @@ export function RunInspector({
               </li>
             ))}
           </ul>
+        )}
+        {snapshot.next_debug_cursor && (
+          <div className="mt-2">
+            <button
+              type="button"
+              disabled={streamStates?.debug.loading}
+              onClick={onLoadMoreDebug}
+              className="text-xs font-medium text-primary hover:underline disabled:opacity-50"
+              aria-label="Load more debug excerpts"
+            >
+              {streamStates?.debug.loading ? "Loading more debug excerpts…" : "Load more debug excerpts"}
+            </button>
+            {streamStates?.debug.error && (
+              <p role="alert" className="mt-1 text-destructive text-xs">
+                {streamStates.debug.error}
+              </p>
+            )}
+          </div>
         )}
       </section>
     </article>

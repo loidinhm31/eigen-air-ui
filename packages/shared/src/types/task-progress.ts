@@ -51,9 +51,9 @@ export interface TaskProgressSnapshotDto {
   task_id: string;
   subagent_run_id: string;
   run_id: string;
-  trace_id: string;
-  parent_run_id: string;
-  root_run_id: string;
+  trace_id: string | null;
+  parent_run_id: string | null;
+  root_run_id: string | null;
   projection_status: TaskProgressProjectionStatus;
   verification_status: TaskProgressVerificationStatus;
   artifact_revision: number;

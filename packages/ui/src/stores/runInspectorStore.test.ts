@@ -3,6 +3,7 @@ import type { RunEventDto, RunSnapshotDto } from "@eigen-air-ui/shared/types";
 import {
   applyRunEvent,
   installSnapshot,
+  mergeStreamPage,
   useRunInspectorStore,
   type RunInspectorState,
 } from "./runInspectorStore.js";
@@ -208,5 +209,218 @@ describe("run inspector reconciliation", () => {
     );
     expect(current.pending).toEqual({ "run-c": [event(1)] });
     vi.useRealTimers();
+  });
+
+  it("merges only the requested stream and preserves other streams and cursors", () => {
+    const initial: RunSnapshotDto = {
+      ...snapshot("run-1"),
+      events: [event(1, "evt-1")],
+      tool_calls: [
+        {
+          tool_call_id: "tool-1",
+          ordinal: 0,
+          tool_name: "file_read",
+          status: "completed",
+          started_at_ms: 1,
+        },
+      ],
+      next_event_cursor: "cursor-evt-1",
+      next_tool_cursor: "cursor-tool-1",
+    };
+
+    const stateWithInitial: RunInspectorState = {
+      snapshots: { "run-1": initial },
+      pending: {},
+      status: "live",
+      selectedRunId: "run-1",
+      refreshGeneration: 1,
+    };
+
+    // Page response returns new events, but also has incidental first-page tools and a reset tool cursor
+    const pageResponse: RunSnapshotDto = {
+      ...snapshot("run-1"),
+      events: [event(2, "evt-2")],
+      tool_calls: [
+        {
+          tool_call_id: "incidental-tool",
+          ordinal: 0,
+          tool_name: "other",
+          status: "completed",
+          started_at_ms: 1,
+        },
+      ],
+      next_event_cursor: "cursor-evt-2",
+      next_tool_cursor: "reset-tool-cursor",
+    };
+
+    const updated = mergeStreamPage(stateWithInitial, "run-1", "events", pageResponse, 1);
+    const snap = updated.snapshots["run-1"];
+
+    // Events stream updated
+    expect(snap.events).toHaveLength(2);
+    expect(snap.events.map((e) => e.event_id)).toEqual(["evt-1", "evt-2"]);
+    expect(snap.next_event_cursor).toBe("cursor-evt-2");
+
+    // Tools stream and cursor preserved from initial, incidental page tool data ignored
+    expect(snap.tool_calls).toHaveLength(1);
+    expect(snap.tool_calls[0].tool_call_id).toBe("tool-1");
+    expect(snap.next_tool_cursor).toBe("cursor-tool-1");
+  });
+
+  it("deduplicates stream rows by stable identity and maintains server sequence order", () => {
+    const initial: RunSnapshotDto = {
+      ...snapshot("run-1"),
+      events: [event(1, "evt-1"), event(3, "evt-3")],
+      tool_calls: [
+        { tool_call_id: "t-1", ordinal: 0, tool_name: "a", status: "running", started_at_ms: 1 },
+        { tool_call_id: "t-2", ordinal: 2, tool_name: "b", status: "running", started_at_ms: 1 },
+      ],
+      memory_lineage: [
+        {
+          lineage_seq: 1,
+          relation: "used",
+          memory_kind: "fact",
+          memory_reference: "ref-1",
+          tenant_id: "t",
+          user_id: "u",
+          agent_id: "a",
+          workspace_id: "w",
+          occurred_at_ms: 1,
+        },
+      ],
+    };
+
+    const s: RunInspectorState = {
+      snapshots: { "run-1": initial },
+      pending: {},
+      status: "live",
+      selectedRunId: "run-1",
+      refreshGeneration: 1,
+    };
+
+    // Incoming page has duplicate evt-1 and new evt-2 (seq 2)
+    const eventPage: RunSnapshotDto = {
+      ...snapshot("run-1"),
+      events: [event(1, "evt-1"), event(2, "evt-2")],
+      next_event_cursor: null,
+    };
+
+    const mergedEvents = mergeStreamPage(s, "run-1", "events", eventPage, 1);
+    expect(mergedEvents.snapshots["run-1"].events.map((e) => e.event_seq)).toEqual([1, 2, 3]);
+
+    // Incoming tools page has duplicate t-1:0 and new t-1:1
+    const toolPage: RunSnapshotDto = {
+      ...snapshot("run-1"),
+      tool_calls: [
+        { tool_call_id: "t-1", ordinal: 0, tool_name: "a", status: "completed", started_at_ms: 1 },
+        { tool_call_id: "t-1", ordinal: 1, tool_name: "a", status: "running", started_at_ms: 1 },
+      ],
+      next_tool_cursor: null,
+    };
+
+    const mergedTools = mergeStreamPage(s, "run-1", "tools", toolPage, 1);
+    expect(
+      mergedTools.snapshots["run-1"].tool_calls.map((t) => `${t.tool_call_id}:${t.ordinal}`)
+    ).toEqual(["t-1:0", "t-1:1", "t-2:2"]);
+  });
+
+  it("discards late pages when refresh generation changes or run is unselected", () => {
+    const initial = snapshot("run-1");
+    const s: RunInspectorState = {
+      snapshots: { "run-1": initial },
+      pending: {},
+      status: "live",
+      selectedRunId: "run-1",
+      refreshGeneration: 2,
+    };
+
+    const page: RunSnapshotDto = {
+      ...snapshot("run-1"),
+      events: [event(2, "evt-2")],
+      next_event_cursor: "next",
+    };
+
+    // Stale generation 1 vs current 2
+    const staleResult = mergeStreamPage(s, "run-1", "events", page, 1);
+    expect(staleResult.snapshots["run-1"].events).toHaveLength(0);
+
+    // Mismatched selected run
+    const wrongRunResult = mergeStreamPage(
+      { ...s, selectedRunId: "run-2" },
+      "run-1",
+      "events",
+      page,
+      2
+    );
+    expect(wrongRunResult.snapshots["run-1"].events).toHaveLength(0);
+  });
+
+  it("invalidates extra loaded tool pages on authoritative refresh", () => {
+    useRunInspectorStore.getState().clear();
+    const initial = snapshot("run-1");
+    useRunInspectorStore.getState().select("run-1");
+    useRunInspectorStore.getState().snapshot(initial);
+
+    // Page tools in
+    const toolPage: RunSnapshotDto = {
+      ...snapshot("run-1"),
+      tool_calls: [
+        { tool_call_id: "tool-page-2", ordinal: 201, tool_name: "test", status: "completed", started_at_ms: 1 },
+      ],
+      next_tool_cursor: "page-3-cursor",
+    };
+    useRunInspectorStore
+      .getState()
+      .pageStream(
+        "run-1",
+        "tools",
+        toolPage,
+        useRunInspectorStore.getState().refreshGeneration
+      );
+    expect(useRunInspectorStore.getState().snapshots["run-1"].tool_calls).toHaveLength(1);
+
+    // Now authoritative refresh arrives from server with fresh baseline
+    const refreshedBaseline: RunSnapshotDto = {
+      ...snapshot("run-1", 2),
+      tool_calls: [
+        { tool_call_id: "tool-fresh-1", ordinal: 0, tool_name: "test", status: "running", started_at_ms: 1 },
+      ],
+      next_tool_cursor: "fresh-page-2-cursor",
+    };
+    const gen = useRunInspectorStore.getState().begin();
+    useRunInspectorStore.getState().snapshot(refreshedBaseline, gen);
+
+    // The previously paged tool-page-2 is invalidated; baseline is installed
+    const current = useRunInspectorStore.getState().snapshots["run-1"];
+    expect(current.tool_calls).toHaveLength(1);
+    expect(current.tool_calls[0].tool_call_id).toBe("tool-fresh-1");
+    expect(current.next_tool_cursor).toBe("fresh-page-2-cursor");
+  });
+
+  it("clears next_debug_cursor when debug is cleared or expired", () => {
+    const snapWithDebug: RunSnapshotDto = {
+      ...snapshot("run-1"),
+      debug_excerpts: [
+        {
+          excerpt_seq: 1,
+          kind: "system_prompt",
+          plaintext: "prompt",
+          created_at_ms: Date.now(),
+          expires_at_ms: Date.now() + 60_000,
+          plaintext_bytes: 6,
+          truncated: false,
+          redaction_count: 0,
+        },
+      ],
+      next_debug_cursor: "dbg-next",
+    };
+
+    useRunInspectorStore.getState().clear();
+    useRunInspectorStore.getState().snapshot(snapWithDebug);
+    expect(useRunInspectorStore.getState().snapshots["run-1"].next_debug_cursor).toBe("dbg-next");
+
+    useRunInspectorStore.getState().clearDebug("run-1");
+    expect(useRunInspectorStore.getState().snapshots["run-1"].next_debug_cursor).toBeNull();
+    expect(useRunInspectorStore.getState().snapshots["run-1"].debug_excerpts).toBeUndefined();
   });
 });
