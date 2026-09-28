@@ -11,6 +11,7 @@ import { RunsPage } from "./RunsPage.js";
 
 const service = vi.hoisted(() => ({
   runCallback: undefined as ((frame: Record<string, unknown>) => void) | undefined,
+  progressCallback: undefined as ((frame: Record<string, unknown>) => void) | undefined,
 }));
 
 vi.mock("../../adapters/factory/ServiceFactory.js", () => ({
@@ -19,6 +20,12 @@ vi.mock("../../adapters/factory/ServiceFactory.js", () => ({
       service.runCallback = callback;
       return () => {
         service.runCallback = undefined;
+      };
+    },
+    subscribeTaskProgress: (callback: (frame: Record<string, unknown>) => void) => {
+      service.progressCallback = callback;
+      return () => {
+        service.progressCallback = undefined;
       };
     },
     onRunReconnect: () => () => undefined,
@@ -301,6 +308,234 @@ describe("RunsPage lifecycle reconciliation", () => {
       expect(
         screen.getByText(/Export includes snapshot page only; additional history remains on server/i)
       ).toBeDefined();
+    });
+  });
+
+  it("loads run tree for delegated run and navigates to child and parent runs", async () => {
+    const parentRunSummary: RunSummaryDto = {
+      ...runSummary(),
+      run_id: "run-parent",
+      root_run_id: "run-parent",
+    };
+    const parentSnapshot: RunSnapshotDto = {
+      ...snapshot(false),
+      run: parentRunSummary,
+      task_progress: {
+        artifact_type: "task_progress",
+        schema_version: 1,
+        artifact_id: "art-parent",
+        root_session_id: "sess-root",
+        task_id: "task-parent",
+        subagent_run_id: "run-parent",
+        run_id: "run-parent",
+        trace_id: "trace-p",
+        parent_run_id: null,
+        root_run_id: "run-parent",
+        projection_status: "running",
+        verification_status: "unverified",
+        artifact_revision: 2,
+        artifact_event_seq: 4,
+        g2_snapshot_seq: 5,
+        claimed_active_count: 1,
+        claimed_item_count: 2,
+        updated_at_ms: 1000,
+        terminal_at_ms: null,
+        redaction: { metadata_only: true, hidden_fields: [] },
+      },
+    };
+    const childSnapshot: RunSnapshotDto = {
+      ...snapshot(false),
+      run: {
+        ...runSummary(),
+        run_id: "run-child",
+        parent_run_id: "run-parent",
+        root_run_id: "run-parent",
+      },
+      task_progress: {
+        artifact_type: "task_progress",
+        schema_version: 1,
+        artifact_id: "art-child",
+        root_session_id: "sess-root",
+        task_id: "task-child",
+        subagent_run_id: "run-child",
+        run_id: "run-child",
+        trace_id: "trace-c",
+        parent_run_id: "run-parent",
+        root_run_id: "run-parent",
+        projection_status: "succeeded",
+        verification_status: "verified_success",
+        artifact_revision: 3,
+        artifact_event_seq: 6,
+        g2_snapshot_seq: 8,
+        claimed_active_count: 0,
+        claimed_item_count: 1,
+        updated_at_ms: 2000,
+        terminal_at_ms: 2000,
+        redaction: { metadata_only: true, hidden_fields: [] },
+      },
+    };
+
+    const treeNodes = [
+      {
+        id: "tree-node-1",
+        root_session_id: "sess-root",
+        parent_session_id: "sess-root",
+        child_session_id: "sess-child",
+        parent_run_id: "run-parent",
+        child_run_id: "run-child",
+        root_run_id: "run-parent",
+        delegated_task_id: "task-child",
+        source_agent_id: "lead",
+        target_agent_id: "worker",
+        depth: 1,
+        created_at: 100,
+      },
+    ];
+
+    const fetch = vi.fn((url: string) => {
+      if (url.includes("/v1/run-trees/sess-root")) {
+        return Promise.resolve(response(treeNodes));
+      }
+      if (url.includes("/v1/runs/run-child")) {
+        return Promise.resolve(response(childSnapshot));
+      }
+      if (url.includes("/v1/runs/run-parent")) {
+        return Promise.resolve(response(parentSnapshot));
+      }
+      return Promise.resolve(response({ schema_version: 1, runs: [parentRunSummary], next_cursor: null }));
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <RunsPage />
+      </MemoryRouter>
+    );
+
+    // Open parent run
+    await user.click(await screen.findByRole("button", { name: "run-parent" }));
+    expect(await screen.findByTestId("projection-status")).toBeDefined();
+    expect(screen.getByTestId("projection-status").textContent).toBe("Running");
+
+    // Check that run tree was fetched and child run link is displayed
+    const childLink = await screen.findByRole("button", { name: "Navigate to child run run-child" });
+    expect(childLink).toBeDefined();
+
+    // Click child run link to navigate
+    await user.click(childLink);
+    await waitFor(() => {
+      expect(screen.getByTestId("projection-status").textContent).toBe("Succeeded (terminal)");
+    });
+    expect(screen.getByTestId("verification-status").textContent).toBe("Verified success (lifecycle only)");
+
+    // In child view, parent link is available
+    const parentLink = screen.getByRole("button", { name: "Navigate to parent run run-parent" });
+    await user.click(parentLink);
+    await waitFor(() => {
+      expect(screen.getByTestId("projection-status").textContent).toBe("Running");
+    });
+  });
+
+  it("updates task progress via live WebSocket event and reconciles on gap", async () => {
+    const run = { ...runSummary(), run_id: "run-live" };
+    const initialSnapshot: RunSnapshotDto = {
+      ...snapshot(false),
+      run,
+      task_progress: {
+        artifact_type: "task_progress",
+        schema_version: 1,
+        artifact_id: "art-live",
+        root_session_id: "sess-live",
+        task_id: "task-live",
+        subagent_run_id: "run-live",
+        run_id: "run-live",
+        trace_id: "trace-l",
+        parent_run_id: null,
+        root_run_id: "run-live",
+        projection_status: "running",
+        verification_status: "unverified",
+        artifact_revision: 1,
+        artifact_event_seq: 1,
+        g2_snapshot_seq: 1,
+        claimed_active_count: 1,
+        claimed_item_count: 1,
+        updated_at_ms: 1000,
+        terminal_at_ms: null,
+        redaction: { metadata_only: true, hidden_fields: [] },
+      },
+    };
+
+    let fetchCount = 0;
+    const fetch = vi.fn((url: string) => {
+      if (url.includes("/v1/run-trees/sess-live")) {
+        return Promise.resolve(response([]));
+      }
+      if (url.includes("/v1/runs/run-live")) {
+        fetchCount += 1;
+        return Promise.resolve(response(initialSnapshot));
+      }
+      return Promise.resolve(response({ schema_version: 1, runs: [run], next_cursor: null }));
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <RunsPage />
+      </MemoryRouter>
+    );
+
+    await user.click(await screen.findByRole("button", { name: "run-live" }));
+    expect(await screen.findByText("rev 1")).toBeDefined();
+
+    // 1. Contiguous live WS progress event: revision 2
+    act(() => {
+      service.progressCallback?.({
+        type: "event",
+        version: "v1",
+        event: "task_progress.updated",
+        run_id: "run-live",
+        payload: {
+          artifact_id: "art-live",
+          task_id: "task-live",
+          subagent_run_id: "run-live",
+          artifact_revision: 2,
+          artifact_event_seq: 2,
+          snapshot_seq: 2,
+          projection_status: "running",
+          verification_status: "unverified",
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("rev 2")).toBeDefined();
+    });
+
+    // 2. Sequence gap: revision jumps to 5 -> triggers REST snapshot reconciliation
+    const beforeRefetchCount = fetchCount;
+    act(() => {
+      service.progressCallback?.({
+        type: "event",
+        version: "v1",
+        event: "task_progress.updated",
+        run_id: "run-live",
+        payload: {
+          artifact_id: "art-live",
+          task_id: "task-live",
+          subagent_run_id: "run-live",
+          artifact_revision: 5,
+          artifact_event_seq: 5,
+          snapshot_seq: 5,
+          projection_status: "running",
+          verification_status: "unverified",
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(fetchCount).toBeGreaterThan(beforeRefetchCount);
     });
   });
 });

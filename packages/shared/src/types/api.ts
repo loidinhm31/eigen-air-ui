@@ -415,6 +415,21 @@ export interface RunListResponseDto {
   next_cursor?: string | null;
 }
 
+export interface RunTreeNodeDto {
+  id: string;
+  root_session_id: string;
+  parent_session_id: string;
+  child_session_id: string;
+  parent_run_id?: string | null;
+  child_run_id?: string | null;
+  root_run_id?: string | null;
+  delegated_task_id: string;
+  source_agent_id: string;
+  target_agent_id: string;
+  depth: number;
+  created_at: number;
+}
+
 // --- Errors ---
 
 export interface ApiError {

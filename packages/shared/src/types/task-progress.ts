@@ -65,3 +65,5 @@ export interface TaskProgressSnapshotDto {
   terminal_at_ms: number | null;
   redaction: TaskProgressRedactionDto;
 }
+
+export type TaskProgressSummaryDto = TaskProgressSnapshotDto;

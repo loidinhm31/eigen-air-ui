@@ -10,3 +10,9 @@ export { ToolSelectionDiagnostic } from "./ToolSelectionDiagnostic.js";
 export { formatToolReason, TOOL_SELECTION_REASON_LABELS } from "./toolSelectionReasons.js";
 export { ToolCallsPanel } from "./ToolCallsPanel.js";
 export { ToolDecisionsPanel } from "./ToolDecisionsPanel.js";
+export {
+  DelegationLifecyclePanel,
+  PROJECTION_STATUS_LABELS,
+  VERIFICATION_STATUS_LABELS,
+  type DelegationLifecyclePanelProps,
+} from "./DelegationLifecyclePanel.js";

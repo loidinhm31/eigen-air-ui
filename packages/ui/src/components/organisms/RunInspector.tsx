@@ -1,5 +1,6 @@
-import type { RunSnapshotDto } from "@eigen-air-ui/shared/types";
+import type { RunSnapshotDto, RunTreeNodeDto } from "@eigen-air-ui/shared/types";
 import type { StreamStateMap } from "../../stores/runInspectorStore.js";
+import { DelegationLifecyclePanel } from "../molecules/DelegationLifecyclePanel.js";
 import { RunTimeline } from "../molecules/RunTimeline.js";
 import { MemoryLineagePanel } from "../molecules/MemoryLineagePanel.js";
 import { ToolDecisionsPanel } from "../molecules/ToolDecisionsPanel.js";
@@ -16,6 +17,10 @@ export interface RunInspectorProps {
   onLoadMoreTools?(): void;
   onLoadMoreLineage?(): void;
   onLoadMoreDebug?(): void;
+  runTreeNodes?: RunTreeNodeDto[] | null;
+  runTreeLoading?: boolean;
+  runTreeError?: string;
+  onSelectRun?(runId: string): void;
 }
 export function RunInspector({
   snapshot,
@@ -27,6 +32,10 @@ export function RunInspector({
   onLoadMoreTools,
   onLoadMoreLineage,
   onLoadMoreDebug,
+  runTreeNodes,
+  runTreeLoading,
+  runTreeError,
+  onSelectRun,
 }: RunInspectorProps) {
   const { run } = snapshot;
   const debug = snapshot.debug_excerpts ?? [];
@@ -74,6 +83,16 @@ export function RunInspector({
             : "No usage reported by server."}
         </p>
       </section>
+      <DelegationLifecyclePanel
+        runId={run.run_id}
+        parentRunId={run.parent_run_id || snapshot.task_progress?.parent_run_id}
+        rootRunId={run.root_run_id || snapshot.task_progress?.root_run_id}
+        taskProgress={snapshot.task_progress}
+        runTreeNodes={runTreeNodes}
+        runTreeLoading={runTreeLoading}
+        runTreeError={runTreeError}
+        onSelectRun={onSelectRun}
+      />
       <section aria-labelledby="run-events-heading">
         <div className="mb-2 flex items-center justify-between gap-2">
           <h3 id="run-events-heading" className="text-sm font-semibold">

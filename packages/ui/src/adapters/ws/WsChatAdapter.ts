@@ -23,6 +23,7 @@ import type {
   WsEvent,
   UserQuestionUpdatedEvent,
   ToolApprovalUpdatedEvent,
+  TaskProgressWsEvent,
 } from "@eigen-air-ui/shared/types";
 import { decodeChatHistoryResponse, decodeChatSendResponse } from "@eigen-air-ui/shared/types";
 import { WS_METHODS } from "@eigen-air-ui/shared/constants";
@@ -90,6 +91,7 @@ export class WsChatAdapter implements IChatService, ISessionService {
   private readonly approvalSubscribers = new Set<(event: ToolApprovalUpdatedEvent) => void>();
   private readonly approvalProtocolSubscribers = new Set<() => void>();
   private readonly questionProtocolSubscribers = new Set<() => void>();
+  private readonly taskProgressSubscribers = new Set<(event: TaskProgressWsEvent) => void>();
   private readonly waitingHandlers = new Set<(event: WsEvent) => void>();
   private readonly accessProvider?: WsAccessProvider;
 
@@ -102,6 +104,9 @@ export class WsChatAdapter implements IChatService, ISessionService {
       }
       if (event.event === "user_question.updated") {
         this.questionSubscribers.forEach((callback) => callback(event));
+      }
+      if (event.event === "task_progress.updated") {
+        this.taskProgressSubscribers.forEach((callback) => callback(event as TaskProgressWsEvent));
       }
       this.forwardRunCorrelation(event);
     });
@@ -144,6 +149,11 @@ export class WsChatAdapter implements IChatService, ISessionService {
   subscribeToolApproval(callback: (event: ToolApprovalUpdatedEvent) => void): () => void {
     this.approvalSubscribers.add(callback);
     return () => this.approvalSubscribers.delete(callback);
+  }
+
+  subscribeTaskProgress(callback: (event: TaskProgressWsEvent) => void): () => void {
+    this.taskProgressSubscribers.add(callback);
+    return () => this.taskProgressSubscribers.delete(callback);
   }
 
   onToolApprovalProtocolError(callback: () => void): () => void {

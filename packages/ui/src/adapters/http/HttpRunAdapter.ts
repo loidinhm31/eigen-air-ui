@@ -1,4 +1,4 @@
-import type { RunListResponseDto, RunSnapshotDto } from "@eigen-air-ui/shared/types";
+import type { RunListResponseDto, RunSnapshotDto, RunTreeNodeDto } from "@eigen-air-ui/shared/types";
 import {
   fetchWithAccess,
   type AccessContext,
@@ -138,6 +138,10 @@ export class HttpRunAdapter {
     return this.request(`/v1/runs/${encodeURIComponent(runId)}${query}`, {
       signal: options.signal,
     });
+  }
+
+  getRunTree(rootSessionId: string, signal?: AbortSignal): Promise<RunTreeNodeDto[]> {
+    return this.request(`/v1/run-trees/${encodeURIComponent(rootSessionId)}`, { signal });
   }
 
   async export(runId: string, signal?: AbortSignal): Promise<Blob> {

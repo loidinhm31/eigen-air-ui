@@ -89,4 +89,20 @@ describe("HttpRunAdapter", () => {
     expect(fetch.mock.calls[1][0]).toBe("http://daemon/v1/runs/run%2Fa");
     expect(fetch.mock.calls[1][1]).toMatchObject({ method: "DELETE" });
   });
+
+  it("requests run tree with encoded root_session_id and passes signal", async () => {
+    const sampleNodes = [{ id: "node-1", root_session_id: "sess/1" }];
+    const fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => sampleNodes,
+    });
+    vi.stubGlobal("fetch", fetch);
+    const adapter = new HttpRunAdapter("http://daemon", { authToken: "secret" });
+    const controller = new AbortController();
+    const nodes = await adapter.getRunTree("sess/1", controller.signal);
+    expect(nodes).toEqual(sampleNodes);
+    expect(fetch.mock.calls[0][0]).toBe("http://daemon/v1/run-trees/sess%2F1");
+    expect(fetch.mock.calls[0][1].signal).toBe(controller.signal);
+  });
 });

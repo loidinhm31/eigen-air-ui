@@ -5,6 +5,7 @@ import type {
   RunLifecycleStatus,
   UserQuestionUpdatedEvent,
   ToolApprovalUpdatedEvent,
+  TaskProgressWsEvent,
   WsEvent,
 } from "@eigen-air-ui/shared/types";
 
@@ -23,6 +24,7 @@ export type RunCorrelationSignal = RunCorrelationEvent & {
 export type RunCorrelationCallback = (event: RunCorrelationSignal) => void;
 export type UserQuestionEventCallback = (event: UserQuestionUpdatedEvent) => void;
 export type ToolApprovalEventCallback = (event: ToolApprovalUpdatedEvent) => void;
+export type TaskProgressEventCallback = (event: TaskProgressWsEvent) => void;
 export interface DebugRequestOptions {
   includePrompt: boolean;
   includeReasoning: boolean;
@@ -54,4 +56,5 @@ export interface IChatService {
   onQuestionProtocolError?(callback: () => void): () => void;
   subscribeToolApproval?(callback: ToolApprovalEventCallback): () => void;
   onToolApprovalProtocolError?(callback: () => void): () => void;
+  subscribeTaskProgress?(callback: TaskProgressEventCallback): () => void;
 }

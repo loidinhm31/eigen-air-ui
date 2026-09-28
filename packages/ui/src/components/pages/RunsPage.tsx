@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useLocation } from "react-router-dom";
-import type { RunEventDto, RunSummaryDto } from "@eigen-air-ui/shared/types";
+import type { RunEventDto, RunSummaryDto, RunTreeNodeDto } from "@eigen-air-ui/shared/types";
 import { HttpRunAdapter, type RunAccessContext } from "../../adapters/http/HttpRunAdapter.js";
 import { getChatService, getServiceAccessContext } from "../../adapters/factory/ServiceFactory.js";
 import { useConnectionStore } from "../../stores/connectionStore.js";
@@ -67,6 +67,10 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
   const [listNextCursor, setListNextCursor] = React.useState<string | null>(null);
   const [listLoading, setListLoading] = React.useState(false);
   const [listError, setListError] = React.useState<string | undefined>(undefined);
+  const [runTreeNodes, setRunTreeNodes] = React.useState<RunTreeNodeDto[] | null>(null);
+  const [runTreeLoading, setRunTreeLoading] = React.useState(false);
+  const [runTreeError, setRunTreeError] = React.useState<string | undefined>(undefined);
+  const runTreeAbort = React.useRef<AbortController | undefined>(undefined);
   const { to, navigate } = useSafeBasePathNavigation();
   const locationSearch = useSafeLocationSearch();
   const searchParams = React.useMemo(() => new URLSearchParams(locationSearch), [locationSearch]);
@@ -110,8 +114,12 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
       listAbort.current?.abort();
       detailAbort.current?.abort();
       mutationAbort.current?.abort();
+      runTreeAbort.current?.abort();
       correlationEnabled.current = false;
       setRuns([]);
+      setRunTreeNodes(null);
+      setRunTreeLoading(false);
+      setRunTreeError(undefined);
       clear(reason);
     },
     [clear]
@@ -272,6 +280,7 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
       listAbort.current?.abort();
       detailAbort.current?.abort();
       mutationAbort.current?.abort();
+      runTreeAbort.current?.abort();
       correlationEnabled.current = false;
       clear();
     };
@@ -284,12 +293,57 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
     listAbort.current?.abort();
     detailAbort.current?.abort();
     mutationAbort.current?.abort();
+    runTreeAbort.current?.abort();
     correlationEnabled.current = false;
     setRuns([]);
     setListNextCursor(null);
+    setRunTreeNodes(null);
+    setRunTreeLoading(false);
+    setRunTreeError(undefined);
     clear("denied");
     void load();
   }, [accessKey, clear, load]);
+  React.useEffect(() => {
+    runTreeAbort.current?.abort();
+    setRunTreeNodes(null);
+    setRunTreeError(undefined);
+
+    if (!selected) {
+      setRunTreeLoading(false);
+      return;
+    }
+
+    let rootSessionId: string | undefined = selected.task_progress?.root_session_id;
+    if (!rootSessionId && selected.run.parent_run_id) {
+      rootSessionId = snapshots[selected.run.root_run_id]?.run.session_id;
+    }
+    if (!rootSessionId) {
+      setRunTreeLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    runTreeAbort.current = controller;
+    const generation = lifecycleGeneration.current;
+    setRunTreeLoading(true);
+
+    adapter
+      .getRunTree(rootSessionId, controller.signal)
+      .then((nodes) => {
+        if (controller.signal.aborted || generation !== lifecycleGeneration.current) return;
+        setRunTreeNodes(nodes);
+        setRunTreeLoading(false);
+      })
+      .catch((err: unknown) => {
+        if (controller.signal.aborted || generation !== lifecycleGeneration.current) return;
+        setRunTreeError(err instanceof Error ? err.message : "Run tree unavailable");
+        setRunTreeLoading(false);
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [adapter, selected]);
   React.useEffect(() => {
     const service = getChatService();
     const unsubscribe = service.subscribeRunCorrelation?.((frame) => {
@@ -319,6 +373,16 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
       };
       useRunInspectorStore.getState().event(runId, event);
     });
+    const unsubscribeProgress = service.subscribeTaskProgress?.((progressEvent) => {
+      if (!correlationEnabled.current) return;
+      const targetRunId = progressEvent.run_id || progressEvent.payload.subagent_run_id;
+      const activeRunId = useRunInspectorStore.getState().selectedRunId;
+      if (targetRunId) {
+        useRunInspectorStore.getState().taskProgressEvent(targetRunId, progressEvent);
+      } else if (activeRunId && progressEvent.payload.snapshot_refetch_required) {
+        useRunInspectorStore.getState().taskProgressEvent(activeRunId, progressEvent);
+      }
+    });
     const reconnect = service.onRunReconnect?.(() => {
       void load();
       const activeRunId = useRunInspectorStore.getState().selectedRunId;
@@ -326,6 +390,7 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
     });
     return () => {
       unsubscribe?.();
+      unsubscribeProgress?.();
       reconnect?.();
     };
   }, [load, open]);
@@ -478,6 +543,13 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
               onRequestDebug={() => void open(selected.run.run_id, true)}
               onClearDebug={() => clearDebug(selected.run.run_id)}
               streamStates={streams}
+              runTreeNodes={runTreeNodes}
+              runTreeLoading={runTreeLoading}
+              runTreeError={runTreeError}
+              onSelectRun={(targetRunId) => {
+                updateUrl(targetRunId, urlSessionId);
+                void open(targetRunId);
+              }}
               onLoadMoreEvents={async () => {
                 if (!selectedRunId || !selected.next_event_cursor) return;
                 if (!beginStream("events")) return;

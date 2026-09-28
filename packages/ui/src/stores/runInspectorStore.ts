@@ -1,5 +1,12 @@
 import { create } from "zustand";
-import type { RunEventDto, RunSnapshotDto } from "@eigen-air-ui/shared/types";
+import type {
+  RunEventDto,
+  RunSnapshotDto,
+  TaskProgressCursor,
+  TaskProgressSnapshotDto,
+  TaskProgressWsEvent,
+} from "@eigen-air-ui/shared/types";
+import { classifyTaskProgressUpdate } from "@eigen-air-ui/shared/types";
 
 export type RunInspectorStatus =
   | "idle"
@@ -272,12 +279,77 @@ export function applyRunEvent(
   };
 }
 
+export function applyTaskProgressEvent(
+  state: RunInspectorState,
+  runId: string,
+  event: TaskProgressWsEvent
+): RunInspectorState {
+  const snapshot = state.snapshots[runId];
+  if (!snapshot) return state;
+
+  if (!snapshot.task_progress || event.payload.snapshot_refetch_required) {
+    return { ...state, status: "reconciling" };
+  }
+
+  const currentCursor: TaskProgressCursor = {
+    artifact_revision: snapshot.task_progress.artifact_revision,
+    artifact_event_seq: snapshot.task_progress.artifact_event_seq,
+    snapshot_seq: snapshot.task_progress.g2_snapshot_seq,
+  };
+
+  const disposition = classifyTaskProgressUpdate(currentCursor, event);
+  if (disposition === "ignore") {
+    return state;
+  }
+  if (disposition === "refetch") {
+    return { ...state, status: "reconciling" };
+  }
+
+  // Preserve cancellation authority:
+  // Late succeeded hint cannot directly replace cancelled terminal snapshot.
+  const currentProjectionStatus = snapshot.task_progress.projection_status;
+  const currentRunStatus = snapshot.run.lifecycle_status;
+  const isCancelled =
+    currentProjectionStatus === "cancelled" || currentRunStatus === "aborted";
+
+  let nextProjectionStatus = event.payload.projection_status;
+  if (isCancelled && nextProjectionStatus === "succeeded") {
+    nextProjectionStatus = "cancelled";
+  }
+
+  // Revision monotonicity:
+  if (event.payload.artifact_revision < snapshot.task_progress.artifact_revision) {
+    return state;
+  }
+
+  const updatedTaskProgress: TaskProgressSnapshotDto = {
+    ...snapshot.task_progress,
+    artifact_revision: event.payload.artifact_revision,
+    artifact_event_seq: event.payload.artifact_event_seq,
+    projection_status: nextProjectionStatus,
+    verification_status: event.payload.verification_status,
+    g2_snapshot_seq: event.payload.snapshot_seq ?? snapshot.task_progress.g2_snapshot_seq,
+  };
+
+  return {
+    ...state,
+    snapshots: {
+      ...state.snapshots,
+      [runId]: {
+        ...snapshot,
+        task_progress: updatedTaskProgress,
+      },
+    },
+  };
+}
+
 interface RunInspectorActions {
   select(runId?: string): void;
   begin(): number;
   snapshot(snapshot: RunSnapshotDto, generation?: number): void;
   event(runId: string, event?: RunEventDto): void;
   fail(error: unknown): void;
+  taskProgressEvent(runId: string, event: TaskProgressWsEvent): void;
   clearDebug(runId: string): void;
   clear(reason?: RunInspectorStatus): void;
   expire(now?: number): void;
@@ -325,6 +397,8 @@ export const useRunInspectorStore = create<RunInspectorState & RunInspectorActio
   },
   snapshot: (snapshot, generation) => set((state) => installSnapshot(state, snapshot, generation)),
   event: (runId, event) => set((state) => applyRunEvent(state, runId, event)),
+  taskProgressEvent: (runId, event) =>
+    set((state) => applyTaskProgressEvent(state, runId, event)),
   fail: (error) =>
     set({ status: "failed", error: error instanceof Error ? error.message : "Run request failed" }),
   clearDebug: (runId) =>
