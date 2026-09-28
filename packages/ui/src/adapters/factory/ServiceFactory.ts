@@ -1,5 +1,5 @@
 import type { IChatService } from "./interfaces/IChatService.js";
-import type { IMemoryService } from "./interfaces/IMemoryService.js";
+import type { IMemoryService, MemoryServiceOptions } from "./interfaces/IMemoryService.js";
 import type { IToolService } from "./interfaces/IToolService.js";
 import type { ISkillService } from "./interfaces/ISkillService.js";
 import type { IConfigService } from "./interfaces/IConfigService.js";
@@ -151,6 +151,7 @@ export function getRunService(): HttpRunAdapter {
 export type {
   IChatService,
   IMemoryService,
+  MemoryServiceOptions,
   IToolService,
   ISkillService,
   IConfigService,

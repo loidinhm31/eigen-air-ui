@@ -5,14 +5,18 @@ import type {
   MemorySearchResult,
 } from "@eigen-air-ui/shared/types";
 
+export interface MemoryServiceOptions {
+  signal?: AbortSignal;
+}
+
 export interface IMemoryService {
-  list(): Promise<MemoryEntry[]>;
-  store(key: string, value: unknown): Promise<void>;
-  recall(key: string): Promise<MemoryEntry | null>;
-  search(query: string): Promise<MemorySearchResult[]>;
-  forget(key: string): Promise<void>;
-  listEpisodes(): Promise<EpisodicMemory[]>;
-  getEpisode(id: string): Promise<EpisodicMemory | null>;
-  updateEpisode(id: string, update: EpisodeUpdate): Promise<EpisodicMemory>;
-  deleteEpisode(id: string): Promise<void>;
+  list(options?: MemoryServiceOptions): Promise<MemoryEntry[]>;
+  store(key: string, value: unknown, options?: MemoryServiceOptions): Promise<void>;
+  recall(key: string, options?: MemoryServiceOptions): Promise<MemoryEntry | null>;
+  search(query: string, options?: MemoryServiceOptions): Promise<MemorySearchResult[]>;
+  forget(key: string, options?: MemoryServiceOptions): Promise<void>;
+  listEpisodes(options?: MemoryServiceOptions): Promise<EpisodicMemory[]>;
+  getEpisode(id: string, options?: MemoryServiceOptions): Promise<EpisodicMemory | null>;
+  updateEpisode(id: string, update: EpisodeUpdate, options?: MemoryServiceOptions): Promise<EpisodicMemory>;
+  deleteEpisode(id: string, options?: MemoryServiceOptions): Promise<void>;
 }

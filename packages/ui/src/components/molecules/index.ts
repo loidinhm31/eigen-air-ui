@@ -4,7 +4,21 @@ export { MemoryItem } from "./MemoryItem.js";
 export { SkillCard } from "./SkillCard.js";
 export { StatusBadge } from "./StatusBadge.js";
 export { RunTimeline } from "./RunTimeline.js";
-export { MemoryLineagePanel } from "./MemoryLineagePanel.js";
+export {
+  MemoryLineagePanel,
+  formatMemoryTier,
+  formatLineageRelation,
+  resolveLineageNavigationTarget,
+  type MemoryLineagePanelProps,
+  type LineageNavigationTarget,
+} from "./MemoryLineagePanel.js";
+export { EpisodeCard, type EpisodeCardProps } from "./EpisodeCard.js";
+export {
+  FocusedEpisodeRegion,
+  type FocusedEpisodeRegionProps,
+  type FocusLookupState,
+  type FocusLookupStatus,
+} from "./FocusedEpisodeRegion.js";
 export { ToolApprovalCard } from "./ToolApprovalCard.js";
 export { ToolSelectionDiagnostic } from "./ToolSelectionDiagnostic.js";
 export { formatToolReason, TOOL_SELECTION_REASON_LABELS } from "./toolSelectionReasons.js";

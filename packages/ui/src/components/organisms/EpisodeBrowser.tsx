@@ -1,101 +1,139 @@
 import * as React from "react";
 import { useEffect, useState } from "react";
-import { getMemoryService, getVaultKnowledgeService } from "../../adapters/factory/ServiceFactory.js";
+import { getMemoryService } from "../../adapters/factory/ServiceFactory.js";
+import { MemoryHttpError } from "../../adapters/http/HttpMemoryAdapter.js";
 import { Button } from "../atoms/Button.js";
+import { EpisodeCard } from "../molecules/EpisodeCard.js";
+import {
+  FocusedEpisodeRegion,
+  type FocusLookupState,
+} from "../molecules/FocusedEpisodeRegion.js";
 import { useMemoryStore } from "../../stores/memoryStore.js";
-import type { EpisodicMemory, KnowledgeFact } from "@eigen-air-ui/shared/types";
+import type { EpisodicMemory } from "@eigen-air-ui/shared/types";
 
-interface EpisodeCardProps {
-  episode: EpisodicMemory;
-  onChanged: () => Promise<void>;
+export interface EpisodeBrowserProps {
+  focusedEpisodeId?: string;
+  onClearFocus?: () => void;
 }
 
-function EpisodeCard({ episode, onChanged }: EpisodeCardProps) {
-  const [input, setInput] = useState(episode.input);
-  const [output, setOutput] = useState(episode.output);
-  const [summary, setSummary] = useState(episode.summary);
-  const [facts, setFacts] = useState<KnowledgeFact[]>([]);
-  const [error, setError] = useState<string | null>(null);
+export function EpisodeBrowser({ focusedEpisodeId, onClearFocus }: EpisodeBrowserProps = {}) {
+  const [episodes, setEpisodes] = useState<EpisodicMemory[]>([]);
+  const [focusState, setFocusState] = useState<FocusLookupState>({
+    status: focusedEpisodeId ? "loading" : "idle",
+    episode: null,
+  });
+  const focusGeneration = React.useRef(0);
+  const focusAbort = React.useRef<AbortController | null>(null);
+  const revision = useMemoryStore((state) => state.revision);
 
-  const loadFacts = React.useCallback(async () => {
-    setFacts(await getVaultKnowledgeService().listKnowledgeFacts({ source_episode_id: episode.id }));
-  }, [episode.id]);
+  const lookupFocusedEpisode = React.useCallback(async (episodeId: string) => {
+    const currentGen = ++focusGeneration.current;
+    if (focusAbort.current) {
+      focusAbort.current.abort();
+    }
+    const controller = new AbortController();
+    focusAbort.current = controller;
+
+    setFocusState({ status: "loading", episode: null });
+
+    try {
+      const episode = await getMemoryService().getEpisode(episodeId, {
+        signal: controller.signal,
+      });
+      if (currentGen !== focusGeneration.current) return;
+
+      if (!episode) {
+        setFocusState({ status: "unavailable", episode: null });
+        return;
+      }
+
+      setFocusState({ status: "found", episode });
+    } catch (err) {
+      if (currentGen !== focusGeneration.current) return;
+      if (err instanceof MemoryHttpError) {
+        if (err.kind === "unauthorized" || err.kind === "forbidden") {
+          setFocusState({
+            status: "auth_denied",
+            episode: null,
+            errorMessage: err.message,
+          });
+          return;
+        }
+        if (err.kind === "aborted") {
+          return;
+        }
+      }
+      const message = err instanceof Error ? err.message : "Failed to load episode";
+      setFocusState({
+        status: "error",
+        episode: null,
+        errorMessage: message,
+      });
+    }
+  }, []);
 
   useEffect(() => {
-    void loadFacts();
-  }, [loadFacts]);
-
-  async function saveTranscript() {
-    setError(null);
-    try {
-      const updated = await getMemoryService().updateEpisode(episode.id, { input, output });
-      setSummary(updated.summary);
-      await loadFacts();
-      await onChanged();
-    } catch (cause) {
-      setError(String(cause));
+    if (focusedEpisodeId) {
+      void lookupFocusedEpisode(focusedEpisodeId);
+    } else {
+      setFocusState({ status: "idle", episode: null });
     }
-  }
+    return () => {
+      if (focusAbort.current) {
+        focusAbort.current.abort();
+      }
+    };
+  }, [focusedEpisodeId, lookupFocusedEpisode, revision]);
 
-  async function saveSummary() {
-    setError(null);
+  const load = React.useCallback(async () => {
     try {
-      await getMemoryService().updateEpisode(episode.id, { summary });
-      await onChanged();
-    } catch (cause) {
-      setError(String(cause));
+      setEpisodes(await getMemoryService().listEpisodes());
+    } catch {
+      // If list fails, preserve existing episodes
     }
-  }
+  }, []);
 
-  async function remove() {
-    if (!window.confirm("Delete this episode and all linked facts?")) return;
-    await getMemoryService().deleteEpisode(episode.id);
-    await onChanged();
-  }
+  useEffect(() => {
+    void load();
+  }, [load, revision]);
 
   return (
-    <article className="space-y-3 rounded-md border border-border bg-card p-3" data-testid={`episode-${episode.id}`}>
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-mono text-muted-foreground">{episode.id}</p>
-        <Button variant="destructive" size="sm" onClick={() => void remove()}>Delete episode</Button>
-      </div>
-      <label className="block text-xs font-medium">User transcript
-        <textarea aria-label={`Episode ${episode.id} input`} className="mt-1 min-h-16 w-full rounded-md border border-input bg-transparent p-2 text-sm" value={input} onChange={(event) => setInput(event.target.value)} />
-      </label>
-      <label className="block text-xs font-medium">Assistant transcript
-        <textarea aria-label={`Episode ${episode.id} output`} className="mt-1 min-h-16 w-full rounded-md border border-input bg-transparent p-2 text-sm" value={output} onChange={(event) => setOutput(event.target.value)} />
-      </label>
-      <Button size="sm" onClick={() => void saveTranscript()}>Save transcript</Button>
-      <label className="block text-xs font-medium">Generated summary
-        <textarea aria-label={`Episode ${episode.id} summary`} className="mt-1 min-h-20 w-full rounded-md border border-input bg-transparent p-2 text-sm" value={summary} onChange={(event) => setSummary(event.target.value)} />
-      </label>
-      <Button variant="outline" size="sm" onClick={() => void saveSummary()}>Save summary only</Button>
-      {error && <p className="text-xs text-destructive">{error}</p>}
-      <div>
-        <p className="text-xs font-medium">Derived facts ({facts.length})</p>
-        {facts.map((fact) => <p key={fact.id} className="mt-1 rounded border border-border p-2 text-xs">{fact.subject} {fact.predicate} {fact.object}</p>)}
-        {facts.length === 0 && (
-          <p className="mt-1 text-xs text-muted-foreground">
-            No deterministic facts found. Try phrases such as “I prefer Rust”, a URL, date, or decision.
-          </p>
-        )}
-      </div>
-    </article>
-  );
-}
+    <section className="space-y-4 rounded-md border border-border p-4">
+      {focusedEpisodeId && (
+        <FocusedEpisodeRegion
+          episodeId={focusedEpisodeId}
+          focusState={focusState}
+          onClearFocus={onClearFocus}
+          onRetry={() => void lookupFocusedEpisode(focusedEpisodeId)}
+          onEpisodeChanged={async () => {
+            await lookupFocusedEpisode(focusedEpisodeId);
+            await load();
+          }}
+        />
+      )}
 
-export function EpisodeBrowser() {
-  const [episodes, setEpisodes] = useState<EpisodicMemory[]>([]);
-  const revision = useMemoryStore((state) => state.revision);
-  const load = React.useCallback(async () => setEpisodes(await getMemoryService().listEpisodes()), []);
-  useEffect(() => { void load(); }, [load, revision]);
-  return (
-    <section className="space-y-3 rounded-md border border-border p-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold">Episodes</h2>
-        <Button variant="outline" size="sm" onClick={() => void load()}>Refresh</Button>
+        <h2 className="text-sm font-semibold">
+          {focusedEpisodeId ? "All episodes" : "Episodes"}
+        </h2>
+        <Button variant="outline" size="sm" onClick={() => void load()}>
+          Refresh
+        </Button>
       </div>
-      {episodes.map((episode) => <EpisodeCard key={episode.id} episode={episode} onChanged={load} />)}
+
+      {episodes.map((episode) => (
+        <EpisodeCard
+          key={episode.id}
+          episode={episode}
+          isFocused={false}
+          onChanged={async () => {
+            if (focusedEpisodeId && episode.id === focusedEpisodeId) {
+              await lookupFocusedEpisode(focusedEpisodeId);
+            }
+            await load();
+          }}
+        />
+      ))}
       {episodes.length === 0 && <p className="text-sm text-muted-foreground">No episodes yet</p>}
     </section>
   );

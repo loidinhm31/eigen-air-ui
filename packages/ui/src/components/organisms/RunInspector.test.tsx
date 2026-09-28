@@ -80,7 +80,7 @@ describe("RunInspector", () => {
       name: "Server-proven memory lineage",
     });
     const lineageItem = within(lineageHeading.closest("section")!).getByRole("listitem");
-    expect(lineageItem.textContent).toMatch(/used\s*·\s*fact\s*·\s*fact-a/);
+    expect(lineageItem.textContent).toMatch(/used \(included in request\)\s*·\s*knowledge fact tier\s*·\s*fact-a/);
     expect(lineageItem.textContent).toContain("workspace/workspace-a");
     expect(lineageItem.textContent).toContain("source episode/episode-a");
     expect(screen.queryByRole("button", { name: "Request debug" })).toBeNull();
