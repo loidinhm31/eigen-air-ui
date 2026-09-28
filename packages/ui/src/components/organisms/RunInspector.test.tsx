@@ -193,4 +193,348 @@ describe("RunInspector", () => {
     await user.click(screen.getByRole("button", { name: "Load more debug excerpts" }));
     expect(onLoadMoreDebug).toHaveBeenCalledOnce();
   });
+
+  it("renders truthful identity, duration, and split usage counters independently", () => {
+    const snap: RunSnapshotDto = {
+      ...fixture(),
+      run: {
+        ...fixture().run,
+        provider_id: "provider-xyz",
+        agent_id: "agent-xyz",
+        channel: "cli",
+        started_at_ms: 1000,
+        completed_at_ms: 2500,
+        updated_at_ms: 2500,
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 34,
+          total_tokens: 46,
+          origin: "reported",
+        },
+      },
+    };
+
+    render(
+      <RunInspector
+        snapshot={snap}
+        canRequestDebug={false}
+        onRequestDebug={vi.fn()}
+        onClearDebug={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText(/provider provider-xyz · agent agent-xyz · channel cli/)).toBeDefined();
+    expect(screen.getByText(/duration 1500 ms/)).toBeDefined();
+    expect(
+      screen.getByText(
+        /46 total tokens \(reported\) · prompt: 12 · completion: 34/
+      )
+    ).toBeDefined();
+  });
+
+  it("handles null usage, missing counters without fabricating totals, and inverted timestamps", () => {
+    // 1. Inverted timestamp
+    const snapInverted: RunSnapshotDto = {
+      ...fixture(),
+      run: {
+        ...fixture().run,
+        started_at_ms: 5000,
+        completed_at_ms: 2000,
+        usage: null,
+      },
+    };
+
+    const { rerender } = render(
+      <RunInspector
+        snapshot={snapInverted}
+        canRequestDebug={false}
+        onRequestDebug={vi.fn()}
+        onClearDebug={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText(/duration unavailable \(invalid timestamp range\)/)).toBeDefined();
+    expect(screen.getByText("No usage reported by server.")).toBeDefined();
+
+    // 2. Missing total tokens does not fabricate sum from prompt + completion
+    const snapMissingTotal: RunSnapshotDto = {
+      ...fixture(),
+      run: {
+        ...fixture().run,
+        started_at_ms: 1000,
+        completed_at_ms: null,
+        updated_at_ms: 3500,
+        usage: {
+          prompt_tokens: 15,
+          completion_tokens: 25,
+          total_tokens: null,
+          origin: "estimated",
+        },
+      },
+    };
+
+    rerender(
+      <RunInspector
+        snapshot={snapMissingTotal}
+        canRequestDebug={false}
+        onRequestDebug={vi.fn()}
+        onClearDebug={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText(/duration 2500 ms \(ongoing elapsed\)/)).toBeDefined();
+    expect(
+      screen.getByText(
+        /unknown total tokens \(estimated\) · prompt: 15 · completion: 25/
+      )
+    ).toBeDefined();
+
+    // 3. Zero counters are preserved as 0, not "unknown"
+    const snapZeroCounters: RunSnapshotDto = {
+      ...fixture(),
+      run: {
+        ...fixture().run,
+        usage: {
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          total_tokens: 0,
+          origin: "reported",
+        },
+      },
+    };
+
+    rerender(
+      <RunInspector
+        snapshot={snapZeroCounters}
+        canRequestDebug={false}
+        onRequestDebug={vi.fn()}
+        onClearDebug={vi.fn()}
+      />
+    );
+
+    expect(
+      screen.getByText(/0 total tokens \(reported\) · prompt: 0 · completion: 0/)
+    ).toBeDefined();
+  });
+
+  it("renders tool call timing, safe error code, and failure fallback without fabricating duration", () => {
+    const snap: RunSnapshotDto = {
+      ...fixture(),
+      tool_calls: [
+        {
+          tool_call_id: "tool-valid",
+          ordinal: 1,
+          tool_name: "fetch_data",
+          status: "completed",
+          started_at_ms: 1000,
+          completed_at_ms: 1600,
+          safe_error_code: null,
+        },
+        {
+          tool_call_id: "tool-err",
+          ordinal: 2,
+          tool_name: "exec_cmd",
+          status: "failed",
+          started_at_ms: 2000,
+          completed_at_ms: 2200,
+          safe_error_code: "policy_denied",
+        },
+        {
+          tool_call_id: "tool-fail-no-code",
+          ordinal: 3,
+          tool_name: "broken_tool",
+          status: "failed",
+          started_at_ms: 3000,
+          completed_at_ms: 3100,
+          safe_error_code: null,
+        },
+        {
+          tool_call_id: "tool-ongoing",
+          ordinal: 4,
+          tool_name: "long_task",
+          status: "running",
+          started_at_ms: 4000,
+          completed_at_ms: null,
+          safe_error_code: null,
+        },
+      ],
+    };
+
+    render(
+      <RunInspector
+        snapshot={snap}
+        canRequestDebug={false}
+        onRequestDebug={vi.fn()}
+        onClearDebug={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("duration: 600 ms")).toBeDefined();
+    expect(screen.getByText("duration: 200 ms")).toBeDefined();
+    expect(screen.getByText("Safe error: policy_denied")).toBeDefined();
+    expect(screen.getByText("Failed (no error code reported)")).toBeDefined();
+    expect(screen.getByText("duration: ongoing")).toBeDefined();
+  });
+
+  it("renders exact-scope tool selection diagnostics with reasons and breakdown", () => {
+    const snap: RunSnapshotDto = {
+      ...fixture(),
+      events: [
+        {
+          event_id: "evt-tool-sel",
+          event_seq: 1,
+          event_kind: "tool_selection",
+          occurred_at_ms: 1727500000000,
+          tool_selection: {
+            schema_version: "tool_selection.v1",
+            effective_cap: 3,
+            cap_source: "configured_profile",
+            checked_count: 5,
+            eligible_count: 4,
+            selected_count: 2,
+            rejected_count: 2,
+            required_count: 1,
+            context_count: 1,
+            optional_count: 1,
+            global_count: 1,
+            selected_total: 2,
+            selected_omitted: 0,
+            rejected_total: 2,
+            rejected_omitted: 0,
+            reason_counts: {
+              required_selected: 1,
+              security_denied: 1,
+            },
+            order_hash: "a1b2c3d4e5f67890",
+            selected_tools: [
+              { canonical_name: "quote_tool", reason_code: "required_selected" },
+            ],
+            rejected_tools: [
+              { canonical_name: "danger_tool", reason_code: "security_denied" },
+            ],
+          },
+        },
+      ],
+    };
+
+    render(
+      <RunInspector
+        snapshot={snap}
+        canRequestDebug={false}
+        onRequestDebug={vi.fn()}
+        onClearDebug={vi.fn()}
+      />
+    );
+
+    expect(screen.getAllByText(/Cap: 3 \(configured_profile\)/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Schemas: 5 checked · 4 eligible · 2 selected · 2 rejected/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Breakdown: 1 required · 1 context · 1 optional · 1 global/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/quote_tool/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/danger_tool/).length).toBeGreaterThan(0);
+  });
+
+  it("renders redacted tool selection diagnostics without leaking names and handles zero cap incompatible state", () => {
+    const snap: RunSnapshotDto = {
+      ...fixture(),
+      events: [
+        {
+          event_id: "evt-tool-redacted",
+          event_seq: 1,
+          event_kind: "tool_selection",
+          occurred_at_ms: 1727500000000,
+          tool_selection: {
+            schema_version: "tool_selection.v1",
+            effective_cap: 0,
+            cap_source: "cap_zero",
+            checked_count: 3,
+            eligible_count: 3,
+            selected_count: 0,
+            rejected_count: 3,
+            required_count: 2,
+            selected_omitted: 0,
+            rejected_omitted: 1,
+            rejected_total: 3,
+            name_details_redacted: true,
+          },
+        },
+      ],
+    };
+
+    render(
+      <RunInspector
+        snapshot={snap}
+        canRequestDebug={false}
+        onRequestDebug={vi.fn()}
+        onClearDebug={vi.fn()}
+      />
+    );
+
+    // Incompatible zero cap alert
+    expect(
+      screen.getAllByText(
+        "Zero cap with required tools: incompatible tool budget (execution blocked)"
+      ).length
+    ).toBeGreaterThan(0);
+
+    // Redaction marker present and no tool names leaked
+    expect(
+      screen.getAllByText(
+        "Tool names redacted (requires exact-scope authorization)."
+      ).length
+    ).toBeGreaterThan(0);
+
+    // Omission rendered
+    expect(
+      screen.getAllByText(/1 rejected schemas omitted \(total: 3\)/).length
+    ).toBeGreaterThan(0);
+  });
+
+  it("handles unsupported schema version and runs with no diagnostics gracefully", () => {
+    const snapUnsupported: RunSnapshotDto = {
+      ...fixture(),
+      events: [
+        {
+          event_id: "evt-unknown-schema",
+          event_seq: 1,
+          event_kind: "tool_selection",
+          occurred_at_ms: 1000,
+          tool_selection: {
+            schema_version: "tool_selection.v99",
+          },
+        },
+      ],
+    };
+
+    const { rerender } = render(
+      <RunInspector
+        snapshot={snapUnsupported}
+        canRequestDebug={false}
+        onRequestDebug={vi.fn()}
+        onClearDebug={vi.fn()}
+      />
+    );
+
+    expect(
+      screen.getAllByText(
+        /Tool selection diagnostic unavailable \(unsupported schema version: tool_selection.v99\)/
+      ).length
+    ).toBeGreaterThan(0);
+
+    // Run with no diagnostics
+    const snapEmpty: RunSnapshotDto = {
+      ...fixture(),
+      events: [],
+    };
+
+    rerender(
+      <RunInspector
+        snapshot={snapEmpty}
+        canRequestDebug={false}
+        onRequestDebug={vi.fn()}
+        onClearDebug={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("No tool selection diagnostics reported.")).toBeDefined();
+  });
 });

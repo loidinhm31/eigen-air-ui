@@ -2,8 +2,9 @@ import type { RunSnapshotDto } from "@eigen-air-ui/shared/types";
 import type { StreamStateMap } from "../../stores/runInspectorStore.js";
 import { RunTimeline } from "../molecules/RunTimeline.js";
 import { MemoryLineagePanel } from "../molecules/MemoryLineagePanel.js";
-
-const displayId = (value?: string | null) => value || "Not reported";
+import { ToolDecisionsPanel } from "../molecules/ToolDecisionsPanel.js";
+import { ToolCallsPanel } from "../molecules/ToolCallsPanel.js";
+import { formatTimestamp, runDurationText } from "./runInspectorFormatting.js";
 
 export interface RunInspectorProps {
   snapshot: RunSnapshotDto;
@@ -40,12 +41,22 @@ export function RunInspector({
           <span className="bg-muted rounded px-2 py-1 text-xs">Status: {run.lifecycle_status}</span>
         </div>
         <p className="text-muted-foreground break-all font-mono text-xs">
-          run {run.run_id} · trace {run.trace_id} · parent {displayId(run.parent_run_id)} · root{" "}
+          run {run.run_id} · trace {run.trace_id} · parent {run.parent_run_id || "Not reported"} · root{" "}
           {run.root_run_id}
         </p>
         <p className="text-muted-foreground break-all text-xs">
-          session {run.session_id} · request {displayId(run.request_id)} · snapshot sequence{" "}
+          session {run.session_id} · request {run.request_id || "Not reported"} · snapshot sequence{" "}
           {run.snapshot_seq}
+        </p>
+        <p className="text-muted-foreground break-all text-xs">
+          provider {run.provider_id} · agent {run.agent_id} · channel {run.channel}
+        </p>
+        <p className="text-muted-foreground break-all text-xs">
+          timing: started {formatTimestamp(run.started_at_ms)} · duration{" "}
+          {runDurationText(run.started_at_ms, run.completed_at_ms, run.updated_at_ms)}
+          {run.completed_at_ms != null && run.completed_at_ms >= run.started_at_ms
+            ? ` · completed ${formatTimestamp(run.completed_at_ms)}`
+            : ""}
         </p>
         {run.redaction.metadata_only && (
           <p className="text-muted-foreground text-xs">
@@ -59,7 +70,7 @@ export function RunInspector({
         </h3>
         <p className="text-muted-foreground text-sm">
           {run.usage
-            ? `${run.usage.total_tokens ?? "unknown"} total tokens (${run.usage.origin})`
+            ? `${run.usage.total_tokens != null ? run.usage.total_tokens : "unknown"} total tokens (${run.usage.origin}) · prompt: ${run.usage.prompt_tokens != null ? run.usage.prompt_tokens : "unknown"} · completion: ${run.usage.completion_tokens != null ? run.usage.completion_tokens : "unknown"}`
             : "No usage reported by server."}
         </p>
       </section>
@@ -82,53 +93,14 @@ export function RunInspector({
           onLoadMore={onLoadMoreEvents}
         />
       </section>
-      <section aria-labelledby="run-tools-heading">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <h3 id="run-tools-heading" className="text-sm font-semibold">
-            Tool calls
-          </h3>
-          {snapshot.tool_calls.length > 0 && (
-            <span className="text-muted-foreground text-xs">
-              {snapshot.tool_calls.length} loaded
-            </span>
-          )}
-        </div>
-        {snapshot.tool_calls.length === 0 ? (
-          <p className="text-muted-foreground mt-2 text-sm">No tool call metadata was reported.</p>
-        ) : (
-          <ul className="mt-2 space-y-2">
-            {snapshot.tool_calls.map((tool) => (
-              <li key={`${tool.tool_call_id}-${tool.ordinal}`} className="border-border rounded border p-2 text-xs">
-                <p className="font-medium">
-                  {tool.tool_name} — {tool.status}
-                </p>
-                <p className="text-muted-foreground break-all">
-                  tool {tool.tool_call_id} · ordinal {tool.ordinal}
-                  {tool.policy_outcome ? ` · policy ${tool.policy_outcome}` : ""}
-                </p>
-              </li>
-            ))}
-          </ul>
-        )}
-        {snapshot.next_tool_cursor && (
-          <div className="mt-2">
-            <button
-              type="button"
-              disabled={streamStates?.tools.loading}
-              onClick={onLoadMoreTools}
-              className="text-xs font-medium text-primary hover:underline disabled:opacity-50"
-              aria-label="Load more tools"
-            >
-              {streamStates?.tools.loading ? "Loading more tools…" : "Load more tools"}
-            </button>
-            {streamStates?.tools.error && (
-              <p role="alert" className="mt-1 text-destructive text-xs">
-                {streamStates.tools.error}
-              </p>
-            )}
-          </div>
-        )}
-      </section>
+      <ToolDecisionsPanel events={snapshot.events} />
+      <ToolCallsPanel
+        toolCalls={snapshot.tool_calls}
+        hasMore={Boolean(snapshot.next_tool_cursor)}
+        isLoading={streamStates?.tools.loading}
+        error={streamStates?.tools.error}
+        onLoadMore={onLoadMoreTools}
+      />
       <MemoryLineagePanel
         lineage={snapshot.memory_lineage}
         hasMore={Boolean(snapshot.next_lineage_cursor)}

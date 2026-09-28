@@ -301,6 +301,50 @@ export interface RunSummaryDto {
   redaction: RunRedactionDto;
   usage?: RunUsageDto | null;
 }
+export type ToolSelectionReasonCode =
+  | "cap_unset"
+  | "cap_zero"
+  | "security_denied"
+  | "required_selected"
+  | "context_selected"
+  | "optional_selected"
+  | "global_selected"
+  | "budget_dropped"
+  | "required_overflow"
+  | "duplicate_name"
+  | "context_unavailable"
+  | "provider_unsupported"
+  | "retry_reused"
+  | string;
+
+export interface ToolSelectionDetailDto {
+  canonical_name: string;
+  reason_code?: ToolSelectionReasonCode;
+  reason?: string;
+}
+
+export interface ToolSelectionDto {
+  schema_version: string;
+  effective_cap?: number | null;
+  cap_source?: string;
+  checked_count?: number;
+  eligible_count?: number;
+  selected_count?: number;
+  rejected_count?: number;
+  required_count?: number;
+  context_count?: number;
+  optional_count?: number;
+  global_count?: number;
+  selected_total?: number;
+  selected_omitted?: number;
+  rejected_total?: number;
+  rejected_omitted?: number;
+  reason_counts?: Record<string, number>;
+  order_hash?: string;
+  selected_tools?: ToolSelectionDetailDto[];
+  rejected_tools?: ToolSelectionDetailDto[];
+  name_details_redacted?: boolean;
+}
 
 export interface RunEventDto {
   event_id: string;
@@ -310,6 +354,7 @@ export interface RunEventDto {
   occurred_at_ms: number;
   safe_error_code?: string | null;
   policy_outcome?: RunPolicyOutcome | null;
+  tool_selection?: ToolSelectionDto | null;
 }
 
 export interface RunToolCallDto {

@@ -6,3 +6,7 @@ export { StatusBadge } from "./StatusBadge.js";
 export { RunTimeline } from "./RunTimeline.js";
 export { MemoryLineagePanel } from "./MemoryLineagePanel.js";
 export { ToolApprovalCard } from "./ToolApprovalCard.js";
+export { ToolSelectionDiagnostic } from "./ToolSelectionDiagnostic.js";
+export { formatToolReason, TOOL_SELECTION_REASON_LABELS } from "./toolSelectionReasons.js";
+export { ToolCallsPanel } from "./ToolCallsPanel.js";
+export { ToolDecisionsPanel } from "./ToolDecisionsPanel.js";

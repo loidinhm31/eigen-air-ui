@@ -1,6 +1,8 @@
 import type { RunEventDto } from "@eigen-air-ui/shared/types";
+import { ToolSelectionDiagnostic } from "./ToolSelectionDiagnostic.js";
 
 function timestamp(ms: number) {
+  if (ms == null || !Number.isFinite(ms) || ms <= 0) return "Not reported";
   return new Date(ms).toLocaleString();
 }
 
@@ -40,6 +42,14 @@ export function RunTimeline({
           </p>
           {event.safe_error_code && (
             <p className="text-destructive text-xs">Safe error: {event.safe_error_code}</p>
+          )}
+          {(event.event_kind === "tool_selection" || Boolean(event.tool_selection)) && (
+            <div className="mt-2">
+              <ToolSelectionDiagnostic
+                toolSelection={event.tool_selection}
+                occurredAtMs={event.occurred_at_ms}
+              />
+            </div>
           )}
         </li>
         ))}
