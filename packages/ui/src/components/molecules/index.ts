@@ -44,3 +44,8 @@ export {
   formatExecutionLifecycle,
   type HistoricalToolApprovalsPanelProps,
 } from "./HistoricalToolApprovalsPanel.js";
+export {
+  TaskOutcomesPanel,
+  formatTaskOutcomeReason,
+  type TaskOutcomesPanelProps,
+} from "./TaskOutcomesPanel.js";

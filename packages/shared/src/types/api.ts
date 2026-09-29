@@ -407,6 +407,32 @@ export interface ContextAccountingDto {
   model_digest?: string | null;
   safe_failure?: string | null;
 }
+export type TaskOutcomeStatus = "passed" | "failed" | "error";
+
+export type TaskOutcomeReason =
+  | "valid"
+  | "schema_mismatch"
+  | "missing_required_field"
+  | "unreferenced_citation"
+  | "quote_too_short"
+  | "source_count_floor_not_met"
+  | "artifact_missing"
+  | "artifact_oversized"
+  | "workspace_violation"
+  | "io_error";
+
+export interface TaskOutcomeDto {
+  schema_version: "task_outcome.v1" | string;
+  task_id: string;
+  checker_id: string;
+  checker_version: string;
+  artifact_path: string;
+  artifact_digest: string;
+  status: TaskOutcomeStatus | string;
+  reason: TaskOutcomeReason | string;
+  details?: string | null;
+  evaluated_at_ms: number;
+}
 
 export interface RunEventDto {
   event_id: string;
@@ -420,6 +446,7 @@ export interface RunEventDto {
   memory_outcome?: MemoryOutcomeDto | null;
   request_provenance?: RequestProvenanceDto | null;
   context_accounting?: ContextAccountingDto | null;
+  task_outcome?: TaskOutcomeDto | null;
 }
 
 export interface RunToolCallDto {

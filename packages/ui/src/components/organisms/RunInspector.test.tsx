@@ -667,6 +667,65 @@ describe("RunInspector", () => {
     ).toBeDefined();
   });
 
+  it("renders task outcome verification panel with evaluated details and unavailable fallback", () => {
+    const snapWithOutcome: RunSnapshotDto = {
+      ...fixture(),
+      events: [
+        {
+          event_id: "evt-task-out-1",
+          event_seq: 1,
+          event_kind: "task_outcome",
+          occurred_at_ms: 1000,
+          task_outcome: {
+            schema_version: "task_outcome.v1",
+            task_id: "task-inspector-1",
+            checker_id: "research_artifact_checker",
+            checker_version: "v1",
+            artifact_path: "reports/research_result.json",
+            artifact_digest: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            status: "passed",
+            reason: "valid",
+            details: "All checks passed",
+            evaluated_at_ms: 1000,
+          },
+        },
+      ],
+    };
+
+    const { rerender } = render(
+      <RunInspector
+        snapshot={snapWithOutcome}
+        canRequestDebug={false}
+        onRequestDebug={vi.fn()}
+        onClearDebug={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Task outcome verification" })).toBeDefined();
+    expect(screen.getByText("PASSED")).toBeDefined();
+    expect(screen.getByText("research_artifact_checker:v1")).toBeDefined();
+    expect(screen.getByText("reports/research_result.json")).toBeDefined();
+
+    // Rerender with no task outcome events
+    const snapLegacy: RunSnapshotDto = {
+      ...fixture(),
+      events: [],
+    };
+
+    rerender(
+      <RunInspector
+        snapshot={snapLegacy}
+        canRequestDebug={false}
+        onRequestDebug={vi.fn()}
+        onClearDebug={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText("No task outcome evaluation recorded for this run."),
+    ).toBeDefined();
+  });
+
   it("renders historical tool approvals panel with recorded approvals, empty state, and refresh action", async () => {
     const sampleApproval: ToolApprovalSnapshot = {
       approval_id: "app-inspector-1",

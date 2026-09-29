@@ -10,3 +10,4 @@ export * from "./tool-approval-decoder.js";
 export * from "./readiness.js";
 export * from "./memory-outcome-decoder.js";
 export * from "./request-provenance-decoder.js";
+export * from "./task-outcome-decoder.js";
