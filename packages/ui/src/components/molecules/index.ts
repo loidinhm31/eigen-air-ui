@@ -34,3 +34,7 @@ export {
   MemoryOutcomesPanel,
   type MemoryOutcomesPanelProps,
 } from "./MemoryOutcomesPanel.js";
+export {
+  RequestProvenancePanel,
+  type RequestProvenancePanelProps,
+} from "./RequestProvenancePanel.js";

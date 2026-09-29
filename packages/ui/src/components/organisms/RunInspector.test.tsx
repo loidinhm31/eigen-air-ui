@@ -600,4 +600,70 @@ describe("RunInspector", () => {
       screen.getByText("Memory outcome unavailable (no outcome reported by server)."),
     ).toBeDefined();
   });
+
+  it("renders request provenance panel with provenance details and unavailable fallback", () => {
+    const snapWithProvenance: RunSnapshotDto = {
+      ...fixture(),
+      events: [
+        {
+          event_id: "evt-prov-100",
+          event_seq: 1,
+          event_kind: "request_provenance",
+          occurred_at_ms: 1000,
+          request_provenance: {
+            schema_version: "request_provenance.v1",
+            logical_request_id: "req-inspector-1",
+            provider_id: "local_llama",
+            provider_profile_id: "profile-test",
+            provider_profile_revision: 1727500000,
+            model: "qwen2.5-7b",
+            selected_skill_id: "web_search",
+            skill_content_revision: "rev-2",
+            prompt_format_version: "eigen-air-prompt-v1",
+            section_summaries: [
+              {
+                section: "identity",
+                present: true,
+                estimated_tokens: 30,
+                origin: "estimate",
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    const { rerender } = render(
+      <RunInspector
+        snapshot={snapWithProvenance}
+        canRequestDebug={false}
+        onRequestDebug={vi.fn()}
+        onClearDebug={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Request provenance" })).toBeDefined();
+    expect(screen.getByText("req req-inspector-1")).toBeDefined();
+    expect(screen.getByText(/profile-test/)).toBeDefined();
+    expect(screen.getByText(/web_search/)).toBeDefined();
+
+    // Rerender with no request provenance events (legacy run)
+    const snapLegacy: RunSnapshotDto = {
+      ...fixture(),
+      events: [],
+    };
+
+    rerender(
+      <RunInspector
+        snapshot={snapLegacy}
+        canRequestDebug={false}
+        onRequestDebug={vi.fn()}
+        onClearDebug={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText("Request provenance unavailable (no provenance reported by server)."),
+    ).toBeDefined();
+  });
 });

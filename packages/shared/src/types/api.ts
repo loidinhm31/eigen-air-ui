@@ -366,6 +366,25 @@ export interface MemoryOutcomeDto {
   episode_reference?: string | null;
   fact_count?: number | null;
 }
+export interface PromptSectionSummaryDto {
+  section: string;
+  present: boolean;
+  estimated_tokens?: number | null;
+  origin: "exact" | "estimate" | string;
+}
+
+export interface RequestProvenanceDto {
+  schema_version: "request_provenance.v1" | string;
+  logical_request_id: string;
+  provider_id: string;
+  provider_profile_id?: string | null;
+  provider_profile_revision?: number | null;
+  model?: string | null;
+  selected_skill_id?: string | null;
+  skill_content_revision?: string | null;
+  prompt_format_version: string;
+  section_summaries: PromptSectionSummaryDto[];
+}
 
 export interface RunEventDto {
   event_id: string;
@@ -377,6 +396,7 @@ export interface RunEventDto {
   policy_outcome?: RunPolicyOutcome | null;
   tool_selection?: ToolSelectionDto | null;
   memory_outcome?: MemoryOutcomeDto | null;
+  request_provenance?: RequestProvenanceDto | null;
 }
 
 export interface RunToolCallDto {

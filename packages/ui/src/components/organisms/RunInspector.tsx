@@ -4,6 +4,7 @@ import { DelegationLifecyclePanel } from "../molecules/DelegationLifecyclePanel.
 import { RunTimeline } from "../molecules/RunTimeline.js";
 import { MemoryLineagePanel } from "../molecules/MemoryLineagePanel.js";
 import { MemoryOutcomesPanel } from "../molecules/MemoryOutcomesPanel.js";
+import { RequestProvenancePanel } from "../molecules/RequestProvenancePanel.js";
 import { ToolDecisionsPanel } from "../molecules/ToolDecisionsPanel.js";
 import { ToolCallsPanel } from "../molecules/ToolCallsPanel.js";
 import { formatTimestamp, runDurationText } from "./runInspectorFormatting.js";
@@ -129,6 +130,7 @@ export function RunInspector({
         onLoadMore={onLoadMoreLineage}
       />
       <MemoryOutcomesPanel events={snapshot.events} />
+      <RequestProvenancePanel events={snapshot.events} />
       <section aria-labelledby="run-debug-heading">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
