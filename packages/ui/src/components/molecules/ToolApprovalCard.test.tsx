@@ -150,4 +150,28 @@ describe("ToolApprovalCard", () => {
     const alert = screen.getByRole("alert");
     expect(alert.textContent).toBe("Approval changed or was already resolved");
   });
+
+  it("renders a link to the durable run record and triggers onViewRun callback", async () => {
+    const onViewRun = vi.fn();
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <ToolApprovalCard {...baseProps({ onViewRun })} />
+    );
+
+    const link = screen.getByRole("link", { name: "View run run-1 in Run Inspector" });
+    expect(link.getAttribute("href")).toBe("/runs?session_id=session-1&run_id=run-1");
+
+    await user.click(link);
+    expect(onViewRun).toHaveBeenCalledWith("run-1", "session-1");
+
+    // If run_id is missing, the link is omitted
+    rerender(
+      <ToolApprovalCard
+        {...baseProps({
+          approval: { ...sampleProgramSnapshot, run_id: "" },
+        })}
+      />
+    );
+    expect(screen.queryByRole("link", { name: /in Run Inspector/ })).toBeNull();
+  });
 });

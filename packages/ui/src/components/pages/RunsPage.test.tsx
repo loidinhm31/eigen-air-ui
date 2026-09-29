@@ -677,4 +677,67 @@ describe("RunsPage lifecycle reconciliation", () => {
       expect(fetchCount).toBeGreaterThan(beforeRefetchCount);
     });
   });
+
+  it("fetches historical tool approvals when a run is opened and displays them in inspector", async () => {
+    const sampleApproval = {
+      approval_id: "app-page-1",
+      schema_version: "tool_approval.v1",
+      tenant_id: "tenant-a",
+      user_id: "user-a",
+      workspace_id: "workspace-a",
+      session_id: "session-a",
+      run_id: "run-a",
+      tool_call_id: "call-1",
+      ordinal: 0,
+      tool_name: "shell",
+      operation: "execute",
+      risk: "high",
+      state: "approved_once",
+      safe_summary: {
+        program: "uptime",
+        args_count: 0,
+        working_dir: "workspace_root",
+      },
+      binding_digest: "11223344556677889900aabbccddeeff11223344556677889900aabbccddeeff",
+      revision: 1,
+      created_at_ms: 1000,
+      expires_at_ms: 2000,
+      terminal_at_ms: null,
+      terminal_code: null,
+      decision_by_credential_id: "cred-admin",
+      redaction: "metadata_only",
+    };
+
+    const fetch = vi.fn((url: string) => {
+      if (url.includes("/v1/tool-approvals")) {
+        return Promise.resolve(
+          response({
+            schema_version: "tool_approval.v1",
+            approvals: [sampleApproval],
+            redaction: "metadata_only",
+          })
+        );
+      }
+      if (url.includes("?limit=")) {
+        return Promise.resolve(response({ schema_version: 1, runs: [runSummary()] }));
+      }
+      return Promise.resolve(response(snapshot()));
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    const user = userEvent.setup();
+    render(<RunsPage access={{ identityKey: "user-a" }} />);
+    await user.click(await screen.findByRole("button", { name: "run-a" }));
+
+    await waitFor(() => {
+      expect(
+        fetch.mock.calls.some((c) => (c[0] as string).includes("/v1/tool-approvals"))
+      ).toBe(true);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("shell.execute")).toBeDefined();
+      expect(screen.getByText(/approval app-page-1/)).toBeDefined();
+    });
+  });
 });

@@ -5,6 +5,7 @@ import type {
   ToolApprovalProgramSafeSummary,
   ToolApprovalTemplateSafeSummary,
 } from "@eigen-air-ui/shared/types";
+import { useBasePathNavigation } from "../../embed/base-path-navigation.js";
 import { Button } from "../atoms/Button.js";
 import { Spinner } from "../atoms/Spinner.js";
 
@@ -19,6 +20,7 @@ export interface ToolApprovalCardProps {
   readonly accepted?: boolean;
   readonly error?: string | null;
   readonly status?: string | null;
+  readonly onViewRun?: (runId: string, sessionId: string) => void;
 }
 
 function isProgramSummary(summary: ToolApprovalSafeSummary): summary is ToolApprovalProgramSafeSummary {
@@ -27,6 +29,13 @@ function isProgramSummary(summary: ToolApprovalSafeSummary): summary is ToolAppr
 
 function isTemplateSummary(summary: ToolApprovalSafeSummary): summary is ToolApprovalTemplateSafeSummary {
   return "template_preview" in summary;
+}
+function useSafeBasePathNavigation() {
+  try {
+    return useBasePathNavigation();
+  } catch {
+    return { to: (p: string) => p, navigate: () => undefined };
+  }
 }
 export function ToolApprovalCard({
   approval,
@@ -39,6 +48,7 @@ export function ToolApprovalCard({
   accepted = false,
   error = null,
   status = null,
+  onViewRun,
 }: ToolApprovalCardProps) {
   const id = React.useId().replace(/:/g, "");
   const headingId = `${id}-heading`;
@@ -46,6 +56,13 @@ export function ToolApprovalCard({
 
   const busy = submitting || reconciling;
   const controlsDisabled = disabled || busy || offline || accepted;
+  const navigation = useSafeBasePathNavigation();
+  const hasRunLocator = Boolean(approval.run_id && approval.session_id);
+  const runUrl = hasRunLocator
+    ? navigation.to(
+        `/runs?session_id=${encodeURIComponent(approval.session_id)}&run_id=${encodeURIComponent(approval.run_id)}`
+      )
+    : undefined;
 
 
 
@@ -144,27 +161,47 @@ export function ToolApprovalCard({
         </div>
       )}
 
-      <div className="flex items-center gap-3 pt-1">
-        <Button
-          type="button"
-          variant="default"
-          onClick={onAllowOnce}
-          disabled={controlsDisabled}
-          aria-label="Allow Once"
-          aria-busy={submitting}
-        >
-          Allow Once
-        </Button>
-        <Button
-          type="button"
-          variant="destructive"
-          onClick={onDeny}
-          disabled={controlsDisabled}
-          aria-label="Deny"
-          aria-busy={submitting}
-        >
-          Deny
-        </Button>
+      <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+        <div className="flex items-center gap-3">
+          <Button
+            type="button"
+            variant="default"
+            onClick={onAllowOnce}
+            disabled={controlsDisabled}
+            aria-label="Allow Once"
+            aria-busy={submitting}
+          >
+            Allow Once
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={onDeny}
+            disabled={controlsDisabled}
+            aria-label="Deny"
+            aria-busy={submitting}
+          >
+            Deny
+          </Button>
+        </div>
+        {runUrl && (
+          <a
+            href={runUrl}
+            onClick={(e) => {
+              if (onViewRun) {
+                e.preventDefault();
+                onViewRun(approval.run_id, approval.session_id);
+              } else {
+                e.preventDefault();
+                navigation.navigate(runUrl);
+              }
+            }}
+            className="text-xs text-primary hover:underline font-medium"
+            aria-label={`View run ${approval.run_id} in Run Inspector`}
+          >
+            View in Run Inspector →
+          </a>
+        )}
       </div>
     </div>
   );

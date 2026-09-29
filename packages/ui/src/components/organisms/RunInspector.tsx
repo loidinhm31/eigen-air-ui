@@ -1,4 +1,4 @@
-import type { RunSnapshotDto, RunTreeNodeDto } from "@eigen-air-ui/shared/types";
+import type { RunSnapshotDto, RunTreeNodeDto, ToolApprovalSnapshot } from "@eigen-air-ui/shared/types";
 import type { StreamStateMap } from "../../stores/runInspectorStore.js";
 import { DelegationLifecyclePanel } from "../molecules/DelegationLifecyclePanel.js";
 import { RunTimeline } from "../molecules/RunTimeline.js";
@@ -7,6 +7,7 @@ import { MemoryOutcomesPanel } from "../molecules/MemoryOutcomesPanel.js";
 import { RequestProvenancePanel } from "../molecules/RequestProvenancePanel.js";
 import { ToolDecisionsPanel } from "../molecules/ToolDecisionsPanel.js";
 import { ToolCallsPanel } from "../molecules/ToolCallsPanel.js";
+import { HistoricalToolApprovalsPanel } from "../molecules/HistoricalToolApprovalsPanel.js";
 import { formatTimestamp, runDurationText } from "./runInspectorFormatting.js";
 
 export interface RunInspectorProps {
@@ -23,6 +24,10 @@ export interface RunInspectorProps {
   runTreeLoading?: boolean;
   runTreeError?: string;
   onSelectRun?(runId: string): void;
+  historicalApprovals?: ToolApprovalSnapshot[];
+  historicalApprovalsLoading?: boolean;
+  historicalApprovalsError?: string;
+  onRefreshHistoricalApprovals?(): void;
 }
 export function RunInspector({
   snapshot,
@@ -38,6 +43,10 @@ export function RunInspector({
   runTreeLoading,
   runTreeError,
   onSelectRun,
+  historicalApprovals,
+  historicalApprovalsLoading,
+  historicalApprovalsError,
+  onRefreshHistoricalApprovals,
 }: RunInspectorProps) {
   const { run } = snapshot;
   const debug = snapshot.debug_excerpts ?? [];
@@ -121,6 +130,13 @@ export function RunInspector({
         isLoading={streamStates?.tools.loading}
         error={streamStates?.tools.error}
         onLoadMore={onLoadMoreTools}
+      />
+      <HistoricalToolApprovalsPanel
+        approvals={historicalApprovals}
+        toolCalls={snapshot.tool_calls}
+        isLoading={historicalApprovalsLoading}
+        error={historicalApprovalsError}
+        onRefresh={onRefreshHistoricalApprovals}
       />
       <MemoryLineagePanel
         lineage={snapshot.memory_lineage}

@@ -5,6 +5,7 @@ import type {
   TaskProgressCursor,
   TaskProgressSnapshotDto,
   TaskProgressWsEvent,
+  ToolApprovalSnapshot,
 } from "@eigen-air-ui/shared/types";
 import { classifyTaskProgressUpdate } from "@eigen-air-ui/shared/types";
 
@@ -49,6 +50,7 @@ export interface RunInspectorState {
   };
   refreshGeneration?: number;
   streams?: StreamStateMap;
+  historicalApprovals?: Record<string, ToolApprovalSnapshot[]>;
 }
 
 function earliestDebugExpiry(snapshots: Record<string, RunSnapshotDto>): number | undefined {
@@ -373,6 +375,7 @@ interface RunInspectorActions {
   beginStream(stream: RunStreamKind): boolean;
   pageStream(runId: string, stream: RunStreamKind, page: RunSnapshotDto, generation?: number): void;
   failStream(stream: RunStreamKind, error: unknown): void;
+  setHistoricalApprovals(runId: string, approvals: ToolApprovalSnapshot[]): void;
 }
 
 export const useRunInspectorStore = create<RunInspectorState & RunInspectorActions>((set) => ({
@@ -381,6 +384,14 @@ export const useRunInspectorStore = create<RunInspectorState & RunInspectorActio
   status: "idle",
   refreshGeneration: 0,
   streams: INITIAL_STREAMS,
+  historicalApprovals: {},
+  setHistoricalApprovals: (runId, approvals) =>
+    set((state) => ({
+      historicalApprovals: {
+        ...(state.historicalApprovals ?? {}),
+        [runId]: approvals,
+      },
+    })),
   select: (selectedRunId) =>
     set((state) => {
       if (selectedRunId === state.selectedRunId) return { selectedRunId };
@@ -431,6 +442,7 @@ export const useRunInspectorStore = create<RunInspectorState & RunInspectorActio
       debugExpiresAtMs: undefined,
       error: undefined,
       operation: undefined,
+      historicalApprovals: {},
       refreshGeneration: (state.refreshGeneration ?? 0) + 1,
       streams: { ...INITIAL_STREAMS },
     })),
@@ -508,11 +520,14 @@ export const useRunInspectorStore = create<RunInspectorState & RunInspectorActio
     set((state) => {
       const snapshots = { ...state.snapshots };
       const pending = { ...state.pending };
+      const historicalApprovals = { ...(state.historicalApprovals ?? {}) };
       delete snapshots[runId];
       delete pending[runId];
+      delete historicalApprovals[runId];
       return {
         snapshots,
         pending,
+        historicalApprovals,
         selectedRunId: state.selectedRunId === runId ? undefined : state.selectedRunId,
         status: "deleted",
         debugExpiresAtMs: earliestDebugExpiry(snapshots),

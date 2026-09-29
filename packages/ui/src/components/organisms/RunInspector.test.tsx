@@ -2,7 +2,7 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { RunSnapshotDto } from "@eigen-air-ui/shared/types";
+import type { RunSnapshotDto, ToolApprovalSnapshot } from "@eigen-air-ui/shared/types";
 import { RunInspector } from "./RunInspector.js";
 
 afterEach(() => cleanup());
@@ -665,5 +665,85 @@ describe("RunInspector", () => {
     expect(
       screen.getByText("Request provenance unavailable (no provenance reported by server)."),
     ).toBeDefined();
+  });
+
+  it("renders historical tool approvals panel with recorded approvals, empty state, and refresh action", async () => {
+    const sampleApproval: ToolApprovalSnapshot = {
+      approval_id: "app-inspector-1",
+      schema_version: "tool_approval.v1",
+      tenant_id: "tenant-a",
+      user_id: "user-a",
+      workspace_id: "workspace-a",
+      session_id: "session-a",
+      run_id: "run-a",
+      tool_call_id: "call-1",
+      ordinal: 0,
+      tool_name: "shell",
+      operation: "execute",
+      risk: "high",
+      state: "approved_once",
+      safe_summary: {
+        program: "uptime",
+        args_count: 0,
+        working_dir: "/root",
+      },
+      binding_digest: "9876543210abcdef9876543210abcdef9876543210abcdef9876543210abcdef",
+      revision: 1,
+      created_at_ms: 1000,
+      expires_at_ms: 2000,
+      terminal_at_ms: null,
+      terminal_code: null,
+      decision_by_credential_id: "cred-admin",
+      redaction: "metadata_only",
+    };
+
+    const onRefresh = vi.fn();
+    const user = userEvent.setup();
+
+    const { rerender } = render(
+      <RunInspector
+        snapshot={fixture()}
+        canRequestDebug={false}
+        onRequestDebug={vi.fn()}
+        onClearDebug={vi.fn()}
+        historicalApprovals={[sampleApproval]}
+        onRefreshHistoricalApprovals={onRefresh}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Tool approvals" })).toBeDefined();
+    expect(screen.getByText("shell.execute")).toBeDefined();
+    expect(screen.getByText("Accepted (allow_once)")).toBeDefined();
+    expect(screen.getByText("Approved (permit pending claim)")).toBeDefined();
+    expect(screen.getByText("Permit issued (unclaimed)")).toBeDefined();
+
+    const refreshBtn = screen.getByRole("button", { name: "Refresh tool approvals" });
+    await user.click(refreshBtn);
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+
+    // Rerender with empty approvals
+    rerender(
+      <RunInspector
+        snapshot={fixture()}
+        canRequestDebug={false}
+        onRequestDebug={vi.fn()}
+        onClearDebug={vi.fn()}
+        historicalApprovals={[]}
+      />,
+    );
+    expect(screen.getByText("No tool approvals recorded for this run.")).toBeDefined();
+
+    // Rerender with error
+    rerender(
+      <RunInspector
+        snapshot={fixture()}
+        canRequestDebug={false}
+        onRequestDebug={vi.fn()}
+        onClearDebug={vi.fn()}
+        historicalApprovals={[]}
+        historicalApprovalsError="Failed to load approvals"
+      />,
+    );
+    expect(screen.getByText("Failed to load approvals")).toBeDefined();
   });
 });

@@ -2,6 +2,10 @@ import * as React from "react";
 import { useLocation } from "react-router-dom";
 import type { RunEventDto, RunSummaryDto, RunTreeNodeDto } from "@eigen-air-ui/shared/types";
 import { HttpRunAdapter, type RunAccessContext } from "../../adapters/http/HttpRunAdapter.js";
+import {
+  HttpToolApprovalAdapter,
+  ToolApprovalHttpError,
+} from "../../adapters/http/HttpToolApprovalAdapter.js";
 import { getChatService, getServiceAccessContext } from "../../adapters/factory/ServiceFactory.js";
 import { useConnectionStore } from "../../stores/connectionStore.js";
 import { useRunInspectorStore } from "../../stores/runInspectorStore.js";
@@ -101,6 +105,74 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
     () => new HttpRunAdapter(url.replace(/\/+$/, ""), { authToken, capabilities, identityKey }),
     [authToken, capabilities, identityKey, url]
   );
+  const toolApprovalAdapter = React.useMemo(
+    () =>
+      new HttpToolApprovalAdapter(url.replace(/\/+$/, ""), {
+        authToken,
+        capabilities,
+        identityKey,
+      }),
+    [authToken, capabilities, identityKey, url]
+  );
+  const [historicalApprovalsLoading, setHistoricalApprovalsLoading] = React.useState(false);
+  const [historicalApprovalsError, setHistoricalApprovalsError] = React.useState<string | undefined>(undefined);
+  const approvalsAbort = React.useRef<AbortController | undefined>(undefined);
+  const setHistoricalApprovals = useRunInspectorStore((state) => state.setHistoricalApprovals);
+  const historicalApprovals = useRunInspectorStore((state) =>
+    selectedRunId && state.historicalApprovals ? state.historicalApprovals[selectedRunId] : undefined
+  );
+  const loadHistoricalApprovals = React.useCallback(
+    async (runId: string, sessionId: string) => {
+      approvalsAbort.current?.abort();
+      const controller = new AbortController();
+      approvalsAbort.current = controller;
+      const generation = lifecycleGeneration.current;
+      setHistoricalApprovalsLoading(true);
+      setHistoricalApprovalsError(undefined);
+      try {
+        const response = await toolApprovalAdapter.list(
+          { sessionId, runId, limit: 100 },
+          controller.signal
+        );
+        if (
+          controller.signal.aborted ||
+          generation !== lifecycleGeneration.current ||
+          useRunInspectorStore.getState().selectedRunId !== runId
+        ) {
+          return;
+        }
+        setHistoricalApprovals(runId, response.approvals);
+      } catch (err) {
+        if (
+          controller.signal.aborted ||
+          generation !== lifecycleGeneration.current ||
+          useRunInspectorStore.getState().selectedRunId !== runId
+        ) {
+          return;
+        }
+        setHistoricalApprovals(runId, []);
+        if (
+          err instanceof ToolApprovalHttpError &&
+          (err.kind === "not_found" || err.kind === "unauthorized" || err.kind === "forbidden")
+        ) {
+          setHistoricalApprovalsError(undefined);
+        } else if (err instanceof Error) {
+          setHistoricalApprovalsError(err.message);
+        } else {
+          setHistoricalApprovalsError("Failed to load tool approvals");
+        }
+      } finally {
+        if (
+          !controller.signal.aborted &&
+          generation === lifecycleGeneration.current &&
+          useRunInspectorStore.getState().selectedRunId === runId
+        ) {
+          setHistoricalApprovalsLoading(false);
+        }
+      }
+    },
+    [setHistoricalApprovals, toolApprovalAdapter]
+  );
   const selected = selectedRunId ? snapshots[selectedRunId] : undefined;
   const canRequestDebug = capabilities?.has("run:read:debug") ?? false;
   const canExport = capabilities?.has("run:export") ?? false;
@@ -115,6 +187,9 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
       detailAbort.current?.abort();
       mutationAbort.current?.abort();
       runTreeAbort.current?.abort();
+      approvalsAbort.current?.abort();
+      setHistoricalApprovalsLoading(false);
+      setHistoricalApprovalsError(undefined);
       correlationEnabled.current = false;
       setRuns([]);
       setRunTreeNodes(null);
@@ -210,6 +285,7 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
           return;
         correlationEnabled.current = true;
         snapshot(result, reqGen);
+        void loadHistoricalApprovals(result.run.run_id, result.run.session_id);
       } catch (reason) {
         if (
           controller.signal.aborted ||
@@ -220,7 +296,7 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
         handleReadError(reason);
       }
     },
-    [adapter, begin, handleReadError, select, snapshot]
+    [adapter, begin, handleReadError, loadHistoricalApprovals, select, snapshot]
   );
   const exportRun = React.useCallback(
     async (runId: string) => {
@@ -282,6 +358,7 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
       mutationAbort.current?.abort();
       runTreeAbort.current?.abort();
       correlationEnabled.current = false;
+      approvalsAbort.current?.abort();
       clear();
     };
   }, [clear, load]);
@@ -295,6 +372,9 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
     mutationAbort.current?.abort();
     runTreeAbort.current?.abort();
     correlationEnabled.current = false;
+    approvalsAbort.current?.abort();
+    setHistoricalApprovalsLoading(false);
+    setHistoricalApprovalsError(undefined);
     setRuns([]);
     setListNextCursor(null);
     setRunTreeNodes(null);
@@ -565,6 +645,12 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
               onSelectRun={(targetRunId) => {
                 updateUrl(targetRunId, urlSessionId);
                 void open(targetRunId);
+              }}
+              historicalApprovals={historicalApprovals}
+              historicalApprovalsLoading={historicalApprovalsLoading}
+              historicalApprovalsError={historicalApprovalsError}
+              onRefreshHistoricalApprovals={() => {
+                if (selected) void loadHistoricalApprovals(selected.run.run_id, selected.run.session_id);
               }}
               onLoadMoreEvents={async () => {
                 if (!selectedRunId || !selected.next_event_cursor) return;

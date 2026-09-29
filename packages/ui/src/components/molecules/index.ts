@@ -38,3 +38,9 @@ export {
   RequestProvenancePanel,
   type RequestProvenancePanelProps,
 } from "./RequestProvenancePanel.js";
+export {
+  HistoricalToolApprovalsPanel,
+  formatDecisionState,
+  formatExecutionLifecycle,
+  type HistoricalToolApprovalsPanelProps,
+} from "./HistoricalToolApprovalsPanel.js";

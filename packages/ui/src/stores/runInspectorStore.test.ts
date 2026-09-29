@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { RunEventDto, RunSnapshotDto } from "@eigen-air-ui/shared/types";
+import type { RunEventDto, RunSnapshotDto, ToolApprovalSnapshot } from "@eigen-air-ui/shared/types";
 import {
   applyRunEvent,
   installSnapshot,
@@ -422,5 +422,43 @@ describe("run inspector reconciliation", () => {
     useRunInspectorStore.getState().clearDebug("run-1");
     expect(useRunInspectorStore.getState().snapshots["run-1"].next_debug_cursor).toBeNull();
     expect(useRunInspectorStore.getState().snapshots["run-1"].debug_excerpts).toBeUndefined();
+  });
+
+  it("manages historical approvals per run and evicts/clears them", () => {
+    const sampleApproval: ToolApprovalSnapshot = {
+      approval_id: "app-1",
+      schema_version: "tool_approval.v1",
+      tenant_id: "tenant",
+      user_id: "user",
+      workspace_id: "workspace",
+      session_id: "session",
+      run_id: "run-1",
+      tool_call_id: "call-1",
+      ordinal: 0,
+      tool_name: "shell",
+      operation: "execute",
+      risk: "high",
+      state: "consumed",
+      safe_summary: { program: "ls", args_count: 0, working_dir: "/ws" },
+      binding_digest: "digest-1",
+      revision: 1,
+      created_at_ms: 100,
+      expires_at_ms: 200,
+      terminal_at_ms: 150,
+      terminal_code: "consumed",
+      decision_by_credential_id: "cred-1",
+      redaction: "metadata_only",
+    };
+
+    useRunInspectorStore.getState().clear();
+    useRunInspectorStore.getState().setHistoricalApprovals("run-1", [sampleApproval]);
+    expect(useRunInspectorStore.getState().historicalApprovals?.["run-1"]).toHaveLength(1);
+
+    useRunInspectorStore.getState().evict("run-1");
+    expect(useRunInspectorStore.getState().historicalApprovals?.["run-1"]).toBeUndefined();
+
+    useRunInspectorStore.getState().setHistoricalApprovals("run-2", [sampleApproval]);
+    useRunInspectorStore.getState().clear();
+    expect(useRunInspectorStore.getState().historicalApprovals).toEqual({});
   });
 });
