@@ -386,6 +386,28 @@ export interface RequestProvenanceDto {
   section_summaries: PromptSectionSummaryDto[];
 }
 
+export interface ContextAccountingDto {
+  schema_version: "context_accounting.v1" | string;
+  logical_request_id: string;
+  provider_id: string;
+  provider_profile_id?: string | null;
+  effective_input_ceiling: number;
+  verified_capacity: number;
+  output_reservation_tokens: number;
+  loop_reservation_tokens: number;
+  exact_rendered_input_tokens?: number | null;
+  estimated_input_tokens?: number | null;
+  token_origin: "exact" | "estimate" | "unknown" | string;
+  original_total_groups: number;
+  original_retained_start: number;
+  final_retained_start: number;
+  selected_candidate_indices: number[];
+  omitted_candidate_counts: number;
+  omitted_reasons: [string, number][];
+  model_digest?: string | null;
+  safe_failure?: string | null;
+}
+
 export interface RunEventDto {
   event_id: string;
   event_seq: number;
@@ -397,6 +419,7 @@ export interface RunEventDto {
   tool_selection?: ToolSelectionDto | null;
   memory_outcome?: MemoryOutcomeDto | null;
   request_provenance?: RequestProvenanceDto | null;
+  context_accounting?: ContextAccountingDto | null;
 }
 
 export interface RunToolCallDto {
