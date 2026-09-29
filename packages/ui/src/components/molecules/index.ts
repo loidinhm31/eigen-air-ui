@@ -30,3 +30,7 @@ export {
   VERIFICATION_STATUS_LABELS,
   type DelegationLifecyclePanelProps,
 } from "./DelegationLifecyclePanel.js";
+export {
+  MemoryOutcomesPanel,
+  type MemoryOutcomesPanelProps,
+} from "./MemoryOutcomesPanel.js";

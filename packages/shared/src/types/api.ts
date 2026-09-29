@@ -345,6 +345,27 @@ export interface ToolSelectionDto {
   rejected_tools?: ToolSelectionDetailDto[];
   name_details_redacted?: boolean;
 }
+export type MemoryOutcomeState = "stored" | "skipped" | "failed" | "unavailable";
+
+export type MemoryOutcomeReason =
+  | "stored"
+  | "sensitive_content"
+  | "no_identity"
+  | "no_final_response"
+  | "write_failed"
+  | "outcome_unavailable";
+
+export type MemoryOperationKind = "episode_flush";
+
+export interface MemoryOutcomeDto {
+  schema_version: "memory_outcome.v1" | string;
+  operation_id: string;
+  operation_kind: MemoryOperationKind | string;
+  state: MemoryOutcomeState;
+  reason: MemoryOutcomeReason;
+  episode_reference?: string | null;
+  fact_count?: number | null;
+}
 
 export interface RunEventDto {
   event_id: string;
@@ -355,6 +376,7 @@ export interface RunEventDto {
   safe_error_code?: string | null;
   policy_outcome?: RunPolicyOutcome | null;
   tool_selection?: ToolSelectionDto | null;
+  memory_outcome?: MemoryOutcomeDto | null;
 }
 
 export interface RunToolCallDto {

@@ -8,3 +8,4 @@ export * from "./user-question-decoder.js";
 export * from "./tool-approval.js";
 export * from "./tool-approval-decoder.js";
 export * from "./readiness.js";
+export * from "./memory-outcome-decoder.js";

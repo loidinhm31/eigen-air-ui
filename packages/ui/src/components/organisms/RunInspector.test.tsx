@@ -537,4 +537,67 @@ describe("RunInspector", () => {
 
     expect(screen.getByText("No tool selection diagnostics reported.")).toBeDefined();
   });
+
+  it("renders durable memory outcomes panel with outcome details and unavailable fallback", () => {
+    const snapWithOutcome: RunSnapshotDto = {
+      ...fixture(),
+      events: [
+        {
+          event_id: "evt-mem-out-1",
+          event_seq: 1,
+          event_kind: "memory_outcome",
+          occurred_at_ms: 1000,
+          memory_outcome: {
+            schema_version: "memory_outcome.v1",
+            operation_id: "op-flush-100",
+            operation_kind: "episode_flush",
+            state: "stored",
+            reason: "stored",
+            episode_reference: "ep-outcome-100",
+            fact_count: 5,
+          },
+        },
+      ],
+    };
+
+    const { rerender } = render(
+      <RunInspector
+        snapshot={snapWithOutcome}
+        canRequestDebug={false}
+        onRequestDebug={vi.fn()}
+        onClearDebug={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Durable memory outcomes" })).toBeDefined();
+    expect(screen.getByText("op-flush-100")).toBeDefined();
+    expect(screen.getByText("committed: 5 facts")).toBeDefined();
+    expect(screen.getByRole("button", { name: "View episode ep-outcome-100" })).toBeDefined();
+
+    // Rerender with no memory outcome events (legacy run)
+    const snapLegacy: RunSnapshotDto = {
+      ...fixture(),
+      events: [
+        {
+          event_id: "evt-legacy-1",
+          event_seq: 1,
+          event_kind: "run.delta",
+          occurred_at_ms: 1000,
+        },
+      ],
+    };
+
+    rerender(
+      <RunInspector
+        snapshot={snapLegacy}
+        canRequestDebug={false}
+        onRequestDebug={vi.fn()}
+        onClearDebug={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText("Memory outcome unavailable (no outcome reported by server)."),
+    ).toBeDefined();
+  });
 });
