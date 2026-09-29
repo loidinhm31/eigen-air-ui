@@ -127,7 +127,11 @@ describe("RunsPage lifecycle reconciliation", () => {
     const user = userEvent.setup();
     render(<RunsPage access={{ identityKey: "user-a" }} />);
     await user.click(await screen.findByRole("button", { name: "run-a" }));
-    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(
+        fetch.mock.calls.filter((c) => (c[0] as string).includes("/v1/runs/run-a"))
+      ).toHaveLength(1)
+    );
 
     act(() => {
       service.runCallback?.({
@@ -135,7 +139,11 @@ describe("RunsPage lifecycle reconciliation", () => {
         snapshot_refetch_required: true,
       });
     });
-    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+    await waitFor(() =>
+      expect(
+        fetch.mock.calls.filter((c) => (c[0] as string).includes("/v1/runs/run-a"))
+      ).toHaveLength(2)
+    );
   });
 
   it("keeps a run visible while DELETE is pending, then evicts only after success", async () => {
@@ -436,6 +444,137 @@ describe("RunsPage lifecycle reconciliation", () => {
       expect(screen.getByTestId("projection-status").textContent).toBe("Running");
     });
   });
+  it("loads run tree when inspecting a root run whose task_progress is null", async () => {
+    const rootRunSummary: RunSummaryDto = {
+      ...runSummary(),
+      run_id: "run-root-notask",
+      session_id: "sess-root-notask",
+      parent_run_id: null,
+      root_run_id: "run-root-notask",
+    };
+    const rootSnapshot: RunSnapshotDto = {
+      ...snapshot(false),
+      run: rootRunSummary,
+      task_progress: null,
+    };
+    const treeNodes = [
+      {
+        id: "tree-node-1",
+        root_session_id: "sess-root-notask",
+        parent_session_id: "sess-root-notask",
+        child_session_id: "sess-child-1",
+        parent_run_id: "run-root-notask",
+        child_run_id: "run-child-1",
+        root_run_id: "run-root-notask",
+        delegated_task_id: "task-child-1",
+        source_agent_id: "lead",
+        target_agent_id: "worker",
+        depth: 1,
+        created_at: 100,
+      },
+    ];
+
+    const fetch = vi.fn((url: string) => {
+      if (url.includes("/v1/run-trees/sess-root-notask")) {
+        return Promise.resolve(response(treeNodes));
+      }
+      if (url.includes("/v1/runs/run-root-notask")) {
+        return Promise.resolve(response(rootSnapshot));
+      }
+      return Promise.resolve(response({ schema_version: 1, runs: [rootRunSummary], next_cursor: null }));
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <RunsPage />
+      </MemoryRouter>
+    );
+
+    await user.click(await screen.findByRole("button", { name: "run-root-notask" }));
+    const childLink = await screen.findByRole("button", { name: "Navigate to child run run-child-1" });
+    expect(childLink).toBeDefined();
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/v1/run-trees/sess-root-notask"),
+      expect.anything()
+    );
+  });
+  it("loads run tree for child run without task_progress by resolving root run snapshot", async () => {
+    const childRunSummary: RunSummaryDto = {
+      ...runSummary(),
+      run_id: "run-child-notask",
+      session_id: "sess-child-notask",
+      parent_run_id: "run-root-async",
+      root_run_id: "run-root-async",
+    };
+    const childSnapshot: RunSnapshotDto = {
+      ...snapshot(false),
+      run: childRunSummary,
+      task_progress: null,
+    };
+    const rootSnapshot: RunSnapshotDto = {
+      ...snapshot(false),
+      run: {
+        ...runSummary(),
+        run_id: "run-root-async",
+        session_id: "sess-root-async",
+        parent_run_id: null,
+        root_run_id: "run-root-async",
+      },
+      task_progress: null,
+    };
+    const treeNodes = [
+      {
+        id: "tree-node-1",
+        root_session_id: "sess-root-async",
+        parent_session_id: "sess-root-async",
+        child_session_id: "sess-child-notask",
+        parent_run_id: "run-root-async",
+        child_run_id: "run-child-notask",
+        root_run_id: "run-root-async",
+        delegated_task_id: "task-child-1",
+        source_agent_id: "lead",
+        target_agent_id: "worker",
+        depth: 1,
+        created_at: 100,
+      },
+    ];
+
+    const fetch = vi.fn((url: string) => {
+      if (url.includes("/v1/run-trees/sess-root-async")) {
+        return Promise.resolve(response(treeNodes));
+      }
+      if (url.includes("/v1/runs/run-child-notask")) {
+        return Promise.resolve(response(childSnapshot));
+      }
+      if (url.includes("/v1/runs/run-root-async")) {
+        return Promise.resolve(response(rootSnapshot));
+      }
+      return Promise.resolve(response({ schema_version: 1, runs: [childRunSummary], next_cursor: null }));
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <RunsPage />
+      </MemoryRouter>
+    );
+
+    await user.click(await screen.findByRole("button", { name: "run-child-notask" }));
+    const parentLink = await screen.findByRole("button", { name: "Navigate to parent run run-root-async" });
+    expect(parentLink).toBeDefined();
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/v1/runs/run-root-async"),
+      expect.anything()
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/v1/run-trees/sess-root-async"),
+      expect.anything()
+    );
+  });
+
 
   it("updates task progress via live WebSocket event and reconciles on gap", async () => {
     const run = { ...runSummary(), run_id: "run-live" };

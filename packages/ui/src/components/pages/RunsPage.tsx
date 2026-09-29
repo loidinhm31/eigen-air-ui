@@ -303,6 +303,8 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
     clear("denied");
     void load();
   }, [accessKey, clear, load]);
+  const rootRunSessionId = selected?.run.root_run_id ? snapshots[selected.run.root_run_id]?.run.session_id : undefined;
+
   React.useEffect(() => {
     runTreeAbort.current?.abort();
     setRunTreeNodes(null);
@@ -313,18 +315,32 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
       return;
     }
 
+    const generation = lifecycleGeneration.current;
+
     let rootSessionId: string | undefined = selected.task_progress?.root_session_id;
-    if (!rootSessionId && selected.run.parent_run_id) {
-      rootSessionId = snapshots[selected.run.root_run_id]?.run.session_id;
+    if (!rootSessionId) {
+      if (!selected.run.parent_run_id || selected.run.root_run_id === selected.run.run_id) {
+        rootSessionId = selected.run.session_id;
+      } else if (selected.run.root_run_id && rootRunSessionId) {
+        rootSessionId = rootRunSessionId;
+      }
     }
     if (!rootSessionId) {
+      if (selected.run.root_run_id && selected.run.root_run_id !== selected.run.run_id) {
+        adapter
+          .get(selected.run.root_run_id)
+          .then((rootSnapshot) => {
+            if (generation !== lifecycleGeneration.current) return;
+            useRunInspectorStore.getState().snapshot(rootSnapshot);
+          })
+          .catch(() => undefined);
+      }
       setRunTreeLoading(false);
       return;
     }
 
     const controller = new AbortController();
     runTreeAbort.current = controller;
-    const generation = lifecycleGeneration.current;
     setRunTreeLoading(true);
 
     adapter
@@ -343,7 +359,7 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
     return () => {
       controller.abort();
     };
-  }, [adapter, selected]);
+  }, [adapter, selected, rootRunSessionId]);
   React.useEffect(() => {
     const service = getChatService();
     const unsubscribe = service.subscribeRunCorrelation?.((frame) => {

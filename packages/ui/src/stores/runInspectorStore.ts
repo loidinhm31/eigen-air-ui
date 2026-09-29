@@ -305,18 +305,31 @@ export function applyTaskProgressEvent(
     return { ...state, status: "reconciling" };
   }
 
-  // Preserve cancellation authority:
-  // Late succeeded hint cannot directly replace cancelled terminal snapshot.
+  // Preserve terminal authority and immutability:
+  // Once in a terminal status (cancelled, failed, succeeded) or aborted/completed lifecycle,
+  // live hints cannot regress or overwrite terminal projection without full REST reconciliation.
   const currentProjectionStatus = snapshot.task_progress.projection_status;
   const currentRunStatus = snapshot.run.lifecycle_status;
   const isCancelled =
     currentProjectionStatus === "cancelled" || currentRunStatus === "aborted";
+  const isFailed =
+    currentProjectionStatus === "failed" || currentRunStatus === "failed";
+  const isTerminal =
+    isCancelled || isFailed || currentProjectionStatus === "succeeded" || currentRunStatus === "completed";
 
   let nextProjectionStatus = event.payload.projection_status;
-  if (isCancelled && nextProjectionStatus === "succeeded") {
+  if (isCancelled && nextProjectionStatus !== "cancelled") {
     nextProjectionStatus = "cancelled";
+  } else if (isFailed && nextProjectionStatus !== "failed") {
+    nextProjectionStatus = "failed";
+  } else if (isTerminal && nextProjectionStatus !== currentProjectionStatus) {
+    nextProjectionStatus = currentProjectionStatus;
   }
 
+  const nextVerificationStatus =
+    nextProjectionStatus !== event.payload.projection_status
+      ? snapshot.task_progress.verification_status
+      : event.payload.verification_status;
   // Revision monotonicity:
   if (event.payload.artifact_revision < snapshot.task_progress.artifact_revision) {
     return state;
@@ -327,7 +340,7 @@ export function applyTaskProgressEvent(
     artifact_revision: event.payload.artifact_revision,
     artifact_event_seq: event.payload.artifact_event_seq,
     projection_status: nextProjectionStatus,
-    verification_status: event.payload.verification_status,
+    verification_status: nextVerificationStatus,
     g2_snapshot_seq: event.payload.snapshot_seq ?? snapshot.task_progress.g2_snapshot_seq,
   };
 

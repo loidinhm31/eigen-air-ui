@@ -204,6 +204,80 @@ describe("runInspectorStore task progress reconciliation", () => {
     useRunInspectorStore.getState().taskProgressEvent("run-1", succeededEvent);
     expect(useRunInspectorStore.getState().snapshots["run-1"].task_progress?.projection_status).toBe("cancelled");
   });
+  it("preserves failure authority: late succeeded or running hint cannot overwrite failed snapshot", () => {
+    const failedSnapshot: RunSnapshotDto = {
+      ...baseSnapshot("run-1"),
+      task_progress: {
+        ...baseSnapshot("run-1").task_progress!,
+        projection_status: "failed",
+      },
+    };
+    useRunInspectorStore.getState().snapshot(failedSnapshot);
+
+    const succeededEvent = progressEvent({
+      artifact_revision: 6,
+      artifact_event_seq: 9,
+      snapshot_seq: 11,
+      projection_status: "succeeded",
+    });
+
+    useRunInspectorStore.getState().taskProgressEvent("run-1", succeededEvent);
+    expect(useRunInspectorStore.getState().snapshots["run-1"].task_progress?.projection_status).toBe("failed");
+
+    const runningEvent = progressEvent({
+      artifact_revision: 7,
+      artifact_event_seq: 10,
+      snapshot_seq: 12,
+      projection_status: "running",
+    });
+    useRunInspectorStore.getState().taskProgressEvent("run-1", runningEvent);
+    expect(useRunInspectorStore.getState().snapshots["run-1"].task_progress?.projection_status).toBe("failed");
+  });
+
+  it("preserves succeeded terminal status against late non-terminal hints", () => {
+    const succeededSnapshot: RunSnapshotDto = {
+      ...baseSnapshot("run-1"),
+      task_progress: {
+        ...baseSnapshot("run-1").task_progress!,
+        projection_status: "succeeded",
+      },
+    };
+    useRunInspectorStore.getState().snapshot(succeededSnapshot);
+
+    const runningEvent = progressEvent({
+      artifact_revision: 6,
+      artifact_event_seq: 9,
+      snapshot_seq: 11,
+      projection_status: "running",
+    });
+
+    useRunInspectorStore.getState().taskProgressEvent("run-1", runningEvent);
+    expect(useRunInspectorStore.getState().snapshots["run-1"].task_progress?.projection_status).toBe("succeeded");
+  });
+  it("preserves verification_status when terminal guard overrides conflicting projection_status", () => {
+    const failedSnapshot: RunSnapshotDto = {
+      ...baseSnapshot("run-1"),
+      task_progress: {
+        ...baseSnapshot("run-1").task_progress!,
+        projection_status: "failed",
+        verification_status: "verified_failure",
+      },
+    };
+    useRunInspectorStore.getState().snapshot(failedSnapshot);
+
+    const succeededEvent = progressEvent({
+      artifact_revision: 6,
+      artifact_event_seq: 9,
+      snapshot_seq: 11,
+      projection_status: "succeeded",
+      verification_status: "verified_success",
+    });
+
+    useRunInspectorStore.getState().taskProgressEvent("run-1", succeededEvent);
+    const updated = useRunInspectorStore.getState().snapshots["run-1"].task_progress;
+    expect(updated?.projection_status).toBe("failed");
+    expect(updated?.verification_status).toBe("verified_failure");
+  });
 
   it("rejects revision rollback: lower artifact_revision is discarded", () => {
     useRunInspectorStore.getState().snapshot(baseSnapshot("run-1"));

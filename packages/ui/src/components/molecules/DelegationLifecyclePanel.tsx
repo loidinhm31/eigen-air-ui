@@ -150,7 +150,7 @@ export function DelegationLifecyclePanel({
               <span className="font-mono">None (root run)</span>
             )}
           </p>
-          {rootRunId && rootRunId !== runId && (
+          {rootRunId && rootRunId !== runId && rootRunId !== parentRunId && (
             <p className="text-muted-foreground">
               Root run:{" "}
               <button
