@@ -68,10 +68,9 @@ export function RequestProvenancePanel({ events }: RequestProvenancePanelProps) 
                   </div>
                   <div>
                     <span className="font-medium text-foreground">Selected skill: </span>
-                    {prov.selected_skill_id ?? "None"}
-                    {prov.skill_content_revision
-                      ? ` (${prov.skill_content_revision})`
-                      : ""}
+                    {prov.selected_skill_id
+                      ? `${prov.selected_skill_id}${prov.skill_content_revision ? ` (${prov.skill_content_revision})` : ""}`
+                      : "Unknown / Redacted"}
                   </div>
                   <div className="sm:col-span-2">
                     <span className="font-medium text-foreground">Prompt format: </span>
@@ -94,7 +93,9 @@ export function RequestProvenancePanel({ events }: RequestProvenancePanelProps) 
                         >
                           {s.section}
                           {s.present && s.estimated_tokens != null
-                            ? ` (~${s.estimated_tokens}t)`
+                            ? s.origin === "exact"
+                              ? ` (${s.estimated_tokens}t)`
+                              : ` (~${s.estimated_tokens}t)`
                             : ""}
                         </span>
                       ))}

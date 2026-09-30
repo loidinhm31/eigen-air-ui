@@ -49,6 +49,7 @@ export interface RunInspectorState {
     error?: string;
   };
   refreshGeneration?: number;
+  debugGeneration?: number;
   streams?: StreamStateMap;
   historicalApprovals?: Record<string, ToolApprovalSnapshot[]>;
 }
@@ -115,12 +116,52 @@ export function installSnapshot(
   }
   const runId = snapshot.run.run_id;
   const pending = state.pending[runId] ?? [];
-  const snapshots = { ...state.snapshots, [runId]: withoutExpiredDebug(snapshot, Date.now()) };
+  const existing = state.snapshots[runId];
+
+  let candidate = withoutExpiredDebug(snapshot, Date.now());
+
+  // Prevent rollback of newer live hints or newer progress revisions (F04)
+  if (existing) {
+    const existingSeq = existing.run.snapshot_seq;
+    const incomingSeq = candidate.run.snapshot_seq;
+
+    if (existingSeq > incomingSeq) {
+      // Retain contiguous newer events from existing that aren't in candidate
+      const incomingIds = new Set(candidate.events.map((e) => e.event_id).filter(Boolean));
+      const newerEvents = existing.events.filter(
+        (e) => e.event_seq > incomingSeq && (!e.event_id || !incomingIds.has(e.event_id))
+      );
+
+      // Reconcile task progress revision if existing has a newer revision
+      const existingProgRev = existing.task_progress?.artifact_revision ?? 0;
+      const incomingProgRev = candidate.task_progress?.artifact_revision ?? 0;
+      const resolvedProgress =
+        existingProgRev > incomingProgRev ? existing.task_progress : candidate.task_progress;
+
+      // Keep newer terminal or latest lifecycle status
+      const resolvedLifecycle = existing.run.lifecycle_status ?? candidate.run.lifecycle_status;
+      const resolvedUpdatedAt = Math.max(existing.run.updated_at_ms, candidate.run.updated_at_ms);
+
+      candidate = {
+        ...candidate,
+        run: {
+          ...candidate.run,
+          snapshot_seq: existingSeq,
+          lifecycle_status: resolvedLifecycle,
+          updated_at_ms: resolvedUpdatedAt,
+        },
+        events: [...candidate.events, ...newerEvents].sort((a, b) => a.event_seq - b.event_seq),
+        task_progress: resolvedProgress,
+      };
+    }
+  }
+
+  const snapshots = { ...state.snapshots, [runId]: candidate };
   let next: RunInspectorState = {
     ...state,
     snapshots,
     pending: { ...state.pending, [runId]: [] },
-    status: "live",
+    status: existing && existing.run.snapshot_seq > snapshot.run.snapshot_seq ? "reconciling" : "live",
     error: undefined,
     debugExpiresAtMs: earliestDebugExpiry(snapshots),
     streams: { ...INITIAL_STREAMS },
@@ -136,7 +177,8 @@ export function mergeStreamPage(
   runId: string,
   stream: RunStreamKind,
   page: RunSnapshotDto,
-  generation?: number
+  generation?: number,
+  debugGeneration?: number
 ): RunInspectorState {
   if (state.selectedRunId && state.selectedRunId !== runId) {
     return state;
@@ -150,8 +192,19 @@ export function mergeStreamPage(
   }
 
   const current = state.snapshots[runId];
-  let updatedSnapshot: RunSnapshotDto;
 
+  if (stream === "debug") {
+    const currentDebugGen = state.debugGeneration ?? 0;
+    if (debugGeneration !== undefined && debugGeneration !== currentDebugGen) {
+      return state;
+    }
+    // Reject debug merge if debug was cleared, expired, or opted out
+    if (current.debug_excerpts === undefined || current.run.redaction?.debug_available === false) {
+      return state;
+    }
+  }
+
+  let updatedSnapshot: RunSnapshotDto;
   switch (stream) {
     case "events": {
       const existingIds = new Set(current.events.map((e) => e.event_id).filter(Boolean));
@@ -373,7 +426,7 @@ interface RunInspectorActions {
   failOperation(kind: "export" | "delete", runId: string, error: unknown): void;
   evict(runId: string): void;
   beginStream(stream: RunStreamKind): boolean;
-  pageStream(runId: string, stream: RunStreamKind, page: RunSnapshotDto, generation?: number): void;
+  pageStream(runId: string, stream: RunStreamKind, page: RunSnapshotDto, generation?: number, debugGeneration?: number): void;
   failStream(stream: RunStreamKind, error: unknown): void;
   setHistoricalApprovals(runId: string, approvals: ToolApprovalSnapshot[]): void;
 }
@@ -383,6 +436,7 @@ export const useRunInspectorStore = create<RunInspectorState & RunInspectorActio
   pending: {},
   status: "idle",
   refreshGeneration: 0,
+  debugGeneration: 0,
   streams: INITIAL_STREAMS,
   historicalApprovals: {},
   setHistoricalApprovals: (runId, approvals) =>
@@ -430,7 +484,11 @@ export const useRunInspectorStore = create<RunInspectorState & RunInspectorActio
       const snapshot = state.snapshots[runId];
       if (!snapshot) return state;
       const snapshots = { ...state.snapshots, [runId]: clearSnapshotDebug(snapshot) };
-      return { snapshots, debugExpiresAtMs: earliestDebugExpiry(snapshots) };
+      return {
+        snapshots,
+        debugExpiresAtMs: earliestDebugExpiry(snapshots),
+        debugGeneration: (state.debugGeneration ?? 0) + 1,
+      };
     }),
   // Drop every reference, not only the active selection, on security/lifecycle boundaries.
   clear: (status = "idle") =>
@@ -444,6 +502,7 @@ export const useRunInspectorStore = create<RunInspectorState & RunInspectorActio
       operation: undefined,
       historicalApprovals: {},
       refreshGeneration: (state.refreshGeneration ?? 0) + 1,
+      debugGeneration: (state.debugGeneration ?? 0) + 1,
       streams: { ...INITIAL_STREAMS },
     })),
   beginStream: (stream) => {
@@ -463,8 +522,8 @@ export const useRunInspectorStore = create<RunInspectorState & RunInspectorActio
     });
     return started;
   },
-  pageStream: (runId, stream, page, generation) =>
-    set((state) => mergeStreamPage(state, runId, stream, page, generation)),
+  pageStream: (runId, stream, page, generation, debugGeneration) =>
+    set((state) => mergeStreamPage(state, runId, stream, page, generation, debugGeneration)),
   failStream: (stream, error) =>
     set((state) => {
       const currentStreams = state.streams ?? INITIAL_STREAMS;
@@ -497,10 +556,12 @@ export const useRunInspectorStore = create<RunInspectorState & RunInspectorActio
       const pending = Object.fromEntries(
         Object.entries(state.pending).filter(([runId]) => !expiredRunIds.has(runId))
       );
+      const hadExpired = expiredRunIds.size > 0;
       return {
         snapshots,
         pending,
         debugExpiresAtMs: earliestDebugExpiry(snapshots),
+        ...(hadExpired ? { debugGeneration: (state.debugGeneration ?? 0) + 1 } : {}),
       };
     }),
   beginOperation: (kind, runId) =>
@@ -531,6 +592,7 @@ export const useRunInspectorStore = create<RunInspectorState & RunInspectorActio
         selectedRunId: state.selectedRunId === runId ? undefined : state.selectedRunId,
         status: "deleted",
         debugExpiresAtMs: earliestDebugExpiry(snapshots),
+        debugGeneration: (state.debugGeneration ?? 0) + 1,
       };
     }),
 }));

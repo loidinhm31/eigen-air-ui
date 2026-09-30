@@ -12,6 +12,7 @@ import { Button } from "../atoms/Button.js";
 export interface HistoricalToolApprovalsPanelProps {
   readonly approvals?: ToolApprovalSnapshot[];
   readonly toolCalls?: RunToolCallDto[];
+  readonly hasMoreTools?: boolean;
   readonly isLoading?: boolean;
   readonly error?: string;
   readonly onRefresh?: () => void;
@@ -135,6 +136,7 @@ export function formatExecutionLifecycle(state: ToolApprovalSnapshot["state"]): 
 export function HistoricalToolApprovalsPanel({
   approvals = [],
   toolCalls = [],
+  hasMoreTools = false,
   isLoading = false,
   error,
   onRefresh,
@@ -148,7 +150,9 @@ export function HistoricalToolApprovalsPanel({
           </h3>
           {approvals.length > 0 && (
             <span className="text-muted-foreground text-xs">
-              {approvals.length} recorded
+              {approvals.length >= 100
+                ? `${approvals.length} loaded, possibly incomplete`
+                : `${approvals.length} recorded`}
             </span>
           )}
         </div>
@@ -358,10 +362,14 @@ export function HistoricalToolApprovalsPanel({
                       <div>
                         <span className="text-muted-foreground">Tool result: </span>
                         <span className="text-muted-foreground font-medium">
-                          Unavailable (no matching tool call recorded in run snapshot)
+                          {hasMoreTools
+                            ? "Unavailable (tool call not in loaded snapshot)"
+                            : "Unavailable (no matching tool call recorded in run snapshot)"}
                         </span>
                         <p className="text-muted-foreground text-[11px]">
-                          No G2 tool execution snapshot was recorded with call ID {approval.tool_call_id}.
+                          {hasMoreTools
+                            ? `Tool call with ID ${approval.tool_call_id} was not in loaded snapshot page; additional tool history remains on server.`
+                            : `No G2 tool execution snapshot was recorded with call ID ${approval.tool_call_id}.`}
                         </p>
                       </div>
                     )}

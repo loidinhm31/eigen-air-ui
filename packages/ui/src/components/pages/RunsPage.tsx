@@ -75,7 +75,7 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
   const [runTreeLoading, setRunTreeLoading] = React.useState(false);
   const [runTreeError, setRunTreeError] = React.useState<string | undefined>(undefined);
   const runTreeAbort = React.useRef<AbortController | undefined>(undefined);
-  const { to, navigate } = useSafeBasePathNavigation();
+  const { navigate } = useSafeBasePathNavigation();
   const locationSearch = useSafeLocationSearch();
   const searchParams = React.useMemo(() => new URLSearchParams(locationSearch), [locationSearch]);
   const urlSessionId = searchParams.get("session_id")?.trim() || undefined;
@@ -97,6 +97,7 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
   const listAbort = React.useRef<AbortController | undefined>(undefined);
   const detailAbort = React.useRef<AbortController | undefined>(undefined);
   const mutationAbort = React.useRef<AbortController | undefined>(undefined);
+  const debugAbort = React.useRef<AbortController | undefined>(undefined);
   const correlationEnabled = React.useRef(true);
   // Includes the role/capability boundary; it remains component-local and is never persisted.
   const accessKey = `${identityKey ?? ""}\u0000${authToken ?? ""}\u0000${[...(capabilities ?? [])].sort().join(",")}`;
@@ -153,15 +154,16 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
         setHistoricalApprovals(runId, []);
         if (
           err instanceof ToolApprovalHttpError &&
-          (err.kind === "not_found" || err.kind === "unauthorized" || err.kind === "forbidden")
+          (err.kind === "unauthorized" || err.kind === "forbidden")
         ) {
-          setHistoricalApprovalsError(undefined);
+          setHistoricalApprovalsError("Tool approvals unavailable (not authorized)");
+        } else if (err instanceof ToolApprovalHttpError && err.kind === "not_found") {
+          setHistoricalApprovalsError("Tool approvals unavailable (not found)");
         } else if (err instanceof Error) {
           setHistoricalApprovalsError(err.message);
         } else {
           setHistoricalApprovalsError("Failed to load tool approvals");
         }
-      } finally {
         if (
           !controller.signal.aborted &&
           generation === lifecycleGeneration.current &&
@@ -252,7 +254,14 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
         if (!cursor) {
           handleReadError(reason);
         } else {
-          setListError(reason instanceof Error ? reason.message : "Failed to load more runs");
+          const statusCode = (reason as Error & { status?: number }).status;
+          if (statusCode === 401 || statusCode === 403) {
+            clearUnavailable("denied");
+          } else if (statusCode === 404) {
+            clearUnavailable("not-found");
+          } else {
+            setListError(reason instanceof Error ? reason.message : "Failed to load more runs");
+          }
         }
       } finally {
         if (generation === lifecycleGeneration.current) {
@@ -356,6 +365,7 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
       listAbort.current?.abort();
       detailAbort.current?.abort();
       mutationAbort.current?.abort();
+      debugAbort.current?.abort();
       runTreeAbort.current?.abort();
       correlationEnabled.current = false;
       approvalsAbort.current?.abort();
@@ -370,6 +380,7 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
     listAbort.current?.abort();
     detailAbort.current?.abort();
     mutationAbort.current?.abort();
+    debugAbort.current?.abort();
     runTreeAbort.current?.abort();
     correlationEnabled.current = false;
     approvalsAbort.current?.abort();
@@ -622,12 +633,7 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
                   Delete
                 </Button>
               )}
-              {Boolean(
-                selected.next_event_cursor ||
-                  selected.next_tool_cursor ||
-                  selected.next_lineage_cursor ||
-                  selected.next_debug_cursor
-              ) && (
+              {canExport && (
                 <span role="note" className="text-muted-foreground text-xs">
                   Export includes snapshot page only; additional history remains on server.
                 </span>
@@ -637,7 +643,10 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
               snapshot={selected}
               canRequestDebug={canRequestDebug}
               onRequestDebug={() => void open(selected.run.run_id, true)}
-              onClearDebug={() => clearDebug(selected.run.run_id)}
+              onClearDebug={() => {
+                debugAbort.current?.abort();
+                clearDebug(selected.run.run_id);
+              }}
               streamStates={streams}
               runTreeNodes={runTreeNodes}
               runTreeLoading={runTreeLoading}
@@ -663,7 +672,12 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
                   });
                   pageStream(selectedRunId, "events", page, gen);
                 } catch (err) {
-                  if (
+                  const statusCode = (err as Error & { status?: number }).status;
+                  if (statusCode === 401 || statusCode === 403) {
+                    clearUnavailable("denied");
+                  } else if (statusCode === 404) {
+                    clearUnavailable("not-found");
+                  } else if (
                     useRunInspectorStore.getState().refreshGeneration === gen &&
                     useRunInspectorStore.getState().selectedRunId === selectedRunId
                   ) {
@@ -682,7 +696,12 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
                   });
                   pageStream(selectedRunId, "tools", page, gen);
                 } catch (err) {
-                  if (
+                  const statusCode = (err as Error & { status?: number }).status;
+                  if (statusCode === 401 || statusCode === 403) {
+                    clearUnavailable("denied");
+                  } else if (statusCode === 404) {
+                    clearUnavailable("not-found");
+                  } else if (
                     useRunInspectorStore.getState().refreshGeneration === gen &&
                     useRunInspectorStore.getState().selectedRunId === selectedRunId
                   ) {
@@ -701,7 +720,12 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
                   });
                   pageStream(selectedRunId, "lineage", page, gen);
                 } catch (err) {
-                  if (
+                  const statusCode = (err as Error & { status?: number }).status;
+                  if (statusCode === 401 || statusCode === 403) {
+                    clearUnavailable("denied");
+                  } else if (statusCode === 404) {
+                    clearUnavailable("not-found");
+                  } else if (
                     useRunInspectorStore.getState().refreshGeneration === gen &&
                     useRunInspectorStore.getState().selectedRunId === selectedRunId
                   ) {
@@ -713,15 +737,28 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
                 if (!selectedRunId || !selected.next_debug_cursor) return;
                 if (!beginStream("debug")) return;
                 const gen = useRunInspectorStore.getState().refreshGeneration ?? 0;
+                const debugGen = useRunInspectorStore.getState().debugGeneration ?? 0;
+                debugAbort.current?.abort();
+                const controller = new AbortController();
+                debugAbort.current = controller;
                 try {
                   const page = await adapter.get(selectedRunId, {
                     debugCursor: selected.next_debug_cursor,
                     includeDebug: true,
+                    signal: controller.signal,
                   });
-                  pageStream(selectedRunId, "debug", page, gen);
+                  if (controller.signal.aborted) return;
+                  pageStream(selectedRunId, "debug", page, gen, debugGen);
                 } catch (err) {
-                  if (
+                  if (controller.signal.aborted) return;
+                  const statusCode = (err as Error & { status?: number }).status;
+                  if (statusCode === 401 || statusCode === 403) {
+                    clearUnavailable("denied");
+                  } else if (statusCode === 404) {
+                    clearUnavailable("not-found");
+                  } else if (
                     useRunInspectorStore.getState().refreshGeneration === gen &&
+                    useRunInspectorStore.getState().debugGeneration === debugGen &&
                     useRunInspectorStore.getState().selectedRunId === selectedRunId
                   ) {
                     failStream("debug", err);

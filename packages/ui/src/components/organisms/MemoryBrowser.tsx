@@ -27,16 +27,29 @@ export function MemoryBrowser() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const revision = useMemoryStore((state) => state.revision);
+  const loadGeneration = React.useRef(0);
+  const loadAbort = React.useRef<AbortController | null>(null);
 
   const load = React.useCallback(async () => {
+    const curGen = ++loadGeneration.current;
+    if (loadAbort.current) {
+      loadAbort.current.abort();
+    }
+    const controller = new AbortController();
+    loadAbort.current = controller;
     setLoading(true);
     setError(null);
     try {
-      setEntries(await getMemoryService().list());
+      const items = await getMemoryService().list({ signal: controller.signal });
+      if (curGen !== loadGeneration.current || controller.signal.aborted) return;
+      setEntries(items);
     } catch (cause) {
+      if (curGen !== loadGeneration.current || controller.signal.aborted) return;
       setError(String(cause));
     } finally {
-      setLoading(false);
+      if (curGen === loadGeneration.current && !controller.signal.aborted) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -67,6 +80,11 @@ export function MemoryBrowser() {
 
   useEffect(() => {
     void load();
+    return () => {
+      if (loadAbort.current) {
+        loadAbort.current.abort();
+      }
+    };
   }, [load, revision]);
 
   const displayed = entries.filter((entry) =>

@@ -24,6 +24,8 @@ export function EpisodeBrowser({ focusedEpisodeId, onClearFocus }: EpisodeBrowse
   });
   const focusGeneration = React.useRef(0);
   const focusAbort = React.useRef<AbortController | null>(null);
+  const listGeneration = React.useRef(0);
+  const listAbort = React.useRef<AbortController | null>(null);
   const revision = useMemoryStore((state) => state.revision);
 
   const lookupFocusedEpisode = React.useCallback(async (episodeId: string) => {
@@ -86,8 +88,16 @@ export function EpisodeBrowser({ focusedEpisodeId, onClearFocus }: EpisodeBrowse
   }, [focusedEpisodeId, lookupFocusedEpisode, revision]);
 
   const load = React.useCallback(async () => {
+    const curGen = ++listGeneration.current;
+    if (listAbort.current) {
+      listAbort.current.abort();
+    }
+    const controller = new AbortController();
+    listAbort.current = controller;
     try {
-      setEpisodes(await getMemoryService().listEpisodes());
+      const result = await getMemoryService().listEpisodes({ signal: controller.signal });
+      if (curGen !== listGeneration.current || controller.signal.aborted) return;
+      setEpisodes(result);
     } catch {
       // If list fails, preserve existing episodes
     }
@@ -95,6 +105,11 @@ export function EpisodeBrowser({ focusedEpisodeId, onClearFocus }: EpisodeBrowse
 
   useEffect(() => {
     void load();
+    return () => {
+      if (listAbort.current) {
+        listAbort.current.abort();
+      }
+    };
   }, [load, revision]);
 
   return (

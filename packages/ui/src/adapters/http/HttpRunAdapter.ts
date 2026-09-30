@@ -1,4 +1,12 @@
-import type { RunListResponseDto, RunSnapshotDto, RunTreeNodeDto } from "@eigen-air-ui/shared/types";
+import {
+  decodeMemoryOutcome,
+  decodeRequestProvenance,
+  decodeTaskOutcome,
+  decodeToolSelection,
+  type RunListResponseDto,
+  type RunSnapshotDto,
+  type RunTreeNodeDto,
+} from "@eigen-air-ui/shared/types";
 import {
   fetchWithAccess,
   type AccessContext,
@@ -46,6 +54,24 @@ function safeRunErrorMessage(value: unknown): string | undefined {
   }
   return value;
 }
+function sanitizeSnapshot(snapshot: RunSnapshotDto): RunSnapshotDto {
+  if (!snapshot || !Array.isArray(snapshot.events)) {
+    return snapshot;
+  }
+  return {
+    ...snapshot,
+    events: snapshot.events.map((event) => ({
+      ...event,
+      tool_selection: event.tool_selection ? decodeToolSelection(event.tool_selection) ?? undefined : undefined,
+      memory_outcome: event.memory_outcome ? decodeMemoryOutcome(event.memory_outcome) ?? undefined : undefined,
+      request_provenance: event.request_provenance
+        ? decodeRequestProvenance(event.request_provenance) ?? undefined
+        : undefined,
+      task_outcome: event.task_outcome ? decodeTaskOutcome(event.task_outcome) ?? undefined : undefined,
+    })),
+  };
+}
+
 
 async function readSafeRunErrorMessage(response: Response): Promise<string | undefined> {
   const contentLength = response.headers?.get("content-length");
@@ -118,7 +144,7 @@ export class HttpRunAdapter {
     return this.request(`/v1/runs${query}`, { signal: options.signal });
   }
 
-  get(runId: string, options: RunGetOptions = {}): Promise<RunSnapshotDto> {
+  async get(runId: string, options: RunGetOptions = {}): Promise<RunSnapshotDto> {
     const params = new URLSearchParams();
     // A local UI flag is never authority; default deny until authenticated state injects capability.
     const debug = Boolean(
@@ -135,9 +161,10 @@ export class HttpRunAdapter {
     if (options.lineageCursor) params.set("lineage_cursor", options.lineageCursor);
 
     const query = params.toString() ? `?${params.toString()}` : "";
-    return this.request(`/v1/runs/${encodeURIComponent(runId)}${query}`, {
+    const snapshot = await this.request<RunSnapshotDto>(`/v1/runs/${encodeURIComponent(runId)}${query}`, {
       signal: options.signal,
     });
+    return sanitizeSnapshot(snapshot);
   }
 
   getRunTree(rootSessionId: string, signal?: AbortSignal): Promise<RunTreeNodeDto[]> {

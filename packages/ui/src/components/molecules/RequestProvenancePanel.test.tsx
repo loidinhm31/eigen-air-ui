@@ -89,6 +89,23 @@ describe("RequestProvenancePanel", () => {
     render(<RequestProvenancePanel events={[event]} />);
 
     expect(screen.getByText(/Redacted \/ Unknown/)).toBeDefined();
-    expect(screen.getByText(/^None$/)).toBeDefined();
+    expect(screen.getByText(/Unknown \/ Redacted/)).toBeDefined();
+  });
+
+  it("renders exact token origin without tilde prefix", () => {
+    const event = makeProvenanceEvent({
+      section_summaries: [
+        {
+          section: "identity",
+          present: true,
+          estimated_tokens: 50,
+          origin: "exact",
+        },
+      ],
+    });
+
+    render(<RequestProvenancePanel events={[event]} />);
+
+    expect(screen.getByText(/identity \(50t\)/)).toBeDefined();
   });
 });

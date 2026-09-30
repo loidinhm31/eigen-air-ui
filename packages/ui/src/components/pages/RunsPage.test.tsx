@@ -740,4 +740,115 @@ describe("RunsPage lifecycle reconciliation", () => {
       expect(screen.getByText(/approval app-page-1/)).toBeDefined();
     });
   });
+  it("retains snapshot-page export note even when all cursors are null", async () => {
+    const fetch = vi.fn((url: string) => {
+      if (url.includes("/v1/runs/run-a")) {
+        return Promise.resolve(
+          response({
+            ...snapshot(false),
+            next_event_cursor: null,
+            next_tool_cursor: null,
+            next_lineage_cursor: null,
+            next_debug_cursor: null,
+          })
+        );
+      }
+      return Promise.resolve(response({ schema_version: 1, runs: [runSummary()], next_cursor: null }));
+    });
+    vi.stubGlobal("fetch", fetch);
+    const user = userEvent.setup();
+    render(<RunsPage access={{ capabilities: new Set(["run:export"]) }} />);
+    await user.click(await screen.findByRole("button", { name: "run-a" }));
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Export includes snapshot page only; additional history remains on server/i)
+      ).toBeDefined();
+    });
+  });
+
+  it("clears cached run evidence on continuation 403 authorization denial", async () => {
+    let callCount = 0;
+    const fetch = vi.fn((url: string) => {
+      if (url.includes("/v1/runs/run-a")) {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve(
+            response({
+              ...snapshot(false),
+              next_event_cursor: "page-2-cursor",
+            })
+          );
+        }
+        // Second call (continuation) denied with 403
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: { code: "permission_denied" } }), {
+            status: 403,
+            headers: { "Content-Type": "application/json" },
+          })
+        );
+      }
+      return Promise.resolve(response({ schema_version: 1, runs: [runSummary()], next_cursor: null }));
+    });
+    vi.stubGlobal("fetch", fetch);
+    const user = userEvent.setup();
+    render(<RunsPage />);
+    await user.click(await screen.findByRole("button", { name: "run-a" }));
+
+    // Initial snapshot loaded
+    await waitFor(() => {
+      expect(screen.getByRole("article", { name: /Run run-a/ })).toBeDefined();
+    });
+
+    // Click Load more events to trigger continuation
+    const loadMoreBtn = await screen.findByRole("button", { name: /Load more events/i });
+    await user.click(loadMoreBtn);
+
+    // After 403 denial, previous run snapshot must be cleared via clearUnavailable("denied")
+    await waitFor(() => {
+      expect(useRunInspectorStore.getState().status).toBe("denied");
+      expect(useRunInspectorStore.getState().snapshots["run-a"]).toBeUndefined();
+    });
+  });
+
+  it("retains cached run evidence on continuation 503 unavailable error", async () => {
+    let callCount = 0;
+    const fetch = vi.fn((url: string) => {
+      if (url.includes("/v1/runs/run-a")) {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve(
+            response({
+              ...snapshot(false),
+              next_event_cursor: "page-2-cursor",
+            })
+          );
+        }
+        // Second call (continuation) fails with 503 Service Unavailable
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: { code: "run_unavailable" } }), {
+            status: 503,
+            headers: { "Content-Type": "application/json" },
+          })
+        );
+      }
+      return Promise.resolve(response({ schema_version: 1, runs: [runSummary()], next_cursor: null }));
+    });
+    vi.stubGlobal("fetch", fetch);
+    const user = userEvent.setup();
+    render(<RunsPage />);
+    await user.click(await screen.findByRole("button", { name: "run-a" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("article", { name: /Run run-a/ })).toBeDefined();
+    });
+
+    const loadMoreBtn = await screen.findByRole("button", { name: /Load more events/i });
+    await user.click(loadMoreBtn);
+
+    // After 503, evidence must be RETAINED for retry
+    await waitFor(() => {
+      expect(useRunInspectorStore.getState().snapshots["run-a"]).toBeDefined();
+      expect(useRunInspectorStore.getState().streams?.events.error).toBeDefined();
+    });
+  });
 });

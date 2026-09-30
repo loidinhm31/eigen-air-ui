@@ -105,4 +105,91 @@ describe("HttpRunAdapter", () => {
     expect(fetch.mock.calls[0][0]).toBe("http://daemon/v1/run-trees/sess%2F1");
     expect(fetch.mock.calls[0][1].signal).toBe(controller.signal);
   });
+  it("decodes valid diagnostics and drops malformed optional diagnostics on events", async () => {
+    const rawSnapshot = {
+      schema_version: 1,
+      run: { run_id: "run-1", snapshot_seq: 1 },
+      events: [
+        {
+          event_id: "evt-1",
+          event_seq: 1,
+          event_kind: "tool_selection",
+          tool_selection: {
+            schema_version: "tool_selection.v1",
+            selected_total: 1,
+            order_hash: "a1b2c3d4",
+            reason_counts: { global_selected: 1 },
+            selected_tools: [{ canonical_name: "tool_a", reason_code: "global_selected" }],
+            rejected_tools: [],
+          },
+          memory_outcome: {
+            schema_version: "memory_outcome.v1",
+            operation_id: "op-1",
+            operation_kind: "episode_flush",
+            state: "stored",
+            reason: "stored",
+          },
+          request_provenance: {
+            schema_version: "request_provenance.v1",
+            logical_request_id: "req-1",
+            provider_id: "prov-1",
+            model: "model-1",
+            prompt_format_version: "v1",
+            section_summaries: [],
+          },
+          task_outcome: {
+            schema_version: "task_outcome.v1",
+            task_id: "task-1",
+            checker_id: "checker-1",
+            checker_version: "v1",
+            artifact_path: "path.json",
+            artifact_digest: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            status: "passed",
+            reason: "valid",
+            evaluated_at_ms: 1000,
+          },
+        },
+        {
+          event_id: "evt-2",
+          event_seq: 2,
+          event_kind: "tool_selection",
+          tool_selection: {
+            schema_version: "tool_selection.v1",
+            raw_prompt: "illegal",
+            order_hash: 12345,
+          },
+          memory_outcome: {
+            schema_version: "memory_outcome.v1",
+            operation_id: "op-2",
+            operation_kind: "episode_flush",
+            state: "INVALID_STATE",
+            reason: "stored",
+          },
+          task_outcome: {
+            schema_version: "task_outcome.v2",
+            status: "passed",
+          },
+        },
+      ],
+      tool_calls: [],
+      memory_lineage: [],
+    };
+    const fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => rawSnapshot,
+    });
+    vi.stubGlobal("fetch", fetch);
+    const adapter = new HttpRunAdapter("http://daemon");
+    const snapshot = await adapter.get("run-1");
+
+    expect(snapshot.events[0].tool_selection?.selected_tools?.[0].canonical_name).toBe("tool_a");
+    expect(snapshot.events[0].memory_outcome?.state).toBe("stored");
+    expect(snapshot.events[0].request_provenance?.model).toBe("model-1");
+    expect(snapshot.events[0].task_outcome?.status).toBe("passed");
+
+    expect(snapshot.events[1].tool_selection).toBeUndefined();
+    expect(snapshot.events[1].memory_outcome).toBeUndefined();
+    expect(snapshot.events[1].task_outcome).toBeUndefined();
+  });
 });

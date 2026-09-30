@@ -104,14 +104,15 @@ export function EigenAirApp({
   }, [appLayerOwnsLifecycle, daemonUrl]);
 
   const hasHostAccess = Boolean(runAccess);
-
+  const serviceContext = getServiceAccessContext();
+  const memoryAccessKey = `${daemonUrl}:${runAccess?.authToken ?? ""}:${runAccess?.identityKey ?? ""}:${serviceContext.accessRevision ?? 0}`;
   const inner = (
     <BasePathContext.Provider value={resolvedBasePath}>
       <div className={className}>
         <Routes>
           <Route path="/" element={<AppShell />}>
             <Route index element={<ChatPage />} />
-            <Route path="memory" element={<MemoryPage />} />
+            <Route path="memory" element={<MemoryPage key={memoryAccessKey} />} />
             <Route path="tools" element={<ToolsPage />} />
             <Route path="skills" element={<SkillsPage />} />
             <Route path="sessions" element={<SessionsPage />} />

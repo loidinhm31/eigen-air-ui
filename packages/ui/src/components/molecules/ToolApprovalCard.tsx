@@ -58,11 +58,10 @@ export function ToolApprovalCard({
   const controlsDisabled = disabled || busy || offline || accepted;
   const navigation = useSafeBasePathNavigation();
   const hasRunLocator = Boolean(approval.run_id && approval.session_id);
-  const runUrl = hasRunLocator
-    ? navigation.to(
-        `/runs?session_id=${encodeURIComponent(approval.session_id)}&run_id=${encodeURIComponent(approval.run_id)}`
-      )
+  const runRoute = hasRunLocator
+    ? `/runs?session_id=${encodeURIComponent(approval.session_id)}&run_id=${encodeURIComponent(approval.run_id)}`
     : undefined;
+  const runUrl = runRoute ? navigation.to(runRoute) : undefined;
 
 
 
@@ -191,9 +190,9 @@ export function ToolApprovalCard({
               if (onViewRun) {
                 e.preventDefault();
                 onViewRun(approval.run_id, approval.session_id);
-              } else {
+              } else if (runRoute) {
                 e.preventDefault();
-                navigation.navigate(runUrl);
+                navigation.navigate(runRoute);
               }
             }}
             className="text-xs text-primary hover:underline font-medium"

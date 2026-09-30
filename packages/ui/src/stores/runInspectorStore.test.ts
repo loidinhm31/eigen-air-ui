@@ -461,4 +461,152 @@ describe("run inspector reconciliation", () => {
     useRunInspectorStore.getState().clear();
     expect(useRunInspectorStore.getState().historicalApprovals).toEqual({});
   });
+  it("fences deferred debug page 2 after clearDebug has been called", () => {
+    const snapWithDebug: RunSnapshotDto = {
+      ...snapshot("run-1"),
+      debug_excerpts: [
+        {
+          excerpt_seq: 1,
+          kind: "system_prompt",
+          plaintext: "prompt page 1",
+          created_at_ms: Date.now(),
+          expires_at_ms: Date.now() + 60_000,
+          plaintext_bytes: 13,
+          truncated: false,
+          redaction_count: 0,
+        },
+      ],
+      next_debug_cursor: "dbg-page-2",
+    };
+
+    useRunInspectorStore.getState().clear();
+    useRunInspectorStore.getState().snapshot(snapWithDebug);
+    const initialGen = useRunInspectorStore.getState().refreshGeneration ?? 0;
+    const initialDebugGen = useRunInspectorStore.getState().debugGeneration ?? 0;
+
+    // User opts out / clears debug
+    useRunInspectorStore.getState().clearDebug("run-1");
+    expect(useRunInspectorStore.getState().snapshots["run-1"].debug_excerpts).toBeUndefined();
+    expect(useRunInspectorStore.getState().snapshots["run-1"].next_debug_cursor).toBeNull();
+
+    // Delayed debug page 2 arrives with old debug generation
+    const delayedPage: RunSnapshotDto = {
+      ...snapWithDebug,
+      debug_excerpts: [
+        {
+          excerpt_seq: 2,
+          kind: "user_request",
+          plaintext: "AUDIT_LATE_PRIVATE",
+          created_at_ms: Date.now(),
+          expires_at_ms: Date.now() + 60_000,
+          plaintext_bytes: 18,
+          truncated: false,
+          redaction_count: 0,
+        },
+      ],
+      next_debug_cursor: "dbg-page-3",
+    };
+
+    useRunInspectorStore.getState().pageStream("run-1", "debug", delayedPage, initialGen, initialDebugGen);
+
+    // Assert plaintext and cursor were NOT restored
+    const current = useRunInspectorStore.getState().snapshots["run-1"];
+    expect(current.debug_excerpts).toBeUndefined();
+    expect(current.next_debug_cursor).toBeNull();
+  });
+
+  it("fences deferred debug page 2 after expire has occurred", () => {
+    const now = Date.now();
+    const snapWithDebug: RunSnapshotDto = {
+      ...snapshot("run-1"),
+      debug_excerpts: [
+        {
+          excerpt_seq: 1,
+          kind: "system_prompt",
+          plaintext: "prompt page 1",
+          created_at_ms: now - 10_000,
+          expires_at_ms: now - 1_000, // expired
+          plaintext_bytes: 13,
+          truncated: false,
+          redaction_count: 0,
+        },
+      ],
+      next_debug_cursor: "dbg-page-2",
+    };
+
+    useRunInspectorStore.getState().clear();
+    useRunInspectorStore.getState().snapshot(snapWithDebug);
+    const initialGen = useRunInspectorStore.getState().refreshGeneration ?? 0;
+    const initialDebugGen = useRunInspectorStore.getState().debugGeneration ?? 0;
+
+    // Trigger expiry
+    useRunInspectorStore.getState().expire(now);
+    expect(useRunInspectorStore.getState().snapshots["run-1"].debug_excerpts).toBeUndefined();
+
+    // Delayed debug page arrives
+    const delayedPage: RunSnapshotDto = {
+      ...snapWithDebug,
+      debug_excerpts: [
+        {
+          excerpt_seq: 2,
+          kind: "user_request",
+          plaintext: "AUDIT_LATE_PRIVATE",
+          created_at_ms: now,
+          expires_at_ms: now + 60_000,
+          plaintext_bytes: 18,
+          truncated: false,
+          redaction_count: 0,
+        },
+      ],
+      next_debug_cursor: "dbg-page-3",
+    };
+
+    useRunInspectorStore.getState().pageStream("run-1", "debug", delayedPage, initialGen, initialDebugGen);
+
+    const current = useRunInspectorStore.getState().snapshots["run-1"];
+    expect(current.debug_excerpts).toBeUndefined();
+    expect(current.next_debug_cursor).toBeNull();
+  });
+
+  it("preserves newer live event hints when older REST snapshot arrives", () => {
+    const base = snapshot("run-1");
+    base.run.snapshot_seq = 5;
+    base.run.lifecycle_status = "running";
+
+    useRunInspectorStore.getState().clear();
+    useRunInspectorStore.getState().snapshot(base);
+
+    // Live terminal hint arrives via event
+    const liveEvent: RunEventDto = {
+      event_id: "evt-terminal-6",
+      event_seq: 6,
+      event_kind: "lifecycle",
+      occurred_at_ms: 1000,
+      lifecycle_status: "completed",
+    };
+    useRunInspectorStore.getState().event("run-1", liveEvent);
+
+    const currentAfterEvent = useRunInspectorStore.getState().snapshots["run-1"];
+    expect(currentAfterEvent.run.snapshot_seq).toBe(6);
+    expect(currentAfterEvent.run.lifecycle_status).toBe("completed");
+
+    // Older REST response arrives with snapshot_seq = 5 and lifecycle_status = "running"
+    const olderRestSnapshot = {
+      ...base,
+      run: {
+        ...base.run,
+        snapshot_seq: 5,
+        lifecycle_status: "running" as const,
+      },
+      events: [...base.events],
+    };
+
+    useRunInspectorStore.getState().snapshot(olderRestSnapshot);
+
+    // Verify it did NOT roll back to snapshot_seq 5 or "running"
+    const currentAfterRest = useRunInspectorStore.getState().snapshots["run-1"];
+    expect(currentAfterRest.run.snapshot_seq).toBe(6);
+    expect(currentAfterRest.run.lifecycle_status).toBe("completed");
+    expect(currentAfterRest.events.some((e) => e.event_seq === 6)).toBe(true);
+  });
 });

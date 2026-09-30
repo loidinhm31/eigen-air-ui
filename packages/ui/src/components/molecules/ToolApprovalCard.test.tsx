@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ToolApprovalSnapshot } from "@eigen-air-ui/shared/types";
 import { ToolApprovalCard, type ToolApprovalCardProps } from "./ToolApprovalCard.js";
-
+import { BasePathContext } from "../../embed/base-path-navigation.js";
 afterEach(cleanup);
 
 const sampleProgramSnapshot: ToolApprovalSnapshot = {
@@ -173,5 +174,20 @@ describe("ToolApprovalCard", () => {
       />
     );
     expect(screen.queryByRole("link", { name: /in Run Inspector/ })).toBeNull();
+  });
+  it("navigates with unprefixed route when base path is provided in embedded mode", async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <BasePathContext.Provider value="/eigen-air">
+          <ToolApprovalCard {...baseProps()} />
+        </BasePathContext.Provider>
+      </MemoryRouter>
+    );
+
+    const link = screen.getByRole("link", { name: "View run run-1 in Run Inspector" });
+    expect(link.getAttribute("href")).toBe("/eigen-air/runs?session_id=session-1&run_id=run-1");
+
+    await user.click(link);
   });
 });

@@ -310,4 +310,21 @@ describe("HistoricalToolApprovalsPanel", () => {
       expect(lifecycle.detail).toBeDefined();
     }
   });
+  it("displays 'loaded, possibly incomplete' when approval count is 100 or more", () => {
+    const manyApprovals = Array.from({ length: 100 }, (_, i) => ({
+      ...baseProgramApproval,
+      approval_id: `app-${i}`,
+      tool_call_id: `call-${i}`,
+    }));
+    render(<HistoricalToolApprovalsPanel approvals={manyApprovals} />);
+    expect(screen.getByText("100 loaded, possibly incomplete")).toBeDefined();
+  });
+
+  it("indicates unmatched tool call is not in loaded snapshot when hasMoreTools is true", () => {
+    render(<HistoricalToolApprovalsPanel approvals={[baseProgramApproval]} toolCalls={[]} hasMoreTools={true} />);
+    expect(screen.getByText("Unavailable (tool call not in loaded snapshot)")).toBeDefined();
+    expect(
+      screen.getByText("Tool call with ID call-1 was not in loaded snapshot page; additional tool history remains on server.")
+    ).toBeDefined();
+  });
 });

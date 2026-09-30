@@ -135,6 +135,7 @@ export function RunInspector({
       <HistoricalToolApprovalsPanel
         approvals={historicalApprovals}
         toolCalls={snapshot.tool_calls}
+        hasMoreTools={Boolean(snapshot.next_tool_cursor)}
         isLoading={historicalApprovalsLoading}
         error={historicalApprovalsError}
         onRefresh={onRefreshHistoricalApprovals}
