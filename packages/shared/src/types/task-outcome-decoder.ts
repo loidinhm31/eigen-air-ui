@@ -103,9 +103,15 @@ export function decodeTaskOutcome(value: unknown): TaskOutcomeDto | null {
   }
 
   if (status === "passed") {
-    if (record.artifact_digest.length !== 64 || reason !== "valid") {
+    const isRedacted = record.artifact_digest === "" || record.artifact_digest === "[redacted]";
+    if (!isRedacted && (record.artifact_digest.length !== 64 || reason !== "valid")) {
       return null;
     }
+    if (isRedacted && reason !== "valid") {
+      return null;
+    }
+  } else if (reason === "valid") {
+    return null;
   }
 
   let details: string | null = null;

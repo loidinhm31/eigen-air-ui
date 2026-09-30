@@ -25,6 +25,22 @@ describe("decodeTaskOutcome", () => {
     expect(decoded?.artifact_digest).toBe(validPassedPayload.artifact_digest);
   });
 
+  it("decodes redacted passed task outcome payload under non-exact scope", () => {
+    const redactedPassedPayload = {
+      ...validPassedPayload,
+      artifact_path: "[redacted]",
+      artifact_digest: "",
+      details: null,
+    };
+    const decoded = decodeTaskOutcome(redactedPassedPayload);
+    expect(decoded).not.toBeNull();
+    expect(decoded?.status).toBe("passed");
+    expect(decoded?.reason).toBe("valid");
+    expect(decoded?.artifact_path).toBe("[redacted]");
+    expect(decoded?.artifact_digest).toBe("");
+    expect(decoded?.details).toBeNull();
+  });
+
   it("decodes valid failed task outcome payload", () => {
     const failedPayload = {
       ...validPassedPayload,
