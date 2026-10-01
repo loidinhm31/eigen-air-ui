@@ -475,7 +475,7 @@ export interface RunMemoryLineageDto {
   occurred_at_ms: number;
 }
 
-/** Sensitive, request-time plaintext. This must only live in runInspectorStore. */
+/** Sensitive, request-time plaintext; only short-lived inspector/export memory, never persisted. */
 export interface RunDebugExcerptDto {
   excerpt_seq: number;
   kind: RunDebugExcerptKind;
@@ -499,6 +499,22 @@ export interface RunSnapshotDto {
   next_tool_cursor?: string | null;
   next_lineage_cursor?: string | null;
   next_debug_cursor?: string | null;
+}
+
+/** Export-only committed messages correlated to this exact run, never session-wide history. */
+export interface RunTranscriptDto {
+  messages: {
+    role: string;
+    content: string;
+    tool_call_id?: string;
+    tool_calls?: ToolCallItem[];
+  }[];
+  unavailable_reason?: string;
+  truncated: boolean;
+}
+
+export interface RunExportDto extends RunSnapshotDto {
+  transcript?: RunTranscriptDto;
 }
 
 export interface RunListResponseDto {

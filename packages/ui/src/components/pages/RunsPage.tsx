@@ -80,6 +80,9 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
   const searchParams = React.useMemo(() => new URLSearchParams(locationSearch), [locationSearch]);
   const urlSessionId = searchParams.get("session_id")?.trim() || undefined;
   const urlRunId = searchParams.get("run_id")?.trim() || undefined;
+  const [sessionSearch, setSessionSearch] = React.useState(urlSessionId ?? "");
+  const sessionSearchId = React.useId();
+  const ignoredUrlRunId = React.useRef<string | undefined>(undefined);
   const lastOpenedRunId = React.useRef<string | undefined>(undefined);
   const previousSessionId = React.useRef<string | undefined>(urlSessionId);
 
@@ -93,6 +96,8 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
     },
     [navigate]
   );
+  const scopeUrl = React.useRef({ runId: urlRunId, updateUrl });
+  scopeUrl.current = { runId: urlRunId, updateUrl };
   const lifecycleGeneration = React.useRef(0);
   const listAbort = React.useRef<AbortController | undefined>(undefined);
   const detailAbort = React.useRef<AbortController | undefined>(undefined);
@@ -101,7 +106,10 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
   const correlationEnabled = React.useRef(true);
   // Includes the role/capability boundary; it remains component-local and is never persisted.
   const accessKey = `${identityKey ?? ""}\u0000${authToken ?? ""}\u0000${[...(capabilities ?? [])].sort().join(",")}`;
-  const previousAccessKey = React.useRef<string | undefined>(undefined);
+  // Render-time fence also covers responses arriving before passive effect cleanup.
+  const boundaryKey = `${url}\u0000${accessKey}\u0000${urlSessionId ?? ""}\u0000${urlRunId ?? ""}`;
+  const currentBoundaryKey = React.useRef(boundaryKey);
+  currentBoundaryKey.current = boundaryKey;
   const adapter = React.useMemo(
     () => new HttpRunAdapter(url.replace(/\/+$/, ""), { authToken, capabilities, identityKey }),
     [authToken, capabilities, identityKey, url]
@@ -190,6 +198,7 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
       mutationAbort.current?.abort();
       runTreeAbort.current?.abort();
       approvalsAbort.current?.abort();
+      debugAbort.current?.abort();
       setHistoricalApprovalsLoading(false);
       setHistoricalApprovalsError(undefined);
       correlationEnabled.current = false;
@@ -201,6 +210,27 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
     },
     [clear]
   );
+  const resetScope = React.useCallback(() => {
+    lifecycleGeneration.current += 1;
+    listAbort.current?.abort();
+    detailAbort.current?.abort();
+    mutationAbort.current?.abort();
+    debugAbort.current?.abort();
+    runTreeAbort.current?.abort();
+    approvalsAbort.current?.abort();
+    correlationEnabled.current = false;
+    lastOpenedRunId.current = undefined;
+    setRuns([]);
+    setListNextCursor(null);
+    setListLoading(false);
+    setListError(undefined);
+    setRunTreeNodes(null);
+    setRunTreeLoading(false);
+    setRunTreeError(undefined);
+    setHistoricalApprovalsLoading(false);
+    setHistoricalApprovalsError(undefined);
+    clear();
+  }, [clear]);
   const handleReadError = React.useCallback(
     (reason: unknown) => {
       const statusCode = (reason as Error & { status?: number }).status;
@@ -217,14 +247,9 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
   const load = React.useCallback(
     async (cursor?: string) => {
       const generation = lifecycleGeneration.current;
-      if (!cursor) {
-        listAbort.current?.abort();
-      }
+      listAbort.current?.abort();
       const controller = new AbortController();
-      if (!cursor) {
-        listAbort.current = controller;
-        begin();
-      }
+      listAbort.current = controller;
       setListLoading(true);
       setListError(undefined);
       try {
@@ -264,15 +289,28 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
           }
         }
       } finally {
-        if (generation === lifecycleGeneration.current) {
+        if (!controller.signal.aborted && generation === lifecycleGeneration.current) {
           setListLoading(false);
         }
       }
     },
-    [adapter, begin, handleReadError, urlSessionId]
+    [adapter, handleReadError, urlSessionId]
   );
+  const searchSession = React.useCallback((sessionId?: string) => {
+    resetScope();
+    setSessionSearch(sessionId ?? "");
+    updateUrl(undefined, sessionId);
+    // Submitting the same filter is a refresh even when navigation leaves the URL unchanged.
+    if (sessionId === urlSessionId) void load();
+  }, [load, resetScope, updateUrl, urlSessionId]);
   const open = React.useCallback(
     async (runId: string, includeDebug = false) => {
+      const current = useRunInspectorStore.getState();
+      if (current.selectedRunId !== runId && current.operation?.kind === "export") {
+        mutationAbort.current?.abort();
+        // An abandoned export must not leave the next selected run's actions disabled.
+        useRunInspectorStore.setState({ operation: undefined });
+      }
       lastOpenedRunId.current = runId;
       const generation = lifecycleGeneration.current;
       detailAbort.current?.abort();
@@ -308,31 +346,44 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
     [adapter, begin, handleReadError, loadHistoricalApprovals, select, snapshot]
   );
   const exportRun = React.useCallback(
-    async (runId: string) => {
+    async (runId: string, format: "json" | "text" = "json") => {
       const generation = lifecycleGeneration.current;
+      const exportBoundaryKey = boundaryKey;
       mutationAbort.current?.abort();
       const controller = new AbortController();
       mutationAbort.current = controller;
       beginOperation("export", runId);
       try {
-        const blob = await adapter.export(runId, controller.signal);
-        if (controller.signal.aborted || generation !== lifecycleGeneration.current) return;
+        const blob = format === "text"
+          ? await adapter.exportText(runId, controller.signal)
+          : await adapter.export(runId, controller.signal);
+        if (
+          controller.signal.aborted ||
+          generation !== lifecycleGeneration.current ||
+          exportBoundaryKey !== currentBoundaryKey.current ||
+          useRunInspectorStore.getState().selectedRunId !== runId
+        ) return;
         const href = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = href;
-        link.download = `${runId}.json`;
+        link.download = `${runId}.${format === "text" ? "txt" : "json"}`;
         link.click();
         URL.revokeObjectURL(href);
         completeOperation("export", runId);
       } catch (reason) {
-        if (controller.signal.aborted || generation !== lifecycleGeneration.current) return;
+        if (
+          controller.signal.aborted ||
+          generation !== lifecycleGeneration.current ||
+          exportBoundaryKey !== currentBoundaryKey.current ||
+          useRunInspectorStore.getState().selectedRunId !== runId
+        ) return;
         const statusCode = (reason as Error & { status?: number }).status;
         if (statusCode === 401 || statusCode === 403 || statusCode === 404)
           clearUnavailable(statusCode === 404 ? "not-found" : "denied");
         else failOperation("export", runId, reason);
       }
     },
-    [adapter, beginOperation, clearUnavailable, completeOperation, failOperation]
+    [adapter, beginOperation, boundaryKey, clearUnavailable, completeOperation, failOperation]
   );
   const deleteRun = React.useCallback(
     async (runId: string) => {
@@ -359,41 +410,18 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
     [adapter, beginOperation, clearUnavailable, completeOperation, evict, failOperation]
   );
   React.useEffect(() => {
+    const sessionChanged = previousSessionId.current !== urlSessionId;
+    previousSessionId.current = urlSessionId;
+    setSessionSearch(urlSessionId ?? "");
+    resetScope();
+    // A changed session must not carry a previous run selection through its URL.
+    if (sessionChanged && scopeUrl.current.runId) {
+      ignoredUrlRunId.current = scopeUrl.current.runId;
+      scopeUrl.current.updateUrl(undefined, urlSessionId);
+    }
     void load();
-    return () => {
-      lifecycleGeneration.current += 1;
-      listAbort.current?.abort();
-      detailAbort.current?.abort();
-      mutationAbort.current?.abort();
-      debugAbort.current?.abort();
-      runTreeAbort.current?.abort();
-      correlationEnabled.current = false;
-      approvalsAbort.current?.abort();
-      clear();
-    };
-  }, [clear, load]);
-  React.useEffect(() => {
-    const changed = previousAccessKey.current !== undefined && previousAccessKey.current !== accessKey;
-    previousAccessKey.current = accessKey;
-    if (!changed) return;
-    lifecycleGeneration.current += 1;
-    listAbort.current?.abort();
-    detailAbort.current?.abort();
-    mutationAbort.current?.abort();
-    debugAbort.current?.abort();
-    runTreeAbort.current?.abort();
-    correlationEnabled.current = false;
-    approvalsAbort.current?.abort();
-    setHistoricalApprovalsLoading(false);
-    setHistoricalApprovalsError(undefined);
-    setRuns([]);
-    setListNextCursor(null);
-    setRunTreeNodes(null);
-    setRunTreeLoading(false);
-    setRunTreeError(undefined);
-    clear("denied");
-    void load();
-  }, [accessKey, clear, load]);
+    return resetScope;
+  }, [accessKey, load, resetScope, urlSessionId]);
   const rootRunSessionId = selected?.run.root_run_id ? snapshots[selected.run.root_run_id]?.run.session_id : undefined;
 
   React.useEffect(() => {
@@ -502,18 +530,11 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
     };
   }, [load, open]);
   React.useEffect(() => {
-    if (urlRunId && urlRunId !== lastOpenedRunId.current) {
+    if (!urlRunId) ignoredUrlRunId.current = undefined;
+    if (urlRunId && urlRunId !== ignoredUrlRunId.current && urlRunId !== lastOpenedRunId.current) {
       void open(urlRunId);
     }
-  }, [open, urlRunId]);
-  React.useEffect(() => {
-    if (previousSessionId.current !== urlSessionId) {
-      previousSessionId.current = urlSessionId;
-      setRuns([]);
-      setListNextCursor(null);
-      void load();
-    }
-  }, [load, urlSessionId]);
+  }, [open, urlRunId, urlSessionId, accessKey]);
   React.useEffect(() => {
     if (status === "reconciling" && selectedRunId) void open(selectedRunId);
   }, [open, selectedRunId, status]);
@@ -532,21 +553,44 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
           </Button>
         </div>
         <p className="text-muted-foreground mb-3 text-xs">Snapshots are authoritative; live events reconcile through REST.</p>
-        {urlSessionId && (
-          <div className="mb-2 flex items-center justify-between rounded bg-muted/60 p-2 text-xs">
-            <span className="truncate">
-              Session: <strong className="font-mono">{urlSessionId}</strong>
-            </span>
-            <button
+        <form
+          className="mb-3 space-y-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            searchSession(sessionSearch.trim() || undefined);
+          }}
+        >
+          <label htmlFor={sessionSearchId} className="block text-sm font-medium">Session ID</label>
+          <input
+            id={sessionSearchId}
+            value={sessionSearch}
+            onChange={(event) => setSessionSearch(event.target.value)}
+            aria-describedby={`${sessionSearchId}-hint`}
+            placeholder="Exact session ID"
+            autoComplete="off"
+            spellCheck={false}
+            className="border-input bg-background min-h-11 w-full min-w-0 rounded-md border px-3 py-2 font-mono text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+          />
+          <p id={`${sessionSearchId}-hint`} className="text-muted-foreground text-xs">
+            Exact match across server history, not just loaded runs.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button type="submit" size="sm" variant="outline" className="min-h-11">Search session</Button>
+            <Button
               type="button"
-              onClick={() => updateUrl(selectedRunId, undefined)}
-              className="ml-2 font-medium text-primary underline hover:text-primary/80"
+              size="sm"
+              variant="ghost"
+              className="min-h-11"
+              onClick={() => searchSession()}
+              disabled={!urlSessionId && !sessionSearch}
               aria-label="Clear session filter"
             >
               Clear
-            </button>
+            </Button>
           </div>
-        )}
+          {urlSessionId && <p className="text-muted-foreground break-all text-xs">Filtered session: {urlSessionId}</p>}
+        </form>
+        {listLoading && <p role="status" className="text-muted-foreground mb-2 text-sm">Loading runs…</p>}
         <ul className="space-y-1" aria-label="Available runs">
           {runs.map((run) => (
             <li key={run.run_id}>
@@ -614,14 +658,26 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
           <>
             <div className="mb-3 flex flex-wrap items-center gap-2">
               {canExport && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  isLoading={operation?.kind === "export" && operation.status === "pending"}
-                  onClick={() => void exportRun(selected.run.run_id)}
-                >
-                  Export
-                </Button>
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="min-h-11"
+                    disabled={operation?.status === "pending"}
+                    onClick={() => void exportRun(selected.run.run_id)}
+                  >
+                    Export JSON
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="min-h-11"
+                    disabled={operation?.status === "pending"}
+                    onClick={() => void exportRun(selected.run.run_id, "text")}
+                  >
+                    Export text
+                  </Button>
+                </>
               )}
               {canDelete && (
                 <Button
@@ -635,7 +691,8 @@ export function RunsPage({ access: propAccess }: RunsPageProps) {
               )}
               {canExport && (
                 <span role="note" className="text-muted-foreground text-xs">
-                  Export includes snapshot page only; additional history remains on server.
+                  JSON exports the snapshot page. Text reads bounded run history
+                  {canRequestDebug ? " and requests authorized debug / reasoning." : "; debug is not authorized."}
                 </span>
               )}
             </div>

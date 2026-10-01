@@ -105,17 +105,27 @@ export function SessionsPage() {
             <div
               key={s.id}
               data-testid={`session-${s.id}`}
-              className="flex items-center justify-between rounded-md border border-border bg-card px-3 py-2"
+              className="flex flex-col gap-2 rounded-md border border-border bg-card px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
             >
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{s.title?.trim() || s.id}</p>
                 <p className="font-mono text-xs text-muted-foreground truncate">{s.id}</p>
                 <p className="text-xs text-muted-foreground">
                   {s.channel} · {s.status} · {new Date(s.updated_at * 1000).toLocaleString()}
                 </p>
               </div>
-              <div className="ml-2 flex shrink-0 items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 sm:ml-2">
                 {s.id === sessionId && <Badge variant="primary">active</Badge>}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="min-h-11"
+                  onClick={() => navigate(`/runs?session_id=${encodeURIComponent(s.id)}`)}
+                  disabled={loading}
+                  aria-label={`View runs for session ${s.id}`}
+                >
+                  View Runs
+                </Button>
                 <Button
                   variant="outline"
                   size="sm"

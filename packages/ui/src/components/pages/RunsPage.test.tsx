@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import * as React from "react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,10 +8,13 @@ import type { RunSnapshotDto, RunSummaryDto } from "@eigen-air-ui/shared/types";
 import { useConnectionStore } from "../../stores/connectionStore.js";
 import { useRunInspectorStore } from "../../stores/runInspectorStore.js";
 import { RunsPage } from "./RunsPage.js";
+import { SessionsPage } from "./SessionsPage.js";
+import { BasePathContext } from "../../embed/base-path-navigation.js";
 
 const service = vi.hoisted(() => ({
   runCallback: undefined as ((frame: Record<string, unknown>) => void) | undefined,
   progressCallback: undefined as ((frame: Record<string, unknown>) => void) | undefined,
+  listSessions: vi.fn(),
 }));
 
 vi.mock("../../adapters/factory/ServiceFactory.js", () => ({
@@ -31,6 +34,7 @@ vi.mock("../../adapters/factory/ServiceFactory.js", () => ({
     onRunReconnect: () => () => undefined,
   }),
   getServiceAccessContext: () => ({}),
+  getSessionService: () => ({ listSessions: service.listSessions }),
 }));
 
 function runSummary(): RunSummaryDto {
@@ -85,11 +89,13 @@ const response = (body: unknown) => ({ ok: true, json: async () => body }) as Re
 beforeEach(() => {
   useRunInspectorStore.getState().clear();
   useConnectionStore.setState({ url: "http://daemon" });
+  service.listSessions.mockResolvedValue([]);
 });
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("RunsPage lifecycle reconciliation", () => {
@@ -214,26 +220,77 @@ describe("RunsPage lifecycle reconciliation", () => {
     expect(useRunInspectorStore.getState().pending).toEqual({});
   });
 
-  it("filters runs list by session_id from URL query and supports clearing filter", async () => {
-    const fetch = vi.fn(() => {
-      return Promise.resolve(response({ schema_version: 1, runs: [runSummary()], next_cursor: null }));
+  it("searches exact server history, fences stale pagination and clears selected evidence across sessions", async () => {
+    let resolvePage!: (value: Response) => void;
+    const latePage = new Promise<Response>((resolve) => { resolvePage = resolve; });
+    let pageSignal: AbortSignal | undefined;
+    const fetch = vi.fn((url: string, init?: RequestInit) => {
+      const request = new URL(url);
+      if (request.searchParams.has("cursor")) {
+        pageSignal = init?.signal as AbortSignal;
+        return latePage;
+      }
+      if (request.pathname === "/v1/runs") {
+        return Promise.resolve(response({
+          schema_version: 1,
+          runs: request.searchParams.get("session_id") === "session-a" ? [runSummary()] : [],
+          next_cursor: request.searchParams.get("session_id") === "session-a" ? "next-a" : null,
+        }));
+      }
+      return Promise.resolve(response(snapshot()));
     });
+    vi.stubGlobal("fetch", fetch);
+    function Location() { return <output aria-label="Current URL">{useLocation().search}</output>; }
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/runs?session_id=session-a"]}>
+        <RunsPage /><Location />
+      </MemoryRouter>
+    );
+    expect(screen.getByRole("textbox", { name: "Session ID" })).toHaveProperty("value", "session-a");
+    await user.click(await screen.findByRole("button", { name: "run-a" }));
+    await screen.findByRole("article", { name: "Run run-a" });
+    await user.click(screen.getByRole("button", { name: "Load more runs" }));
+    await user.clear(screen.getByRole("textbox", { name: "Session ID" }));
+    await user.type(screen.getByRole("textbox", { name: "Session ID" }), "session/other +");
+    await user.click(screen.getByRole("button", { name: "Search session" }));
+    await waitFor(() => expect(fetch.mock.calls.some(([url]) =>
+      new URL(url).searchParams.get("session_id") === "session/other +"
+    )).toBe(true));
+    expect(pageSignal?.aborted).toBe(true);
+    expect(useRunInspectorStore.getState().snapshots).toEqual({});
+    expect(screen.getByLabelText("Current URL").textContent).not.toContain("run_id");
+    await act(async () => {
+      resolvePage(response({ schema_version: 1, runs: [{ ...runSummary(), run_id: "late-a" }] }));
+      await latePage;
+    });
+    expect(screen.queryByRole("button", { name: "late-a" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Clear session filter" }));
+    await waitFor(() => expect(screen.getByLabelText("Current URL").textContent).toBe(""));
+    expect(screen.getByRole("textbox", { name: "Session ID" })).toHaveProperty("value", "");
+    expect(new URL(fetch.mock.calls.at(-1)![0]).searchParams.has("session_id")).toBe(false);
+  });
+
+  it("opens session runs under the embed base path without switching the active chat session", async () => {
+    service.listSessions.mockResolvedValue([{ id: "session/a +", title: "Archived session", channel: "web", status: "active", updated_at: 1 }]);
+    useConnectionStore.setState({ sessionId: "active-chat" });
+    const fetch = vi.fn().mockResolvedValue(response({ schema_version: 1, runs: [] }));
     vi.stubGlobal("fetch", fetch);
     const user = userEvent.setup();
     render(
-      <MemoryRouter initialEntries={["/runs?session_id=session-test"]}>
-        <RunsPage />
+      <MemoryRouter initialEntries={["/embed/sessions"]}>
+        <BasePathContext.Provider value="/embed">
+          <Routes>
+            <Route path="/embed/sessions" element={<SessionsPage />} />
+            <Route path="/embed/runs" element={<RunsPage />} />
+          </Routes>
+        </BasePathContext.Provider>
       </MemoryRouter>
     );
-    await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith(
-        expect.stringContaining("session_id=session-test"),
-        expect.anything()
-      );
-    });
-    expect(screen.getByText("session-test")).toBeDefined();
-    const clearButton = screen.getByRole("button", { name: "Clear session filter" });
-    await user.click(clearButton);
+    await user.click(await screen.findByRole("button", { name: "View runs for session session/a +" }));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Session ID" })).toHaveProperty("value", "session/a +"));
+    expect(useConnectionStore.getState().sessionId).toBe("active-chat");
+    expect(new URL(fetch.mock.calls[0][0]).searchParams.get("session_id")).toBe("session/a +");
   });
 
   it("fetches selected run directly from run_id query parameter even when absent from list", async () => {
@@ -296,28 +353,6 @@ describe("RunsPage lifecycle reconciliation", () => {
     expect(screen.getByRole("button", { name: "run-a" })).toBeDefined();
   });
 
-  it("shows partial-export note when cursors remain on the selected run", async () => {
-    const fetch = vi.fn((url: string) => {
-      if (url.includes("/v1/runs/run-a")) {
-        return Promise.resolve(
-          response({
-            ...snapshot(false),
-            next_event_cursor: "more-events",
-          })
-        );
-      }
-      return Promise.resolve(response({ schema_version: 1, runs: [runSummary()], next_cursor: null }));
-    });
-    vi.stubGlobal("fetch", fetch);
-    const user = userEvent.setup();
-    render(<RunsPage access={{ capabilities: new Set(["run:export"]) }} />);
-    await user.click(await screen.findByRole("button", { name: "run-a" }));
-    await waitFor(() => {
-      expect(
-        screen.getByText(/Export includes snapshot page only; additional history remains on server/i)
-      ).toBeDefined();
-    });
-  });
 
   it("loads run tree for delegated run and navigates to child and parent runs", async () => {
     const parentRunSummary: RunSummaryDto = {
@@ -740,31 +775,6 @@ describe("RunsPage lifecycle reconciliation", () => {
       expect(screen.getByText(/approval app-page-1/)).toBeDefined();
     });
   });
-  it("retains snapshot-page export note even when all cursors are null", async () => {
-    const fetch = vi.fn((url: string) => {
-      if (url.includes("/v1/runs/run-a")) {
-        return Promise.resolve(
-          response({
-            ...snapshot(false),
-            next_event_cursor: null,
-            next_tool_cursor: null,
-            next_lineage_cursor: null,
-            next_debug_cursor: null,
-          })
-        );
-      }
-      return Promise.resolve(response({ schema_version: 1, runs: [runSummary()], next_cursor: null }));
-    });
-    vi.stubGlobal("fetch", fetch);
-    const user = userEvent.setup();
-    render(<RunsPage access={{ capabilities: new Set(["run:export"]) }} />);
-    await user.click(await screen.findByRole("button", { name: "run-a" }));
-    await waitFor(() => {
-      expect(
-        screen.getByText(/Export includes snapshot page only; additional history remains on server/i)
-      ).toBeDefined();
-    });
-  });
 
   it("clears cached run evidence on continuation 403 authorization denial", async () => {
     let callCount = 0;
@@ -850,5 +860,192 @@ describe("RunsPage lifecycle reconciliation", () => {
       expect(useRunInspectorStore.getState().snapshots["run-a"]).toBeDefined();
       expect(useRunInspectorStore.getState().streams?.events.error).toBeDefined();
     });
+  });
+
+  it.each([401, 403, 404, "network", "success"] as const)(
+    "keeps run B intact and exportable after abandoned run A export settles with %s",
+    async (outcome) => {
+      let resolveExport!: (value: Response) => void;
+      let rejectExport!: (reason: Error) => void;
+      const pendingExport = new Promise<Response>((resolve, reject) => {
+        resolveExport = resolve;
+        rejectExport = reject;
+      });
+      let exportSignal: AbortSignal | undefined;
+      const runB = { ...runSummary(), run_id: "run-b", root_run_id: "run-b" };
+      const snapshotB = { ...snapshot(), run: runB };
+      const fetch = vi.fn((url: string, init?: RequestInit) => {
+        const path = new URL(url).pathname;
+        if (path === "/v1/runs/run-a/export") {
+          exportSignal = init?.signal as AbortSignal;
+          return pendingExport;
+        }
+        if (path === "/v1/runs/run-b/export")
+          return Promise.resolve(new Response("run B export"));
+        if (path === "/v1/runs")
+          return Promise.resolve(response({ schema_version: 1, runs: [runSummary(), runB] }));
+        return Promise.resolve(response(path === "/v1/runs/run-b" ? snapshotB : snapshot()));
+      });
+      vi.stubGlobal("fetch", fetch);
+      const createObjectURL = vi.fn().mockReturnValue("blob:run-b");
+      const revokeObjectURL = vi.fn();
+      const OriginalURL = globalThis.URL;
+      class DownloadURL extends OriginalURL {
+        static createObjectURL = createObjectURL;
+        static revokeObjectURL = revokeObjectURL;
+      }
+      vi.stubGlobal("URL", DownloadURL);
+      const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+      const user = userEvent.setup();
+      render(
+        <MemoryRouter initialEntries={["/runs"]}>
+          <BasePathContext.Provider value="">
+            <RunsPage access={{ identityKey: "user-a", capabilities: new Set(["run:export"]) }} />
+          </BasePathContext.Provider>
+        </MemoryRouter>
+      );
+      await user.click(await screen.findByRole("button", { name: "run-a" }));
+      await user.click(await screen.findByRole("button", { name: "Export JSON" }));
+      expect(screen.getByText("Exporting run…")).toBeDefined();
+      await user.click(screen.getByRole("button", { name: "run-b" }));
+      await screen.findByRole("article", { name: "Run run-b" });
+      expect(exportSignal?.aborted).toBe(true);
+      expect(screen.getByRole("button", { name: "Export JSON" })).toHaveProperty("disabled", false);
+      const selectedB = useRunInspectorStore.getState().snapshots["run-b"];
+
+      // The transport deliberately ignores cancellation to exercise stale completion handling.
+      await act(async () => {
+        if (outcome === "success") resolveExport(new Response("private run A export"));
+        else if (outcome === "network") rejectExport(new Error("Old run network failure"));
+        else resolveExport(new Response(JSON.stringify({ message: "Old run unavailable" }), { status: outcome }));
+        await pendingExport.catch(() => undefined);
+      });
+      const state = useRunInspectorStore.getState();
+      expect(state.selectedRunId).toBe("run-b");
+      expect(state.snapshots["run-b"]).toBe(selectedB);
+      expect(state.operation).toBeUndefined();
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(screen.getByRole("article", { name: "Run run-b" })).toBeDefined();
+      expect(screen.getByRole("button", { name: "run-b" })).toBeDefined();
+      expect(createObjectURL).not.toHaveBeenCalled();
+      expect(click).not.toHaveBeenCalled();
+
+      await user.click(screen.getByRole("button", { name: "Export JSON" }));
+      await screen.findByText("Run exported.");
+      expect(createObjectURL).toHaveBeenCalledTimes(1);
+      expect(click.mock.instances[0]).toHaveProperty("download", "run-b.json");
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:run-b");
+      expect(useRunInspectorStore.getState().operation).toEqual({
+        kind: "export", runId: "run-b", status: "success",
+      });
+    }
+  );
+
+  it.each([401, 403, 404, "network"] as const)(
+    "still handles the current selected run export error %s",
+    async (outcome) => {
+      const fetch = vi.fn((url: string) => {
+        if (url.includes("/export")) {
+          return outcome === "network"
+            ? Promise.reject(new Error("Current export failed"))
+            : Promise.resolve(new Response(JSON.stringify({ message: "Unavailable" }), { status: outcome }));
+        }
+        return Promise.resolve(response(url.includes("?limit=") ? { schema_version: 1, runs: [runSummary()] } : snapshot()));
+      });
+      vi.stubGlobal("fetch", fetch);
+      const user = userEvent.setup();
+      render(<RunsPage access={{ identityKey: "user-a", capabilities: new Set(["run:export"]) }} />);
+      await user.click(await screen.findByRole("button", { name: "run-a" }));
+      await user.click(await screen.findByRole("button", { name: "Export JSON" }));
+      expect((await screen.findByRole("alert")).textContent).toBe(
+        outcome === "network" ? "Current export failed" : "Run unavailable."
+      );
+      const state = useRunInspectorStore.getState();
+      if (outcome === "network") {
+        expect(state.selectedRunId).toBe("run-a");
+        expect(state.snapshots["run-a"]).toBeDefined();
+        expect(state.operation).toEqual({
+          kind: "export", runId: "run-a", status: "failed", error: "Current export failed",
+        });
+        expect(screen.getByRole("button", { name: "Export JSON" })).toHaveProperty("disabled", false);
+      } else {
+        expect(state.status).toBe(outcome === 404 ? "not-found" : "denied");
+        expect(state.snapshots).toEqual({});
+        expect(state.selectedRunId).toBeUndefined();
+      }
+    }
+  );
+
+  it("keeps an export pending across same-run debug opt-in and downloads its result", async () => {
+    let resolveExport!: (value: Response) => void;
+    const pendingExport = new Promise<Response>((resolve) => { resolveExport = resolve; });
+    let exportSignal: AbortSignal | undefined;
+    const debugSnapshot = snapshot(true);
+    debugSnapshot.debug_excerpts = debugSnapshot.debug_excerpts?.map((excerpt) => ({
+      ...excerpt, expires_at_ms: Date.now() + 60_000,
+    }));
+    const fetch = vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes("/export")) {
+        exportSignal = init?.signal as AbortSignal;
+        return pendingExport;
+      }
+      return Promise.resolve(response(url.includes("?limit=")
+        ? { schema_version: 1, runs: [runSummary()] }
+        : url.includes("include_debug=true") ? debugSnapshot : snapshot()));
+    });
+    vi.stubGlobal("fetch", fetch);
+    const createObjectURL = vi.fn().mockReturnValue("blob:run-a");
+    const OriginalURL = globalThis.URL;
+    class DownloadURL extends OriginalURL {
+      static createObjectURL = createObjectURL;
+      static revokeObjectURL = vi.fn();
+    }
+    vi.stubGlobal("URL", DownloadURL);
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    const user = userEvent.setup();
+    render(<RunsPage access={{ identityKey: "user-a", capabilities: new Set(["run:export", "run:read:debug"]) }} />);
+    await user.click(await screen.findByRole("button", { name: "run-a" }));
+    await user.click(await screen.findByRole("button", { name: "Export JSON" }));
+    await user.click(screen.getByRole("button", { name: "Request debug" }));
+    await waitFor(() => expect(useRunInspectorStore.getState().snapshots["run-a"].debug_excerpts?.[0]?.plaintext).toBe("secret"));
+    expect(exportSignal?.aborted).toBe(false);
+    expect(useRunInspectorStore.getState().operation?.status).toBe("pending");
+    await act(async () => {
+      resolveExport(new Response("current run A export"));
+      await pendingExport;
+    });
+    await screen.findByText("Run exported.");
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(click.mock.instances[0]).toHaveProperty("download", "run-a.json");
+  });
+
+  it("does not download text resolved after an identity switch", async () => {
+    let resolveExport!: (value: Response) => void;
+    const pendingExport = new Promise<Response>((resolve) => { resolveExport = resolve; });
+    let exportSignal: AbortSignal | undefined;
+    const fetch = vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes("/export?")) {
+        exportSignal = init?.signal as AbortSignal;
+        return pendingExport;
+      }
+      return Promise.resolve(response(url.includes("?limit=") ? { schema_version: 1, runs: [runSummary()] } : snapshot()));
+    });
+    vi.stubGlobal("fetch", fetch);
+    const createObjectURL = vi.fn();
+    const OriginalURL = globalThis.URL;
+    class DownloadURL extends OriginalURL { static createObjectURL = createObjectURL; static revokeObjectURL = vi.fn(); }
+    vi.stubGlobal("URL", DownloadURL);
+    const user = userEvent.setup();
+    const view = render(<RunsPage access={{ identityKey: "user-a", capabilities: new Set(["run:export", "run:read:debug"]) }} />);
+    await user.click(await screen.findByRole("button", { name: "run-a" }));
+    await user.click(await screen.findByRole("button", { name: "Export text" }));
+    view.rerender(<RunsPage access={{ identityKey: "user-b", capabilities: new Set(["run:export"]) }} />);
+    await act(async () => {
+      resolveExport(response({ ...snapshot(), transcript: { messages: [{ role: "assistant", content: "private user-a answer" }], truncated: false } }));
+      await pendingExport;
+    });
+    expect(exportSignal?.aborted).toBe(true);
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(useRunInspectorStore.getState().snapshots).toEqual({});
   });
 });

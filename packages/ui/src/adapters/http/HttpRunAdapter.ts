@@ -3,6 +3,7 @@ import {
   decodeRequestProvenance,
   decodeTaskOutcome,
   decodeToolSelection,
+  type RunExportDto,
   type RunListResponseDto,
   type RunSnapshotDto,
   type RunTreeNodeDto,
@@ -13,9 +14,11 @@ import {
   type AccessSource,
   type RunCapabilities,
 } from "./AuthenticatedHttpRequest.js";
+import { formatRunTextExport } from "./run-text-export.js";
 
 const MAX_RUN_RESPONSE_BYTES = 8 * 1024 * 1024;
 const MAX_RUN_ERROR_MESSAGE_BYTES = 512;
+const MAX_TEXT_EXPORT_PAGES = 256;
 
 export type { RunCapabilities };
 
@@ -176,7 +179,90 @@ export class HttpRunAdapter {
       throw new Error("Run export unavailable");
     }
     const response = await this.response(`/v1/runs/${encodeURIComponent(runId)}/export`, { signal });
-    return response.blob();
+    const blob = await response.blob();
+    if (blob.size > MAX_RUN_RESPONSE_BYTES) throw new Error("Run export exceeds the safe size limit");
+    return blob;
+  }
+
+  /** Explicit user action only. Plaintext is local to this call, never cached or persisted. */
+  async exportText(runId: string, signal?: AbortSignal): Promise<Blob> {
+    const capabilities = this.accessContext().capabilities;
+    if (!capabilities?.has("run:export")) throw new Error("Run export unavailable");
+    const includeDebug = capabilities.has("run:read:debug");
+    const params = new URLSearchParams({ include_text: "true" });
+    if (includeDebug) params.set("include_debug", "true");
+    const exported = await this.request<RunExportDto>(
+      `/v1/runs/${encodeURIComponent(runId)}/export?${params.toString()}`,
+      { signal }
+    );
+    if (exported.run.run_id !== runId) throw new Error("Run export correlation mismatch");
+    const snapshot: RunExportDto = { ...exported, ...sanitizeSnapshot(exported) };
+    if (!includeDebug) {
+      snapshot.debug_excerpts = [];
+      snapshot.next_debug_cursor = null;
+    }
+    const encoder = new TextEncoder();
+    let bytes = encoder.encode(JSON.stringify(snapshot)).byteLength;
+    let pages = 0;
+    const disclosures: string[] = [];
+    // Each stream has an independent cursor. Never reuse unrelated arrays returned with a page.
+    const streams = [
+      { name: "events", cursor: "next_event_cursor", option: "eventCursor", rows: "events" },
+      { name: "tools", cursor: "next_tool_cursor", option: "toolCursor", rows: "tool_calls" },
+      { name: "debug", cursor: "next_debug_cursor", option: "debugCursor", rows: "debug_excerpts" },
+    ] as const;
+    for (const stream of streams) {
+      let cursor = snapshot[stream.cursor];
+      const seenCursors = new Set<string>();
+      while (cursor) {
+        signal?.throwIfAborted();
+        if (pages >= MAX_TEXT_EXPORT_PAGES || bytes >= MAX_RUN_RESPONSE_BYTES || seenCursors.has(cursor)) {
+          disclosures.push(`TRUNCATED: ${stream.name} pagination stopped at the 8 MiB / ${MAX_TEXT_EXPORT_PAGES}-page bound or a repeated server cursor; additional records remain unavailable in this file.`);
+          break;
+        }
+        seenCursors.add(cursor);
+        const page = await this.get(runId, {
+          [stream.option]: cursor,
+          includeDebug: stream.name === "debug" && includeDebug,
+          signal,
+        });
+        pages += 1;
+        if (page.run.run_id !== runId || page.run.session_id !== snapshot.run.session_id) {
+          throw new Error("Run export page correlation mismatch");
+        }
+        const rows = page[stream.rows] ?? [];
+        const pageBytes = encoder.encode(JSON.stringify(rows)).byteLength;
+        if (bytes + pageBytes > MAX_RUN_RESPONSE_BYTES) {
+          disclosures.push(`TRUNCATED: ${stream.name} history exceeds the 8 MiB export bound; remaining pages omitted.`);
+          break;
+        }
+        bytes += pageBytes;
+        // The endpoint returns overlapping pages for other streams; deduplicate only this stream.
+        if (stream.rows === "events") {
+          const ids = new Set(snapshot.events.map((row) => row.event_id));
+          snapshot.events.push(...page.events.filter((row) => !ids.has(row.event_id)));
+        } else if (stream.rows === "tool_calls") {
+          const ids = new Set(snapshot.tool_calls.map((row) => row.tool_call_id));
+          snapshot.tool_calls.push(...page.tool_calls.filter((row) => !ids.has(row.tool_call_id)));
+        } else {
+          const ids = new Set((snapshot.debug_excerpts ?? []).map((row) => row.excerpt_seq));
+          snapshot.debug_excerpts = [
+            ...(snapshot.debug_excerpts ?? []),
+            ...(page.debug_excerpts ?? []).filter((row) => !ids.has(row.excerpt_seq)),
+          ];
+          if (page.run.redaction.unavailable_reason) {
+            disclosures.push(`Debug history unavailable: ${page.run.redaction.unavailable_reason}.`);
+          }
+        }
+        cursor = page[stream.cursor];
+      }
+    }
+    signal?.throwIfAborted();
+    const blob = new Blob([formatRunTextExport(snapshot, includeDebug, disclosures)], {
+      type: "text/plain;charset=utf-8",
+    });
+    if (blob.size > MAX_RUN_RESPONSE_BYTES) throw new Error("Run text export exceeds the safe size limit");
+    return blob;
   }
 
   async delete(runId: string, signal?: AbortSignal): Promise<void> {

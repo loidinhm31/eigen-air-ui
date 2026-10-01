@@ -192,4 +192,98 @@ describe("HttpRunAdapter", () => {
     expect(snapshot.events[1].memory_outcome).toBeUndefined();
     expect(snapshot.events[1].task_outcome).toBeUndefined();
   });
+
+  it("exports exact committed content and every advertised tool/event/debug page, omitting expired reasoning", async () => {
+    const base = {
+      schema_version: 1,
+      run: { run_id: "run-1", session_id: "session-1", trace_id: "trace-1", lifecycle_status: "completed", provider_id: "local", started_at_ms: 1, snapshot_seq: 2, redaction: { debug_available: true } },
+      events: [],
+      tool_calls: [],
+      memory_lineage: [],
+    };
+    const excerpt = (excerpt_seq: number, plaintext: string, expires_at_ms: number) => ({
+      excerpt_seq, plaintext, expires_at_ms, kind: "provider_reasoning", created_at_ms: 1,
+      plaintext_bytes: plaintext.length, truncated: false, redaction_count: 0,
+    });
+    const fetch = vi.fn((url: string) => {
+      const query = new URL(url).searchParams;
+      let body: unknown;
+      if (url.includes("/export?")) body = {
+        ...base,
+        transcript: {
+          messages: [
+            { role: "user", content: "Tìm kiếm chính xác" },
+            { role: "assistant", content: "", tool_calls: [{ id: "call-1", name: "web_search", arguments: { query: "evidence" } }] },
+            { role: "tool", tool_call_id: "call-1", content: '{"status":"failed","output":"upstream unavailable"}' },
+            { role: "assistant", content: "Cannot verify the result." },
+          ],
+          truncated: false,
+        },
+        debug_excerpts: [excerpt(1, "EXPIRED_SECRET", 0)],
+        next_event_cursor: "e2", next_tool_cursor: "t2", next_debug_cursor: "d2",
+      };
+      else if (query.has("event_cursor")) body = {
+        ...base, events: [{ event_id: "event-2", event_seq: 2, event_kind: "run.completed", occurred_at_ms: 5 }],
+      };
+      else if (query.has("tool_cursor")) body = {
+        ...base, tool_calls: [{ tool_call_id: "call-1", ordinal: 0, tool_name: "web_search", status: "failed", started_at_ms: 2, completed_at_ms: 3 }],
+      };
+      else body = { ...base, debug_excerpts: [excerpt(2, "RECORDED_THOUGHT", Number.MAX_SAFE_INTEGER)] };
+      return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
+    });
+    vi.stubGlobal("fetch", fetch);
+    const text = await (await new HttpRunAdapter("http://daemon", {
+      capabilities: new Set(["run:export", "run:read:debug"]),
+    }).exportText("run-1")).text();
+    expect(text).toContain("Session ID: session-1");
+    expect(text).toContain("Tìm kiếm chính xác");
+    expect(text).toContain("Cannot verify the result.");
+    expect(text).toContain('{"status":"failed","output":"upstream unavailable"}');
+    expect(text).toContain("Tool: web_search · ID: call-1");
+    expect(text).toContain("Recorded status: failed");
+    expect(text).toContain('"event_id": "event-2"');
+    expect(text).toContain("RECORDED_THOUGHT");
+    expect(text).not.toContain("EXPIRED_SECRET");
+    expect(text).toContain("Expired debug excerpts omitted");
+  });
+
+  it("does not request or include debug without capability and discloses unavailable/truncated text", async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      schema_version: 1,
+      run: { run_id: "run-1", session_id: "session-1", redaction: {} },
+      events: [], tool_calls: [], memory_lineage: [],
+      transcript: { messages: [], unavailable_reason: "committed run correlation missing", truncated: true },
+      debug_excerpts: [{ kind: "provider_reasoning", plaintext: "UNAUTHORIZED_SECRET", expires_at_ms: Number.MAX_SAFE_INTEGER }],
+      next_debug_cursor: "secret-page",
+    })));
+    vi.stubGlobal("fetch", fetch);
+    const text = await (await new HttpRunAdapter("http://daemon", {
+      capabilities: new Set(["run:export"]),
+    }).exportText("run-1")).text();
+    expect(text).toContain("Transcript unavailable: committed run correlation missing");
+    expect(text).toContain("TRUNCATED: committed transcript");
+    expect(text).toContain("Debug unavailable: not authorized");
+    expect(text).toContain("Provider reasoning unavailable");
+    expect(text).not.toContain("UNAUTHORIZED_SECRET");
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls[0][0]).not.toContain("include_debug");
+  });
+
+  it("discloses repeated pagination cursors and rejects cross-run continuation content", async () => {
+    const base = {
+      schema_version: 1, run: { run_id: "run-1", session_id: "session-1", redaction: {} },
+      events: [], tool_calls: [], memory_lineage: [], next_tool_cursor: "repeated",
+    };
+    const fetch = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify(base))));
+    vi.stubGlobal("fetch", fetch);
+    const adapter = new HttpRunAdapter("http://daemon", { capabilities: new Set(["run:export"]) });
+    const text = await (await adapter.exportText("run-1")).text();
+    expect(text).toContain("TRUNCATED: tools pagination");
+    expect(text).toContain("repeated server cursor");
+    expect(fetch).toHaveBeenCalledTimes(2);
+    fetch.mockReset()
+      .mockResolvedValueOnce(new Response(JSON.stringify(base)))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ...base, run: { ...base.run, run_id: "other-run" } })));
+    await expect(adapter.exportText("run-1")).rejects.toThrow("correlation mismatch");
+  });
 });
