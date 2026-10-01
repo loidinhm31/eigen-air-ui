@@ -544,6 +544,11 @@ export function decodeRunSnapshot(value: unknown, expectedRunId?: string): RunSn
     "occurred_at_ms",
     "safe_error_code",
     "policy_outcome",
+    "tool_selection",
+    "memory_outcome",
+    "request_provenance",
+    "context_accounting",
+    "task_outcome",
   ]);
   decodeRunArray(value.tool_calls, [
     "tool_call_id",

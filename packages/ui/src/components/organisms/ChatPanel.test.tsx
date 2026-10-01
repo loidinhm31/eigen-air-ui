@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import * as React from "react";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STORAGE_KEYS } from "@eigen-air-ui/shared/constants";
@@ -200,6 +200,7 @@ describe("ChatPanel selected skill lifecycle", () => {
     await user.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(serviceMocks.sendMessage).toHaveBeenCalledOnce());
     expect(await screen.findByRole("heading", { name: "Agent question" })).toBeTruthy();
+    expect(screen.getByText("start")).toBeTruthy();
     expect(useChatStore.getState().isStreaming).toBe(false);
     expect((screen.getByPlaceholderText("Message eigen-air...") as HTMLInputElement).disabled).toBe(
       true
@@ -209,6 +210,280 @@ describe("ChatPanel selected skill lifecycle", () => {
     await user.click(screen.getByRole("button", { name: "Answer" }));
     expect(await screen.findByText("red")).toBeTruthy();
     expect(localStorage.getItem(STORAGE_KEYS.CHAT_MESSAGES) ?? "").not.toContain("red");
+  });
+  it("retains user message and streamed assistant response when suspending for user question", async () => {
+    const question = {
+      schema_version: "user_question.v1",
+      question_id: "question-stream-1",
+      tenant_id: "tenant-1",
+      user_id: "user-1",
+      workspace_id: "workspace-1",
+      session_id: "session-1",
+      run_id: "run-1",
+      turn_index: 1,
+      state: "pending",
+      revision: 1,
+      created_at_ms: 1,
+      expires_at_ms: 2,
+      terminal_at_ms: null,
+      redaction: "metadata_only",
+    } as const;
+    const pendingList = {
+      schema_version: "user_question.v1",
+      questions: [question],
+      redaction: "metadata_only",
+    } as const;
+    serviceMocks.listQuestions
+      .mockResolvedValueOnce({
+        schema_version: "user_question.v1",
+        questions: [],
+        redaction: "metadata_only",
+      })
+      .mockResolvedValue(pendingList);
+    serviceMocks.getQuestion.mockResolvedValue({
+      ...question,
+      request: { kind: "short_text", prompt: "Which option do you prefer?" },
+      mutation_token: "b".repeat(32),
+    });
+    serviceMocks.sendMessage.mockImplementation(async (_msg, _sid, onEvent) => {
+      onEvent?.({
+        type: "event",
+        version: "v1",
+        event: "run.delta",
+        payload: { delta: "I analyzed the codebase and have a recommendation." },
+      });
+      serviceMocks.questionCallback?.({
+        type: "event",
+        version: "v1",
+        event: "user_question.updated",
+        payload: { question_id: "question-stream-1", state: "pending", revision: 1 },
+      });
+      return {
+        status: "waiting_for_input",
+        run_id: "run-1",
+        question_id: "question-stream-1",
+        snapshot_ref: "user_question:question-stream-1",
+      };
+    });
+    const user = userEvent.setup();
+    render(<ChatPanel />);
+
+    await user.type(screen.getByPlaceholderText("Message eigen-air..."), "Please analyze this");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(serviceMocks.sendMessage).toHaveBeenCalledOnce());
+
+    expect(await screen.findByRole("heading", { name: "Agent question" })).toBeTruthy();
+    expect(useChatStore.getState().isStreaming).toBe(false);
+    expect(screen.getByText("Please analyze this")).toBeTruthy();
+    expect(screen.getByText("I analyzed the codebase and have a recommendation.")).toBeTruthy();
+    expect(useChatStore.getState().messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Please analyze this" }),
+      expect.objectContaining({
+        role: "assistant",
+        content: "I analyzed the codebase and have a recommendation.",
+      }),
+    ]);
+  });
+  it("finalizes continuation stream and unblocks composer when run.finished arrives after user question answer", async () => {
+    const question = {
+      schema_version: "user_question.v1",
+      question_id: "question-cont-1",
+      tenant_id: "tenant-1",
+      user_id: "user-1",
+      workspace_id: "workspace-1",
+      session_id: "session-1",
+      run_id: "run-1",
+      turn_index: 1,
+      state: "pending",
+      revision: 1,
+      created_at_ms: 1,
+      expires_at_ms: 2,
+      terminal_at_ms: null,
+      redaction: "metadata_only",
+    } as const;
+    const pendingList = {
+      schema_version: "user_question.v1",
+      questions: [question],
+      redaction: "metadata_only",
+    } as const;
+    serviceMocks.listQuestions
+      .mockResolvedValueOnce({
+        schema_version: "user_question.v1",
+        questions: [],
+        redaction: "metadata_only",
+      })
+      .mockResolvedValue(pendingList);
+    serviceMocks.getQuestion.mockResolvedValue({
+      ...question,
+      request: { kind: "short_text", prompt: "Need your confirmation" },
+      mutation_token: "d".repeat(32),
+    });
+
+    let sendCallback: ((event: unknown) => void) | undefined;
+    serviceMocks.sendMessage.mockImplementation(async (_msg, _sid, onEvent) => {
+      sendCallback = onEvent;
+      onEvent?.({
+        type: "event",
+        version: "v1",
+        event: "run.delta",
+        payload: { delta: "Part 1 before question. " },
+      });
+      serviceMocks.questionCallback?.({
+        type: "event",
+        version: "v1",
+        event: "user_question.updated",
+        payload: { question_id: "question-cont-1", state: "pending", revision: 1 },
+      });
+      return {
+        status: "waiting_for_input",
+        run_id: "run-1",
+        question_id: "question-cont-1",
+        snapshot_ref: "user_question:question-cont-1",
+      };
+    });
+
+    const user = userEvent.setup();
+    render(<ChatPanel />);
+
+    await user.type(screen.getByPlaceholderText("Message eigen-air..."), "Start prompt");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(serviceMocks.sendMessage).toHaveBeenCalledOnce());
+
+    expect(await screen.findByRole("heading", { name: "Agent question" })).toBeTruthy();
+    expect(screen.getByText("Start prompt")).toBeTruthy();
+    expect(screen.getByText("Part 1 before question.")).toBeTruthy();
+    expect(useChatStore.getState().isStreaming).toBe(false);
+
+    // Answer the question
+    serviceMocks.resolveQuestion.mockResolvedValue({
+      schema_version: "user_question.v1",
+      question: { ...question, state: "answered", revision: 2 },
+      status: "accepted",
+    });
+    const questionInput = screen.getByLabelText("Need your confirmation");
+    await user.type(questionInput, "yes confirmed");
+    await user.click(screen.getByRole("button", { name: "Answer" }));
+
+    // Now background worker streams continuation deltas
+    act(() => {
+      sendCallback?.({
+        type: "event",
+        version: "v1",
+        event: "run.delta",
+        payload: { delta: "Part 2 continuation completed." },
+      });
+    });
+    expect(useChatStore.getState().isStreaming).toBe(true);
+
+    // Now background worker emits run.finished
+    act(() => {
+      sendCallback?.({
+        type: "event",
+        version: "v1",
+        event: "run.finished",
+        payload: {
+          run_id: "run-1",
+          content: "Part 2 continuation completed.",
+          tool_calls_made: 0,
+        },
+      });
+    });
+
+    // Expect stream is finalized, not hung!
+    expect(useChatStore.getState().isStreaming).toBe(false);
+    expect(useChatStore.getState().streamStatus).toBeNull();
+    expect(await screen.findByText("Part 2 continuation completed.")).toBeTruthy();
+    expect(useChatStore.getState().messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Start prompt" }),
+      expect.objectContaining({ role: "assistant", content: "Part 1 before question. " }),
+      expect.objectContaining({ role: "assistant", content: "Part 2 continuation completed." }),
+    ]);
+  });
+  it("preserves user message and creates no assistant bubble when agent asks question without streaming chunks", async () => {
+    const question = {
+      schema_version: "user_question.v1",
+      question_id: "question-empty-1",
+      tenant_id: "tenant-1",
+      user_id: "user-1",
+      workspace_id: "workspace-1",
+      session_id: "session-1",
+      run_id: "run-1",
+      turn_index: 1,
+      state: "pending",
+      revision: 1,
+      created_at_ms: 1,
+      expires_at_ms: 2,
+      terminal_at_ms: null,
+      redaction: "metadata_only",
+    } as const;
+    const pendingList = {
+      schema_version: "user_question.v1",
+      questions: [question],
+      redaction: "metadata_only",
+    } as const;
+    serviceMocks.listQuestions
+      .mockResolvedValueOnce({
+        schema_version: "user_question.v1",
+        questions: [],
+        redaction: "metadata_only",
+      })
+      .mockResolvedValue(pendingList);
+    serviceMocks.getQuestion.mockResolvedValue({
+      ...question,
+      request: { kind: "short_text", prompt: "Prompt without deltas?" },
+      mutation_token: "c".repeat(32),
+    });
+    serviceMocks.sendMessage.mockImplementation(async () => {
+      serviceMocks.questionCallback?.({
+        type: "event",
+        version: "v1",
+        event: "user_question.updated",
+        payload: { question_id: "question-empty-1", state: "pending", revision: 1 },
+      });
+      return {
+        status: "waiting_for_input",
+        run_id: "run-1",
+        question_id: "question-empty-1",
+        snapshot_ref: "user_question:question-empty-1",
+      };
+    });
+    const user = userEvent.setup();
+    render(<ChatPanel />);
+
+    await user.type(screen.getByPlaceholderText("Message eigen-air..."), "Empty stream question");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(serviceMocks.sendMessage).toHaveBeenCalledOnce());
+
+    expect(await screen.findByRole("heading", { name: "Agent question" })).toBeTruthy();
+    expect(useChatStore.getState().isStreaming).toBe(false);
+    expect(screen.getByText("Empty stream question")).toBeTruthy();
+    expect(useChatStore.getState().messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Empty stream question" }),
+    ]);
+  });
+
+  it("does not let a shorter uncommitted history snapshot wipe local active turn messages", async () => {
+    serviceMocks.questionServiceAvailable = false;
+    let releaseHistory!: (history: { messages: [] }) => void;
+    const staleHistory = new Promise<{ messages: [] }>((resolve) => {
+      releaseHistory = resolve;
+    });
+    serviceMocks.getHistory.mockReset().mockImplementationOnce(() => staleHistory);
+    render(<ChatPanel />);
+
+    await waitFor(() => expect(serviceMocks.getHistory).toHaveBeenCalledOnce());
+    useChatStore.getState().replaceMessages([
+      { role: "user", content: "active user prompt" },
+      { role: "assistant", content: "active assistant answer" },
+    ]);
+    releaseHistory({ messages: [] });
+
+    expect(await screen.findByText("active assistant answer")).toBeTruthy();
+    expect(screen.getByText("active user prompt")).toBeTruthy();
+    expect(useChatStore.getState().messages).toEqual([
+      { role: "user", content: "active user prompt" },
+      { role: "assistant", content: "active assistant answer" },
+    ]);
   });
   it("does not let a late history response overwrite newer messages", async () => {
     serviceMocks.questionServiceAvailable = false;

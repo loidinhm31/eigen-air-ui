@@ -83,7 +83,14 @@ export function PendingQuestionRegion({
               : undefined,
             getRunSnapshot: tryGetRunSnapshot,
             onHistorySnapshot: (history) => {
-              useChatStore.getState().replaceMessages(history.messages);
+              const currentStore = useChatStore.getState();
+              if (
+                currentStore.isStreaming ||
+                currentStore.messages.length > history.messages.length
+              ) {
+                return;
+              }
+              currentStore.replaceMessages(history.messages);
             },
           })
         : undefined,

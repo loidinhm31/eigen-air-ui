@@ -100,6 +100,7 @@ export function ChatPanel() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLInputElement>(null);
   const streamingDebugRef = useRef<ChatDebugData | undefined>(undefined);
+  const inFlightSendRef = useRef(false);
   const [toolCalls, setToolCalls] = useState<Record<string, ToolCallPayload>>({});
   const [toolResults, setToolResults] = useState<Record<string, ToolResultPayload>>({});
   const [memoryNotice, setMemoryNotice] = useState<string | null>(null);
@@ -292,6 +293,7 @@ export function ChatPanel() {
     const chosenSkill = selectedSkillId
       ? skills.find((skill) => skill.id === selectedSkillId)
       : undefined;
+    inFlightSendRef.current = true;
     try {
       const debug = getDebugOptions();
       const result = await getChatService().sendMessage(
@@ -299,6 +301,9 @@ export function ChatPanel() {
         sessionId,
         (event: WsEvent) => {
           if (event.event === "run.started") {
+            if (!inFlightSendRef.current) {
+              return;
+            }
             latestRunId = event.payload.run_id ?? event.run_id;
             updateStreamingDebug(event.payload.debug);
             beginStream(PROVIDER_WAIT_STATUS);
@@ -325,7 +330,25 @@ export function ChatPanel() {
           } else if (event.event === "run.completed" || event.event === "run.finished") {
             latestRunId = event.payload.run_id ?? event.run_id ?? latestRunId;
             updateStreamingDebug(event.payload.debug ?? streamingDebugRef.current);
-            setStreamStatus("Finalizing response...");
+            if (!inFlightSendRef.current) {
+              const streamedContent = useChatStore.getState().streamingContent;
+              const content = event.payload.content || streamedContent;
+              if (content.trim().length > 0) {
+                finalizeStream({
+                  role: "assistant",
+                  content,
+                  ...(latestRunId ? { id: `assistant-${latestRunId}` } : {}),
+                  ...(streamingDebugRef.current ? { debug: streamingDebugRef.current } : {}),
+                });
+              } else {
+                finishStream();
+              }
+              updateStreamingDebug(undefined);
+              setEphemeralQuestionAnswer(undefined);
+              bumpMemoryRevision();
+            } else {
+              setStreamStatus("Finalizing response...");
+            }
             if (event.payload.can_continue) {
               setLimitContinuePrompt(TOOL_LIMIT_CONTINUE_PROMPT);
             }
@@ -348,7 +371,16 @@ export function ChatPanel() {
       );
 
       if (!("content" in result)) {
-        finishStream();
+        const streamedContent = useChatStore.getState().streamingContent;
+        if (streamedContent.trim().length > 0) {
+          finalizeStream({
+            role: "assistant",
+            content: streamedContent,
+            ...(streamingDebugRef.current ? { debug: streamingDebugRef.current } : {}),
+          });
+        } else {
+          finishStream();
+        }
         updateStreamingDebug(undefined);
         return true;
       }
@@ -427,6 +459,8 @@ export function ChatPanel() {
         removeMessage(clientMsgId);
       }
       return false;
+    } finally {
+      inFlightSendRef.current = false;
     }
   }
 
