@@ -24,8 +24,18 @@
   --radius: 0.5rem;
 }
 
-:root {
+:root,
+:host {
   color-scheme: dark;
+}
+
+select {
+  color-scheme: dark;
+}
+
+option {
+  background-color: var(--color-card);
+  color: var(--color-foreground);
 }
 
 body {

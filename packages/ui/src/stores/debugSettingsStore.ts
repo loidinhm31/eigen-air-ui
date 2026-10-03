@@ -17,8 +17,8 @@ const storage =
 export const useDebugSettingsStore = create<DebugSettingsStore>()(
   persist(
     (set) => ({
-      showPromptDebug: false,
-      showReasoningDebug: false,
+      showPromptDebug: true,
+      showReasoningDebug: true,
       setShowPromptDebug: (value) => set({ showPromptDebug: value }),
       setShowReasoningDebug: (value) => set({ showReasoningDebug: value }),
     }),

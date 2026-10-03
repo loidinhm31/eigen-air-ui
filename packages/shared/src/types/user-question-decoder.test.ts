@@ -256,4 +256,56 @@ describe("G3 user-question decoders", () => {
     ).toBe("run-1");
     expect(() => decodeRunSnapshot(run, "run-2")).toThrow();
   });
+
+  it("decodes chat send and history responses with multi-KiB debug excerpts, truncation, and repeated tool calls", () => {
+    const longSystemPrompt = "You are eigen-air, an AI assistant...".repeat(30);
+    const longReasoning = "Step 1: Analyze user request...".repeat(50);
+    const sendResponse = decodeChatSendResponse({
+      content: "Here is your summary.",
+      tool_calls_made: 3,
+      tool_limit_reached: false,
+      repeated_tool_call: true,
+      can_continue: true,
+      memory_updated: true,
+      memory_reason: "stored",
+      episode_id: "ep-1",
+      message_id: "msg-1",
+      fact_count: 2,
+      truncation: { reason: "max_tokens" },
+      debug: {
+        provider: "local_llama",
+        model: "gemma-4-e4b-it-qat",
+        system_prompt: longSystemPrompt,
+        reasoning: {
+          requested: true,
+          available: true,
+          text: longReasoning,
+        },
+      },
+    });
+    expect("content" in sendResponse ? sendResponse.content : "").toBe("Here is your summary.");
+    expect("repeated_tool_call" in sendResponse ? sendResponse.repeated_tool_call : undefined).toBe(true);
+    expect("truncation" in sendResponse ? sendResponse.truncation?.reason : undefined).toBe("max_tokens");
+
+    const historyResponse = decodeChatHistoryResponse({
+      messages: [
+        {
+          role: "assistant",
+          content: "Here is your summary.",
+          debug: {
+            provider: "local_llama",
+            model: "gemma-4-e4b-it-qat",
+            system_prompt: longSystemPrompt,
+            reasoning: {
+              requested: true,
+              available: true,
+              text: longReasoning,
+            },
+          },
+        },
+      ],
+    });
+    expect(historyResponse.messages[0].debug?.system_prompt).toBe(longSystemPrompt);
+    expect(historyResponse.messages[0].debug?.reasoning?.text).toBe(longReasoning);
+  });
 });

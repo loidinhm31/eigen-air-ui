@@ -36,6 +36,7 @@ const MAX_HISTORY_TOTAL_BYTES = 4 * 1024 * 1024;
 const MAX_RUN_ARRAY_ITEMS = 10_000;
 const MAX_RUN_TEXT_BYTES = 512;
 const MAX_RUN_ID_BYTES = 512;
+const MAX_DEBUG_TEXT_BYTES = 64 * 1024;
 
 export class UserQuestionDecodeError extends Error {
   constructor() {
@@ -370,14 +371,14 @@ function decodeChatMessage(value: unknown): ChatMessage {
         fail();
       }
     }
-    if (!nullableRunString(value.debug.system_prompt)) fail();
+    if (!nullableDebugString(value.debug.system_prompt)) fail();
     if (value.debug.reasoning !== undefined && value.debug.reasoning !== null) {
       if (
         !isRecord(value.debug.reasoning) ||
         !hasOnlyKeys(value.debug.reasoning, ["requested", "available", "text"]) ||
         typeof value.debug.reasoning.requested !== "boolean" ||
         typeof value.debug.reasoning.available !== "boolean" ||
-        !nullableRunString(value.debug.reasoning.text)
+        !nullableDebugString(value.debug.reasoning.text)
       ) {
         fail();
       }
@@ -416,6 +417,14 @@ function boundedRunString(value: unknown): value is string {
 function nullableRunString(value: unknown): boolean {
   return value === undefined || value === null || boundedRunString(value);
 }
+function nullableDebugString(value: unknown): boolean {
+  return (
+    value === undefined ||
+    value === null ||
+    (typeof value === "string" && utf8Bytes(value) <= MAX_DEBUG_TEXT_BYTES)
+  );
+}
+
 
 function optionalSafeInteger(value: unknown): boolean {
   return value === undefined || value === null || isSafeInteger(value);
@@ -802,23 +811,30 @@ export function decodeChatSendResponse(
       "content",
       "tool_calls_made",
       "tool_limit_reached",
+      "repeated_tool_call",
       "can_continue",
       "memory_updated",
       "memory_reason",
       "episode_id",
       "message_id",
       "fact_count",
+      "truncation",
       "debug",
     ]) ||
-    !isNonEmptyString(value.content, 64 * 1024) ||
+    typeof value.content !== "string" ||
+    utf8Bytes(value.content) > 64 * 1024 ||
     !isSafeInteger(value.tool_calls_made) ||
     (value.tool_limit_reached !== undefined && typeof value.tool_limit_reached !== "boolean") ||
+    (value.repeated_tool_call !== undefined && typeof value.repeated_tool_call !== "boolean") ||
     (value.can_continue !== undefined && typeof value.can_continue !== "boolean") ||
     (value.memory_updated !== undefined && typeof value.memory_updated !== "boolean") ||
     (value.memory_reason !== undefined && !isNonEmptyString(value.memory_reason, 128)) ||
     !nullableRunString(value.episode_id) ||
     !nullableRunString(value.message_id) ||
-    !optionalSafeInteger(value.fact_count)
+    !optionalSafeInteger(value.fact_count) ||
+    (value.truncation !== undefined &&
+      value.truncation !== null &&
+      (!isRecord(value.truncation) || typeof value.truncation.reason !== "string"))
   ) fail();
   if (value.debug !== undefined && value.debug !== null) {
     if (!isRecord(value.debug) || !hasOnlyKeys(value.debug, [
@@ -837,13 +853,13 @@ export function decodeChatSendResponse(
           typeof value.debug.active_skill.score !== "number" ||
           !Number.isFinite(value.debug.active_skill.score)) fail();
     }
-    if (!nullableRunString(value.debug.system_prompt)) fail();
+    if (!nullableDebugString(value.debug.system_prompt)) fail();
     if (value.debug.reasoning !== undefined && value.debug.reasoning !== null) {
       if (!isRecord(value.debug.reasoning) ||
           !hasOnlyKeys(value.debug.reasoning, ["requested", "available", "text"]) ||
           typeof value.debug.reasoning.requested !== "boolean" ||
           typeof value.debug.reasoning.available !== "boolean" ||
-          !nullableRunString(value.debug.reasoning.text)) fail();
+          !nullableDebugString(value.debug.reasoning.text)) fail();
     }
   }
   return value as unknown as ChatCompletedResponse;

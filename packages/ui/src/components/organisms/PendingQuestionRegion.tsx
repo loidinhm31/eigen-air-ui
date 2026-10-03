@@ -90,7 +90,16 @@ export function PendingQuestionRegion({
               ) {
                 return;
               }
-              currentStore.replaceMessages(history.messages);
+              const debugByContentOrId = new Map(
+                currentStore.messages
+                  .filter((m) => m.debug)
+                  .map((m) => [m.id ?? m.content, m.debug])
+              );
+              const merged = history.messages.map((m) => ({
+                ...m,
+                debug: m.debug ?? debugByContentOrId.get(m.id ?? m.content),
+              }));
+              currentStore.replaceMessages(merged);
             },
           })
         : undefined,

@@ -24,11 +24,15 @@ export function SettingsPage({ managedAccess = false }: SettingsPageProps = {}) 
               <CardTitle className="text-sm">Debug Surfaces</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              <p className="text-xs text-muted-foreground">
+                Debug excerpts require server-side capture and debug-read permission. These
+                settings do not enable capture on the server or recover uncaptured past runs.
+              </p>
               <label className="flex items-start justify-between gap-4 rounded-md border border-border/70 px-3 py-3">
                 <div className="space-y-1">
                   <p className="text-sm font-medium">Show prompt debug</p>
                   <p className="text-xs text-muted-foreground">
-                    Request and display the exact system prompt for assistant turns.
+                    Request and display captured system-prompt excerpts for assistant turns.
                   </p>
                 </div>
                 <input
@@ -42,7 +46,10 @@ export function SettingsPage({ managedAccess = false }: SettingsPageProps = {}) 
                 <div className="space-y-1">
                   <p className="text-sm font-medium">Show reasoning debug</p>
                   <p className="text-xs text-muted-foreground">
-                    Request provider-native reasoning text when the model exposes it.
+                    Display captured provider reasoning when available. Requests native thinking
+                    for authorized embedded local_llama turns (which can increase latency and token
+                    usage); external providers only expose what they return. This control does not
+                    enable server capture.
                   </p>
                 </div>
                 <input

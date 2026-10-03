@@ -1,3 +1,5 @@
+import type { ChatDebugData } from "./api.js";
+
 export const USER_QUESTION_SCHEMA = "user_question.v1" as const;
 
 export type UserQuestionKind = "single_choice" | "short_text" | "multiline";
@@ -116,13 +118,15 @@ export interface ChatCompletedResponse {
   content: string;
   tool_calls_made: number;
   tool_limit_reached?: boolean;
+  repeated_tool_call?: boolean;
   can_continue?: boolean;
   memory_updated?: boolean;
   memory_reason?: string;
   episode_id?: string | null;
   message_id?: string | null;
   fact_count?: number;
-  debug?: import("./api.js").ChatDebugData;
+  truncation?: { reason: string } | null;
+  debug?: ChatDebugData;
 }
 
 export type UserQuestionHttpErrorKind =

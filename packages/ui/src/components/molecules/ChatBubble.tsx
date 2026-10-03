@@ -154,14 +154,21 @@ export function ChatBubble({ message, isStreaming, statusLabel }: Props) {
                 )}
               </dl>
 
-              {showPromptDebug && debug.system_prompt && (
+              {showPromptDebug && (
                 <section className="space-y-1.5 min-w-0 max-w-full">
                   <p className="uppercase tracking-[0.12em] text-secondary-foreground/60">
                     System Prompt
                   </p>
-                  <pre className="mt-1 max-h-60 max-w-full overflow-auto rounded-md border border-secondary-foreground/10 bg-background/55 p-3 text-[11px] leading-relaxed text-secondary-foreground whitespace-pre-wrap break-words break-all">
-                    {debug.system_prompt}
-                  </pre>
+                  {debug.system_prompt ? (
+                    <pre className="mt-1 max-h-60 max-w-full overflow-auto rounded-md border border-secondary-foreground/10 bg-background/55 p-3 text-[11px] leading-relaxed text-secondary-foreground whitespace-pre-wrap break-words break-all">
+                      {debug.system_prompt}
+                    </pre>
+                  ) : (
+                    <p className="rounded-md border border-dashed border-secondary-foreground/15 bg-background/45 px-3 py-2 text-secondary-foreground/75 text-xs break-words">
+                      No captured system prompt is available for this run. Debug capture may be
+                      disabled, inaccessible, or expired.
+                    </p>
+                  )}
                 </section>
               )}
 
@@ -174,10 +181,16 @@ export function ChatBubble({ message, isStreaming, statusLabel }: Props) {
                     <pre className="mt-1 max-h-60 max-w-full overflow-auto rounded-md border border-secondary-foreground/10 bg-background/55 p-3 text-[11px] leading-relaxed text-secondary-foreground whitespace-pre-wrap break-words break-all">
                       {debug.reasoning.text}
                     </pre>
+                  ) : isStreaming ? (
+                    <p className="rounded-md border border-dashed border-secondary-foreground/15 bg-background/45 px-3 py-2 text-secondary-foreground/75 text-xs break-words">
+                      Thinking...
+                    </p>
                   ) : (
                     <p className="rounded-md border border-dashed border-secondary-foreground/15 bg-background/45 px-3 py-2 text-secondary-foreground/75 text-xs break-words">
-                      Reasoning was requested, but this provider did not expose it for the run.
-                     </p>
+                      No captured reasoning is available for this run. Debug capture may be
+                      disabled, inaccessible, or expired, or the provider may not have emitted
+                      reasoning.
+                    </p>
                   )}
                 </section>
               )}

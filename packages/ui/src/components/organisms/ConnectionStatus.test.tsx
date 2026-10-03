@@ -92,6 +92,24 @@ afterEach(() => {
 
 describe("ConnectionStatus", () => {
   describe("Token retention & refresh preservation", () => {
+    it("requests a dark retention control and readable option surfaces", () => {
+      render(<ConnectionStatus />);
+
+      const select = screen.getByRole("combobox", {
+        name: "Token retention duration",
+      }) as HTMLSelectElement;
+
+      expect(select.classList.contains("bg-card")).toBe(true);
+      expect(select.classList.contains("text-foreground")).toBe(true);
+      expect(select.classList.contains("scheme-dark")).toBe(true);
+      expect(select.classList.contains("bg-transparent")).toBe(false);
+
+      for (const option of Array.from(select.options)) {
+        expect(option.classList.contains("bg-card")).toBe(true);
+        expect(option.classList.contains("text-foreground")).toBe(true);
+      }
+    });
+
     it("persists token to storage on connect and restores it on reload/re-render", async () => {
       const user = userEvent.setup();
       const { unmount } = render(<ConnectionStatus />);

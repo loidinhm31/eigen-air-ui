@@ -67,7 +67,10 @@ export function ConnectionStatus({ managedAccess = false }: ConnectionStatusProp
       const trimmed = draftToken.trim();
       if (trimmed) {
         saveStoredAuthToken(trimmed, retention);
-        setServiceAccessContext({ authToken: trimmed });
+        setServiceAccessContext({
+          authToken: trimmed,
+          capabilities: new Set(["run:read:debug", "run:export", "run:delete"]),
+        });
       } else {
         clearStoredAuthToken();
         setServiceAccessContext({});
@@ -177,15 +180,15 @@ export function ConnectionStatus({ managedAccess = false }: ConnectionStatusProp
                   <select
                     value={retention}
                     onChange={(e) => setRetention(e.target.value as TokenRetention)}
-                    className="h-6 rounded border border-input bg-transparent px-1.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    className="h-6 rounded border border-input bg-card px-1.5 text-xs text-foreground scheme-dark focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                     aria-label="Token retention duration"
                   >
-                    <option value="7d">7 days</option>
-                    <option value="24h">24 hours</option>
-                    <option value="30d">30 days</option>
-                    <option value="1h">1 hour</option>
-                    <option value="session">Session only</option>
-                    <option value="forever">Until cleared</option>
+                    <option value="7d" className="bg-card text-foreground">7 days</option>
+                    <option value="24h" className="bg-card text-foreground">24 hours</option>
+                    <option value="30d" className="bg-card text-foreground">30 days</option>
+                    <option value="1h" className="bg-card text-foreground">1 hour</option>
+                    <option value="session" className="bg-card text-foreground">Session only</option>
+                    <option value="forever" className="bg-card text-foreground">Until cleared</option>
                   </select>
                 </div>
               </div>

@@ -48,13 +48,26 @@ export function hasReinitFn(): boolean {
   return _reinitFn !== null;
 }
 
+function areCapabilitiesEqual(
+  a?: ReadonlySet<"run:read:debug" | "run:export" | "run:delete">,
+  b?: ReadonlySet<"run:read:debug" | "run:export" | "run:delete">
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if (a.size !== b.size) return false;
+  for (const item of a) {
+    if (!b.has(item)) return false;
+  }
+  return true;
+}
+
 /** Ephemeral host access; never persisted or included in question state. */
 export function setServiceAccessContext(context: RunAccessContext | undefined): void {
   const next = context ? { ...context } : {};
   if (
     serviceAccessContext.authToken !== next.authToken ||
     serviceAccessContext.identityKey !== next.identityKey ||
-    serviceAccessContext.capabilities !== next.capabilities
+    !areCapabilitiesEqual(serviceAccessContext.capabilities, next.capabilities)
   ) {
     serviceAccessRevision += 1;
   }
@@ -68,6 +81,9 @@ export function getServiceAccessContext(): RunAccessContext {
   return {
     ...serviceAccessContext,
     ...(token ? { authToken: token } : {}),
+    capabilities:
+      serviceAccessContext.capabilities ??
+      (token ? new Set(["run:read:debug", "run:export", "run:delete"]) : undefined),
     accessRevision: serviceAccessRevision,
   };
 }

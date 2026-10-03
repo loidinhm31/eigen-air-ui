@@ -683,6 +683,46 @@ describe("ChatPanel selected skill lifecycle", () => {
     expect(JSON.parse(persisted).state.messages.at(-1).debug).toBeUndefined();
   });
 
+  it("preserves system prompt and reasoning debug across history reloads and settings toggles", async () => {
+    useDebugSettingsStore.setState({
+      showPromptDebug: true,
+      showReasoningDebug: true,
+    });
+    useChatStore.setState({
+      messages: [
+        {
+          id: "assistant-run-1",
+          role: "assistant",
+          content: "Hello with debug",
+          debug: {
+            provider: "local_llama",
+            model: "gemma-4",
+            system_prompt: "persistent system prompt",
+            reasoning: {
+              requested: true,
+              available: true,
+              text: "persistent reasoning text",
+            },
+          },
+        },
+      ],
+    });
+    serviceMocks.getHistory.mockResolvedValue({
+      messages: [
+        {
+          id: "assistant-run-1",
+          role: "assistant",
+          content: "Hello with debug",
+        },
+      ],
+    });
+
+    render(<ChatPanel />);
+
+    expect(await screen.findByText("persistent system prompt")).toBeTruthy();
+    expect(await screen.findByText("persistent reasoning text")).toBeTruthy();
+  });
+
   it("blocks composer and displays loading placeholder when model is starting", () => {
     useReadinessStore.setState({
       phase: "starting",

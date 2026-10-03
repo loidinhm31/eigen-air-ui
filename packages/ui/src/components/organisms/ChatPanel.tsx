@@ -6,6 +6,7 @@ import {
   getRunService,
   getSessionService,
   getSkillService,
+  getServiceAccessContext,
 } from "../../adapters/factory/ServiceFactory.js";
 import { useChatStore } from "../../stores/chatStore.js";
 import { useConnectionStore } from "../../stores/connectionStore.js";
@@ -97,9 +98,21 @@ export function ChatPanel() {
   const setSessionId = useConnectionStore((state) => state.setSessionId);
   const showPromptDebug = useDebugSettingsStore((state) => state.showPromptDebug);
   const showReasoningDebug = useDebugSettingsStore((state) => state.showReasoningDebug);
+  const setShowPromptDebug = useDebugSettingsStore((state) => state.setShowPromptDebug);
+  const setShowReasoningDebug = useDebugSettingsStore((state) => state.setShowReasoningDebug);
+  const accessContext = getServiceAccessContext();
+  const accessRevision = accessContext.accessRevision;
+  const identityKey = accessContext.identityKey;
+  const authToken = accessContext.authToken;
+  const daemonUrl = useConnectionStore((state) => state.url);
   const bottomRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLInputElement>(null);
   const streamingDebugRef = useRef<ChatDebugData | undefined>(undefined);
+  const startupDebugAbortRef = useRef<AbortController | null>(null);
+  const finalDebugAbortRef = useRef<AbortController | null>(null);
+  const sendGenerationRef = useRef(0);
+  const debugGenerationRef = useRef(0);
+  const debugExpiryRef = useRef<{ at: number; timer: number } | null>(null);
   const inFlightSendRef = useRef(false);
   const [toolCalls, setToolCalls] = useState<Record<string, ToolCallPayload>>({});
   const [toolResults, setToolResults] = useState<Record<string, ToolResultPayload>>({});
@@ -123,8 +136,44 @@ export function ChatPanel() {
   useEffect(() => {
     return () => {
       clearTimeout(errorCopyTimeoutRef.current);
+      if (debugExpiryRef.current) clearTimeout(debugExpiryRef.current.timer);
+      sendGenerationRef.current += 1;
+      debugGenerationRef.current += 1;
+      startupDebugAbortRef.current?.abort();
+      finalDebugAbortRef.current?.abort();
     };
   }, []);
+
+  const previousScopeRef = useRef<string | null>(null);
+  useEffect(() => {
+    const currentScope = `${identityKey ?? ""}:${authToken ?? ""}:${daemonUrl}:${sessionId ?? ""}`;
+    if (previousScopeRef.current !== null && previousScopeRef.current !== currentScope) {
+      clearCapturedDebug();
+    }
+    previousScopeRef.current = currentScope;
+  }, [identityKey, authToken, daemonUrl, sessionId]);
+
+  function clearCapturedDebug() {
+    debugGenerationRef.current += 1;
+    startupDebugAbortRef.current?.abort();
+    finalDebugAbortRef.current?.abort();
+    updateStreamingDebug(undefined);
+    useChatStore.setState((state) => ({
+      messages: state.messages.map(({ debug: _debug, ...message }) => message),
+    }));
+    if (debugExpiryRef.current) clearTimeout(debugExpiryRef.current.timer);
+    debugExpiryRef.current = null;
+  }
+
+  function retainDebugUntil(expiresAt: number) {
+    if (!Number.isFinite(expiresAt)) return;
+    if (debugExpiryRef.current && debugExpiryRef.current.at <= expiresAt) return;
+    if (debugExpiryRef.current) clearTimeout(debugExpiryRef.current.timer);
+    debugExpiryRef.current = {
+      at: expiresAt,
+      timer: window.setTimeout(clearCapturedDebug, Math.max(0, expiresAt - Date.now())),
+    };
+  }
 
   const handleCopyErrorTrace = async () => {
     const connection = useConnectionStore.getState();
@@ -169,11 +218,9 @@ export function ChatPanel() {
       | undefined
       | ((previous: ChatDebugData | undefined) => ChatDebugData | undefined)
   ) {
-    setStreamingDebug((previous) => {
-      const resolved = typeof next === "function" ? next(previous) : next;
-      streamingDebugRef.current = resolved;
-      return resolved;
-    });
+    const resolved = typeof next === "function" ? next(streamingDebugRef.current) : next;
+    streamingDebugRef.current = resolved;
+    setStreamingDebug(resolved);
   }
 
   useEffect(() => {
@@ -212,6 +259,8 @@ export function ChatPanel() {
   }, [connectionStatus]);
 
   useEffect(() => {
+    startupDebugAbortRef.current?.abort();
+    finalDebugAbortRef.current?.abort();
     setSelectedSkill(null);
     setPaletteOpen(false);
   }, [connectionStatus, sessionId]);
@@ -223,6 +272,8 @@ export function ChatPanel() {
     let cancelled = false;
 
     async function loadHistory() {
+      startupDebugAbortRef.current?.abort();
+      finalDebugAbortRef.current?.abort();
       setToolCalls({});
       setToolResults({});
       setMemoryNotice(null);
@@ -238,13 +289,26 @@ export function ChatPanel() {
         return;
       }
 
-      clearMessages();
+      const existingMessages = useChatStore.getState().messages;
       const historyLoadRevision = useChatStore.getState().messageRevision;
       for (let attempt = 0; attempt < 10 && !cancelled; attempt++) {
         try {
           const history = await getChatService().getHistory(sessionId, getDebugOptions());
           if (!cancelled && useChatStore.getState().messageRevision === historyLoadRevision) {
-            replaceMessages(history.messages);
+            const debugByContentOrId = new Map(
+              existingMessages
+                .filter((m) => m.debug)
+                .flatMap((m) => {
+                  const entries: [string, typeof m.debug][] = [[m.content, m.debug]];
+                  if (m.id) entries.push([m.id, m.debug]);
+                  return entries;
+                })
+            );
+            const merged = history.messages.map((m) => ({
+              ...m,
+              debug: m.debug ?? (m.id ? debugByContentOrId.get(m.id) : undefined) ?? debugByContentOrId.get(m.content),
+            }));
+            replaceMessages(merged);
           }
           return;
         } catch (error) {
@@ -271,8 +335,6 @@ export function ChatPanel() {
     replaceMessages,
     sessionId,
     setStreamError,
-    showPromptDebug,
-    showReasoningDebug,
   ]);
 
   async function sendPrompt(
@@ -294,6 +356,26 @@ export function ChatPanel() {
       ? skills.find((skill) => skill.id === selectedSkillId)
       : undefined;
     inFlightSendRef.current = true;
+    const turnGeneration = ++sendGenerationRef.current;
+    let finalRefreshDoneForThisTurn = false;
+    const turnSessionId = sessionId;
+    const turnAccess = getServiceAccessContext();
+    const turnDaemonUrl = useConnectionStore.getState().url;
+    const isCurrentTurn = () => {
+      const connection = useConnectionStore.getState();
+      const access = getServiceAccessContext();
+      return sendGenerationRef.current === turnGeneration &&
+        connection.sessionId === turnSessionId &&
+        connection.url === turnDaemonUrl &&
+        access.identityKey === turnAccess.identityKey &&
+        access.authToken === turnAccess.authToken;
+    };
+
+    startupDebugAbortRef.current?.abort();
+    startupDebugAbortRef.current = null;
+    finalDebugAbortRef.current?.abort();
+    finalDebugAbortRef.current = null;
+
     try {
       const debug = getDebugOptions();
       const result = await getChatService().sendMessage(
@@ -304,9 +386,88 @@ export function ChatPanel() {
             if (!inFlightSendRef.current) {
               return;
             }
-            latestRunId = event.payload.run_id ?? event.run_id;
+            // Preserve canonical ID precedence: envelope event.run_id > existing latestRunId > event.payload.run_id
+            const canonicalRunId = event.run_id ?? latestRunId ?? event.payload.run_id;
+            latestRunId = canonicalRunId;
             updateStreamingDebug(event.payload.debug);
             beginStream(PROVIDER_WAIT_STATUS);
+
+            const isDebugOptedIn =
+              showPromptDebug || showReasoningDebug || Boolean(debug);
+
+            if (isDebugOptedIn && canonicalRunId) {
+              const startupAbortController = new AbortController();
+              startupDebugAbortRef.current?.abort();
+              startupDebugAbortRef.current = startupAbortController;
+              const debugGeneration = debugGenerationRef.current;
+
+              void (async () => {
+                try {
+                  const runSnapshot = await getRunService().get(canonicalRunId, {
+                    includeDebug: true,
+                    signal: startupAbortController.signal,
+                  });
+                  if (
+                    startupAbortController.signal.aborted ||
+                    debugGenerationRef.current !== debugGeneration ||
+                    !isCurrentTurn() ||
+                    !inFlightSendRef.current ||
+                    finalRefreshDoneForThisTurn ||
+                    latestRunId !== canonicalRunId ||
+                    runSnapshot?.run.run_id !== canonicalRunId
+                  ) return;
+                  const currentDebugSettings = useDebugSettingsStore.getState();
+
+                  if (runSnapshot) {
+                    const now = Date.now();
+                    retainDebugUntil(Math.min(...(runSnapshot.debug_excerpts ?? [])
+                      .filter((excerpt) => excerpt.expires_at_ms > now)
+                      .map((excerpt) => excerpt.expires_at_ms)));
+                    const promptExcerpt = currentDebugSettings.showPromptDebug
+                      ? runSnapshot.debug_excerpts?.find(
+                          (e) => e.kind === "system_prompt" && e.expires_at_ms > now
+                        )?.plaintext
+                      : undefined;
+
+                    const provider = runSnapshot.run?.provider_id || "default";
+                    const model =
+                      runSnapshot.run &&
+                      "model" in runSnapshot.run &&
+                      typeof runSnapshot.run.model === "string"
+                        ? runSnapshot.run.model
+                        : "default";
+
+                    updateStreamingDebug((previous) => {
+                      const latestSettings = useDebugSettingsStore.getState();
+                      if (
+                        !latestSettings.showPromptDebug &&
+                        !latestSettings.showReasoningDebug
+                      ) {
+                        return undefined;
+                      }
+                      const current = previous ?? {
+                        provider,
+                        model,
+                        active_skill: chosenSkill ? { name: chosenSkill.name, score: 1.0 } : undefined,
+                      };
+                      return {
+                        ...current,
+                        provider: provider !== "default" ? provider : current.provider,
+                        model: model !== "default" ? model : current.model,
+                        system_prompt: latestSettings.showPromptDebug
+                          ? (promptExcerpt ?? current.system_prompt)
+                          : undefined,
+                        reasoning: latestSettings.showReasoningDebug
+                          ? current.reasoning
+                          : undefined,
+                      };
+                    });
+                  }
+                } catch {
+                  // Startup snapshot fetch is best-effort; final snapshot fetch will run on completion
+                }
+              })();
+            }
           } else if (event.event === "chunk") {
             appendChunk(event.payload.content);
           } else if (event.event === "run.delta") {
@@ -328,8 +489,16 @@ export function ChatPanel() {
               };
             });
           } else if (event.event === "run.completed" || event.event === "run.finished") {
-            latestRunId = event.payload.run_id ?? event.run_id ?? latestRunId;
-            updateStreamingDebug(event.payload.debug ?? streamingDebugRef.current);
+            latestRunId = event.run_id ?? latestRunId ?? event.payload.run_id;
+            updateStreamingDebug((previous) => {
+              if (!event.payload.debug) return previous;
+              return {
+                ...previous,
+                ...event.payload.debug,
+                system_prompt: previous?.system_prompt ?? event.payload.debug.system_prompt,
+                reasoning: previous?.reasoning ?? event.payload.debug.reasoning,
+              };
+            });
             if (!inFlightSendRef.current) {
               const streamedContent = useChatStore.getState().streamingContent;
               const content = event.payload.content || streamedContent;
@@ -359,6 +528,7 @@ export function ChatPanel() {
             setToolResults((results) => ({ ...results, [event.payload.id]: event.payload }));
             setStreamStatus(PROVIDER_WAIT_STATUS);
           } else if (event.event === "error") {
+            startupDebugAbortRef.current?.abort();
             updateStreamingDebug(undefined);
             setStreamError(event.payload.message);
           }
@@ -370,13 +540,99 @@ export function ChatPanel() {
         }
       );
 
+      finalRefreshDoneForThisTurn = true;
+      (startupDebugAbortRef.current as AbortController | null)?.abort();
+
+
+      const finalAbortController = new AbortController();
+      finalDebugAbortRef.current = finalAbortController;
+
+      const debugGeneration = debugGenerationRef.current;
+      const canReadDebug = () => {
+        const settings = useDebugSettingsStore.getState();
+        return !finalAbortController.signal.aborted &&
+          debugGenerationRef.current === debugGeneration &&
+          isCurrentTurn() &&
+          (settings.showPromptDebug || settings.showReasoningDebug);
+      };
+      let finalDebug: ChatDebugData | undefined;
+      if (latestRunId && canReadDebug()) {
+        try {
+          const service = getRunService();
+          const runSnapshot = await service.get(latestRunId, {
+            includeDebug: true,
+            signal: finalAbortController.signal,
+          });
+          if (canReadDebug() && runSnapshot?.run.run_id === latestRunId) {
+            const debugExcerpts = [...(runSnapshot.debug_excerpts ?? [])];
+            let debugCursor = runSnapshot.next_debug_cursor;
+            const seenCursors = new Set<string>();
+            // The server caps debug plaintext to 64 KiB per run. Bound paging too.
+            for (let page = 1; debugCursor && page < 16 && canReadDebug(); page++) {
+              if (seenCursors.has(debugCursor)) break;
+              seenCursors.add(debugCursor);
+              const next = await service.get(latestRunId, {
+                includeDebug: true,
+                debugCursor,
+                signal: finalAbortController.signal,
+              });
+              if (!canReadDebug() || next.run.run_id !== latestRunId) break;
+              debugExcerpts.push(...(next.debug_excerpts ?? []));
+              debugCursor = next.next_debug_cursor;
+            }
+            if (canReadDebug()) {
+              const settings = useDebugSettingsStore.getState();
+              const now = Date.now();
+              const unexpired = debugExcerpts.filter((excerpt) => excerpt.expires_at_ms > now);
+              retainDebugUntil(Math.min(...unexpired.map((excerpt) => excerpt.expires_at_ms)));
+              const reasoning = settings.showReasoningDebug
+                ? [...new Map(unexpired.map((excerpt) => [excerpt.excerpt_seq, excerpt])).values()]
+                    .filter((excerpt) => excerpt.kind === "provider_reasoning")
+                    .sort((a, b) => a.excerpt_seq - b.excerpt_seq)
+                    .map((excerpt) => excerpt.plaintext)
+                    .join("\n\n")
+                : "";
+              finalDebug = {
+                provider: runSnapshot.run.provider_id,
+                model: "default",
+                system_prompt: settings.showPromptDebug
+                  ? unexpired.find((excerpt) => excerpt.kind === "system_prompt")?.plaintext
+                  : undefined,
+                reasoning: settings.showReasoningDebug
+                  ? { requested: true, available: Boolean(reasoning), text: reasoning || null }
+                  : undefined,
+              };
+            }
+          }
+        } catch {
+          // Do not retain startup plaintext after a denied or expired final read.
+        }
+      } else if (!latestRunId && canReadDebug() && "content" in result) {
+        const settings = useDebugSettingsStore.getState();
+        finalDebug = result.debug ? {
+          ...result.debug,
+          system_prompt: settings.showPromptDebug ? result.debug.system_prompt : undefined,
+          reasoning: settings.showReasoningDebug ? result.debug.reasoning : undefined,
+        } : undefined;
+      }
+      if (!canReadDebug()) finalDebug = undefined;
+      const isSameSession =
+        sendGenerationRef.current === turnGeneration &&
+        useConnectionStore.getState().sessionId === turnSessionId;
+      if (!isSameSession) {
+        finishStream();
+        updateStreamingDebug(undefined);
+        return false;
+      }
+
       if (!("content" in result)) {
         const streamedContent = useChatStore.getState().streamingContent;
         if (streamedContent.trim().length > 0) {
           finalizeStream({
             role: "assistant",
             content: streamedContent,
-            ...(streamingDebugRef.current ? { debug: streamingDebugRef.current } : {}),
+            ...(latestRunId ? { id: `assistant-${latestRunId}` } : {}),
+            ...(finalDebug ? { debug: finalDebug } : {}),
           });
         } else {
           finishStream();
@@ -384,53 +640,11 @@ export function ChatPanel() {
         updateStreamingDebug(undefined);
         return true;
       }
-      let finalDebug = result.debug ?? streamingDebugRef.current;
-      if (!finalDebug && (debug || showPromptDebug || showReasoningDebug) && latestRunId) {
-        try {
-          const runSnapshot = await getRunService().get(latestRunId, { includeDebug: true });
-          if (runSnapshot) {
-            const promptExcerpt = runSnapshot.debug_excerpts?.find(
-              (e) => e.kind === "system_prompt"
-            )?.plaintext;
-            const reasoningExcerpt = runSnapshot.debug_excerpts?.find(
-              (e) => e.kind === "provider_reasoning"
-            )?.plaintext;
-            finalDebug = {
-              provider: runSnapshot.run.provider_id,
-              model: (runSnapshot.run as { model?: string }).model || "default",
-              active_skill: chosenSkill ? { name: chosenSkill.name, score: 1.0 } : undefined,
-              system_prompt: promptExcerpt,
-              reasoning: showReasoningDebug
-                ? {
-                    requested: true,
-                    available: Boolean(reasoningExcerpt),
-                    text: reasoningExcerpt ?? null,
-                  }
-                : undefined,
-            };
-          }
-        } catch {
-          // Fallback handled below
-        }
-      }
-      if (!finalDebug && (debug || showPromptDebug || showReasoningDebug)) {
-        finalDebug = {
-          provider: "default",
-          model: "default",
-          active_skill: chosenSkill ? { name: chosenSkill.name, score: 1.0 } : undefined,
-          reasoning: showReasoningDebug
-            ? {
-                requested: true,
-                available: false,
-                text: null,
-              }
-            : undefined,
-        };
-      }
+
       finalizeStream({
         role: "assistant",
         content: result.content,
-        ...(result.message_id ? { id: result.message_id } : {}),
+        ...(result.message_id ? { id: result.message_id } : latestRunId ? { id: `assistant-${latestRunId}` } : {}),
         ...(finalDebug ? { debug: finalDebug } : {}),
       });
       updateStreamingDebug(undefined);
@@ -453,6 +667,8 @@ export function ChatPanel() {
       }
       return true;
     } catch (e) {
+      (startupDebugAbortRef.current as AbortController | null)?.abort();
+      finalDebugAbortRef.current?.abort();
       updateStreamingDebug(undefined);
       setStreamError(String(e));
       if (!latestRunId) {
@@ -461,6 +677,9 @@ export function ChatPanel() {
       return false;
     } finally {
       inFlightSendRef.current = false;
+      if (useChatStore.getState().isStreaming) {
+        finishStream();
+      }
     }
   }
 
@@ -570,15 +789,30 @@ export function ChatPanel() {
             </Button>
           )}
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void handleNewChat()}
-          disabled={isStreaming || isStartingSession}
-          isLoading={isStartingSession}
-        >
-          New chat
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant={showReasoningDebug || showPromptDebug ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => {
+              const next = !(showReasoningDebug || showPromptDebug);
+              setShowPromptDebug(next);
+              setShowReasoningDebug(next);
+            }}
+            className="text-xs h-7 px-2"
+            title="Toggle system prompt and reasoning debug surfaces"
+          >
+            Debug: {showReasoningDebug || showPromptDebug ? "On" : "Off"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void handleNewChat()}
+            disabled={isStreaming || isStartingSession}
+            isLoading={isStartingSession}
+          >
+            New chat
+          </Button>
+        </div>
       </div>
       <ScrollArea className="w-full min-w-0 flex-1">
         <div className="flex w-full min-w-0 flex-col overflow-x-hidden">
