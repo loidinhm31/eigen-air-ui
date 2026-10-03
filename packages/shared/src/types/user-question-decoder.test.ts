@@ -308,4 +308,108 @@ describe("G3 user-question decoders", () => {
     expect(historyResponse.messages[0].debug?.system_prompt).toBe(longSystemPrompt);
     expect(historyResponse.messages[0].debug?.reasoning?.text).toBe(longReasoning);
   });
+
+  it("strictly decodes optional run_id locator and rejects invalid or unknown keys (V15)", () => {
+    // Valid run_id present
+    const validHistory = decodeChatHistoryResponse({
+      messages: [
+        {
+          id: "msg-sess-1-0",
+          run_id: "run-019234-canonical",
+          role: "assistant",
+          content: "Valid response with canonical run locator",
+        },
+      ],
+    });
+    expect(validHistory.messages[0].id).toBe("msg-sess-1-0");
+    expect(validHistory.messages[0].run_id).toBe("run-019234-canonical");
+
+    // Missing run_id accepted (backward compatible legacy history)
+    const legacyHistory = decodeChatHistoryResponse({
+      messages: [
+        {
+          id: "msg-sess-1-0",
+          role: "assistant",
+          content: "Legacy response without run locator",
+        },
+      ],
+    });
+    expect(legacyHistory.messages[0].id).toBe("msg-sess-1-0");
+    expect(legacyHistory.messages[0].run_id).toBeUndefined();
+    expect(legacyHistory.messages[0].content).toBe("Legacy response without run locator");
+
+    // Null run_id rejected
+    expect(() =>
+      decodeChatHistoryResponse({
+        messages: [{ role: "assistant", content: "test", run_id: null }],
+      })
+    ).toThrow();
+
+    // Empty string run_id rejected
+    expect(() =>
+      decodeChatHistoryResponse({
+        messages: [{ role: "assistant", content: "test", run_id: "" }],
+      })
+    ).toThrow();
+
+    // Wrong type run_id rejected
+    expect(() =>
+      decodeChatHistoryResponse({
+        messages: [{ role: "assistant", content: "test", run_id: 12345 }],
+      })
+    ).toThrow();
+
+    // Oversized run_id (> 512 bytes) rejected
+    expect(() =>
+      decodeChatHistoryResponse({
+        messages: [{ role: "assistant", content: "test", run_id: "a".repeat(513) }],
+      })
+    ).toThrow();
+
+    // Unknown key (e.g. camelCase runId or unexpected payload) rejected
+    expect(() =>
+      decodeChatHistoryResponse({
+        messages: [{ role: "assistant", content: "test", runId: "run-1" }],
+      })
+    ).toThrow();
+  });
+
+  it("preserves distinct message IDs and run locators for duplicate answers and legacy rows (V03, V04, V15)", () => {
+    const history = decodeChatHistoryResponse({
+      messages: [
+        {
+          id: "msg-sessA-turn1-0",
+          run_id: "run-canonical-turn1",
+          role: "assistant",
+          content: "Done",
+        },
+        {
+          id: "msg-sessA-turn2-0",
+          run_id: "run-canonical-turn2",
+          role: "assistant",
+          content: "Done",
+        },
+        {
+          id: "msg-ep-sessA-0-1",
+          role: "assistant",
+          content: "Legacy fallback without correlation",
+        },
+      ],
+    });
+
+    expect(history.messages).toHaveLength(3);
+    // Distinct identities and run IDs despite identical content "Done"
+    expect(history.messages[0].content).toBe("Done");
+    expect(history.messages[0].id).toBe("msg-sessA-turn1-0");
+    expect(history.messages[0].run_id).toBe("run-canonical-turn1");
+
+    expect(history.messages[1].content).toBe("Done");
+    expect(history.messages[1].id).toBe("msg-sessA-turn2-0");
+    expect(history.messages[1].run_id).toBe("run-canonical-turn2");
+
+    // Third message lacks run_id and preserves content
+    expect(history.messages[2].content).toBe("Legacy fallback without correlation");
+    expect(history.messages[2].id).toBe("msg-ep-sessA-0-1");
+    expect(history.messages[2].run_id).toBeUndefined();
+  });
 });

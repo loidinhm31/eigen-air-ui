@@ -104,6 +104,38 @@ describe("run inspector privacy boundary", () => {
     expect(useChatStore.getState().messages[0]?.debug?.system_prompt).toBe("prompt-fixture");
   });
 
+  it("retains inert run_id metadata while stripping debug plaintext at persistence boundary (V12, V15)", () => {
+    useChatStore.getState().replaceMessages([
+      {
+        id: "msg-019234-0",
+        run_id: "run-019234-canonical",
+        role: "assistant",
+        content: "assistant answer with locator",
+        debug: {
+          provider: "provider",
+          model: "model",
+          system_prompt: "fixture-prompt-xyz",
+          reasoning: {
+            requested: true,
+            available: true,
+            text: "fixture-reasoning-xyz",
+          },
+        },
+      },
+    ]);
+
+    const persisted = localStorage.getItem(STORAGE_KEYS.CHAT_MESSAGES) ?? "";
+    expect(persisted).toContain("assistant answer with locator");
+    expect(persisted).toContain("msg-019234-0");
+    expect(persisted).toContain("run-019234-canonical");
+    expect(persisted).not.toContain("fixture-prompt-xyz");
+    expect(persisted).not.toContain("fixture-reasoning-xyz");
+    const parsed = JSON.parse(persisted);
+    expect(parsed.state.messages[0].id).toBe("msg-019234-0");
+    expect(parsed.state.messages[0].run_id).toBe("run-019234-canonical");
+    expect(parsed.state.messages[0].debug).toBeUndefined();
+  });
+
   it("sanitizes legacy chat debug during hydration and rewrites storage", async () => {
     localStorage.setItem(
       STORAGE_KEYS.CHAT_MESSAGES,

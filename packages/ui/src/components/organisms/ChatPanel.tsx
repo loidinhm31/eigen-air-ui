@@ -507,6 +507,7 @@ export function ChatPanel() {
                   role: "assistant",
                   content,
                   ...(latestRunId ? { id: `assistant-${latestRunId}` } : {}),
+                  ...(latestRunId ? { run_id: latestRunId } : {}),
                   ...(streamingDebugRef.current ? { debug: streamingDebugRef.current } : {}),
                 });
               } else {
@@ -632,6 +633,7 @@ export function ChatPanel() {
             role: "assistant",
             content: streamedContent,
             ...(latestRunId ? { id: `assistant-${latestRunId}` } : {}),
+            ...(latestRunId ? { run_id: latestRunId } : {}),
             ...(finalDebug ? { debug: finalDebug } : {}),
           });
         } else {
@@ -645,6 +647,7 @@ export function ChatPanel() {
         role: "assistant",
         content: result.content,
         ...(result.message_id ? { id: result.message_id } : latestRunId ? { id: `assistant-${latestRunId}` } : {}),
+        ...(latestRunId ? { run_id: latestRunId } : {}),
         ...(finalDebug ? { debug: finalDebug } : {}),
       });
       updateStreamingDebug(undefined);

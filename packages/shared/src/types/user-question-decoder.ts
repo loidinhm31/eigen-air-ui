@@ -310,12 +310,13 @@ export function decodeUserQuestionAnswer(
 function decodeChatMessage(value: unknown): ChatMessage {
   if (
     !isRecord(value) ||
-    !hasOnlyKeys(value, ["id", "role", "content", "debug", "tool_calls", "tool_call_id"])
+    !hasOnlyKeys(value, ["id", "run_id", "role", "content", "debug", "tool_calls", "tool_call_id"])
   ) {
     fail();
   }
   if (
     (value.id !== undefined && !isNonEmptyString(value.id, MAX_ID_BYTES)) ||
+    (value.run_id !== undefined && !isNonEmptyString(value.run_id, MAX_ID_BYTES)) ||
     !["user", "assistant", "system", "tool"].includes(value.role as string) ||
     typeof value.content !== "string" ||
     utf8Bytes(value.content) > MAX_HISTORY_CONTENT_BYTES
@@ -387,6 +388,7 @@ function decodeChatMessage(value: unknown): ChatMessage {
   }
   return {
     ...(value.id !== undefined ? { id: value.id as string } : {}),
+    ...(value.run_id !== undefined ? { run_id: value.run_id as string } : {}),
     role: value.role as ChatMessage["role"],
     content: value.content as string,
     ...(toolCalls !== undefined ? { tool_calls: toolCalls } : {}),

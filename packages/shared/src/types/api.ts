@@ -31,6 +31,7 @@ export interface ToolCallItem {
 
 export interface ChatMessage {
   id?: string;
+  run_id?: string;
   role: MessageRole;
   content: string;
   tool_calls?: ToolCallItem[];

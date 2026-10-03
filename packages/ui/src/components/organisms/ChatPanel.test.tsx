@@ -766,4 +766,35 @@ describe("ChatPanel selected skill lifecycle", () => {
     expect(inputEl.value).toBe("my important question");
     expect(useChatStore.getState().messages).toHaveLength(0);
   });
+
+  it("sets canonical live run locator independently of message ID on terminal assistant message (V03, V15)", async () => {
+    serviceMocks.sendMessage.mockImplementation(async (_msg, _sid, onEvent) => {
+      onEvent({
+        event: "run.started",
+        run_id: "canonical-run-999",
+        payload: { run_id: "payload-request-id" },
+      });
+      return {
+        content: "Completed answer with canonical locator",
+        tool_calls_made: 0,
+        message_id: "msg-sess-1-turn-0",
+      };
+    });
+
+    const user = userEvent.setup();
+    render(<ChatPanel />);
+
+    const composer = screen.getByPlaceholderText("Message eigen-air...");
+    await user.type(composer, "Test canonical locator");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => {
+      const messages = useChatStore.getState().messages;
+      const assistantMsg = messages.find((m) => m.role === "assistant");
+      expect(assistantMsg).toBeDefined();
+      expect(assistantMsg?.content).toBe("Completed answer with canonical locator");
+      expect(assistantMsg?.id).toBe("msg-sess-1-turn-0");
+      expect(assistantMsg?.run_id).toBe("canonical-run-999");
+    });
+  });
 });
