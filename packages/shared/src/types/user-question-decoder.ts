@@ -419,12 +419,12 @@ function boundedRunString(value: unknown): value is string {
 function nullableRunString(value: unknown): boolean {
   return value === undefined || value === null || boundedRunString(value);
 }
+function boundedDebugString(value: unknown): value is string {
+  return typeof value === "string" && utf8Bytes(value) <= MAX_DEBUG_TEXT_BYTES;
+}
+
 function nullableDebugString(value: unknown): boolean {
-  return (
-    value === undefined ||
-    value === null ||
-    (typeof value === "string" && utf8Bytes(value) <= MAX_DEBUG_TEXT_BYTES)
-  );
+  return value === undefined || value === null || boundedDebugString(value);
 }
 
 
@@ -633,7 +633,7 @@ export function decodeRunSnapshot(value: unknown, expectedRunId?: string): RunSn
         "truncated",
         "redaction_count",
       ]) || !isSafeInteger(excerpt.excerpt_seq) || !boundedRunString(excerpt.kind) ||
-          !isPlainText(excerpt.plaintext, 64 * 1024) || !isSafeInteger(excerpt.created_at_ms) ||
+          !boundedDebugString(excerpt.plaintext) || !isSafeInteger(excerpt.created_at_ms) ||
           !isSafeInteger(excerpt.expires_at_ms) || !isSafeInteger(excerpt.plaintext_bytes) ||
           typeof excerpt.truncated !== "boolean" || !isSafeInteger(excerpt.redaction_count)) {
         fail();

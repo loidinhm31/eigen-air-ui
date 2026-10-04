@@ -257,6 +257,116 @@ describe("G3 user-question decoders", () => {
     expect(() => decodeRunSnapshot(run, "run-2")).toThrow();
   });
 
+  it("decodes run snapshot debug excerpts with keywords, CRLF, and empty plaintext across kinds", () => {
+    const createRun = (excerpts: Record<string, unknown>[]) => ({
+      schema_version: 1,
+      run: {
+        run_id: "run-1",
+        trace_id: "trace-1",
+        request_id: null,
+        session_id: "session-1",
+        parent_run_id: null,
+        root_run_id: "run-1",
+        tenant_id: "tenant-1",
+        user_id: "user-1",
+        workspace_id: "workspace-1",
+        agent_id: "agent-1",
+        provider_id: "provider-1",
+        channel: "cli",
+        lifecycle_status: "completed",
+        started_at_ms: 1,
+        updated_at_ms: 2,
+        snapshot_seq: 1,
+        correlation_state: "active",
+        redaction: { metadata_only: false, debug_requested: true, debug_available: true },
+      },
+      events: [],
+      tool_calls: [],
+      memory_lineage: [],
+      debug_excerpts: excerpts,
+    });
+
+    const sampleText = "relative paths for file operations\r\nREADME.md file\r\ntoken allow deny password=[REDACTED]";
+    const kinds = ["system_prompt", "provider_reasoning", "provider_response"] as const;
+    const excerpts = kinds.map((kind, idx) => ({
+      excerpt_seq: idx + 1,
+      kind,
+      plaintext: idx === 1 ? "" : sampleText,
+      plaintext_bytes: idx === 1 ? 0 : 97,
+      created_at_ms: idx + 1,
+      expires_at_ms: idx + 2,
+      truncated: false,
+      redaction_count: idx === 0 ? 1 : 0,
+    }));
+
+    const decoded = decodeRunSnapshot(createRun(excerpts), "run-1");
+    expect(decoded.debug_excerpts).toHaveLength(3);
+    expect(decoded.debug_excerpts?.[0]?.plaintext).toBe(sampleText);
+    expect(decoded.debug_excerpts?.[1]?.plaintext).toBe("");
+    expect(decoded.debug_excerpts?.[2]?.plaintext).toBe(sampleText);
+
+    // Exact ASCII byte boundary: 65,536 bytes accepted, 65,537 rejected
+    const exact64k = decodeRunSnapshot(
+      createRun([{ ...excerpts[0], plaintext: "a".repeat(65_536), plaintext_bytes: 65_536 }]),
+      "run-1"
+    );
+    expect(exact64k.debug_excerpts?.[0]?.plaintext.length).toBe(65_536);
+    expect(() =>
+      decodeRunSnapshot(
+        createRun([{ ...excerpts[0], plaintext: "a".repeat(65_537), plaintext_bytes: 65_537 }]),
+        "run-1"
+      )
+    ).toThrow();
+
+    // Multibyte UTF-8 boundary: 16,384 4-byte emojis = 65,536 bytes accepted, +1 byte rejected
+    const exactEmoji = decodeRunSnapshot(
+      createRun([{ ...excerpts[0], plaintext: "😀".repeat(16_384), plaintext_bytes: 65_536 }]),
+      "run-1"
+    );
+    expect(exactEmoji.debug_excerpts?.[0]?.plaintext).toBe("😀".repeat(16_384));
+    expect(() =>
+      decodeRunSnapshot(
+        createRun([{ ...excerpts[0], plaintext: "😀".repeat(16_384) + "a", plaintext_bytes: 65_537 }]),
+        "run-1"
+      )
+    ).toThrow();
+
+    // Full type rejection matrix for plaintext
+    const invalidPlaintexts = [undefined, null, 12345, true, {}, []];
+    for (const invalid of invalidPlaintexts) {
+      expect(() =>
+        decodeRunSnapshot(
+          createRun([{ ...excerpts[0], plaintext: invalid }]),
+          "run-1"
+        )
+      ).toThrow();
+    }
+    // Missing plaintext property rejected
+    const missingPlaintext = Object.fromEntries(
+      Object.entries(excerpts[0]).filter(([key]) => key !== "plaintext")
+    );
+    expect(() => decodeRunSnapshot(createRun([missingPlaintext]), "run-1")).toThrow();
+
+    // Validation of plaintext_bytes (safe integer required)
+    const invalidPlaintextBytes = ["invalid", 1.5, null, -1, NaN];
+    for (const invalidBytes of invalidPlaintextBytes) {
+      expect(() =>
+        decodeRunSnapshot(
+          createRun([{ ...excerpts[0], plaintext_bytes: invalidBytes }]),
+          "run-1"
+        )
+      ).toThrow();
+    }
+
+    // User question regression check: semantic restrictions remain active for user questions
+    expect(() =>
+      decodeUserQuestionRequest({
+        kind: "short_text",
+        prompt: "Please provide your password",
+      })
+    ).toThrow();
+  });
+
   it("decodes chat send and history responses with multi-KiB debug excerpts, truncation, and repeated tool calls", () => {
     const longSystemPrompt = "You are eigen-air, an AI assistant...".repeat(30);
     const longReasoning = "Step 1: Analyze user request...".repeat(50);
