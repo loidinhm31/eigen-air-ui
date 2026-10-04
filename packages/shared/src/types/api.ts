@@ -539,6 +539,46 @@ export interface RunTreeNodeDto {
   created_at: number;
 }
 
+// --- Historical Debug State (Phase 04) ---
+
+export type HistoricalDebugUnavailableReason =
+  | "not_found"
+  | "unauthorized"
+  | "disabled"
+  | "key_unavailable"
+  | "expired"
+  | "invalid"
+  | "no_debug_data";
+
+export type HistoricalDebugState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | {
+      status: "ready";
+      runId: string;
+      provider: string;
+      model?: string;
+      systemPrompt?: string;
+      reasoning?: {
+        available: boolean;
+        text: string;
+        truncated: boolean;
+      };
+      expiresAtMs: number;
+      isPartial: boolean;
+    }
+  | {
+      status: "unavailable";
+      runId: string;
+      reason: HistoricalDebugUnavailableReason;
+    }
+  | {
+      status: "error";
+      runId: string;
+      message: string;
+      retryable: boolean;
+    };
+
 // --- Errors ---
 
 export interface ApiError {

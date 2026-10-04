@@ -31,6 +31,7 @@ export {
   hasReinitFn,
   setServiceAccessContext,
   getServiceAccessContext,
+  registerAccessInvalidationListener,
 } from "./adapters/factory/ServiceFactory.js";
 export {
   getStoredAuthToken,

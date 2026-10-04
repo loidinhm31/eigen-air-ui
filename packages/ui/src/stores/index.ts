@@ -5,3 +5,4 @@ export { useDebugSettingsStore } from "./debugSettingsStore.js";
 export { useRunInspectorStore } from "./runInspectorStore.js";
 export { useUserQuestionStore, pendingQuestionSnapshot } from "./userQuestionStore.js";
 export { useToolApprovalStore, pendingApprovalSnapshot } from "./toolApprovalStore.js";
+export { useChatDebugStore } from "./chat-debug-store.js";

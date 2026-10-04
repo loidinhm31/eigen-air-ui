@@ -26,6 +26,22 @@ let serviceAccessContext: RunAccessContext = {
 };
 let serviceAccessRevision = 0;
 
+type AccessInvalidationListener = (revision: number) => void;
+const _accessInvalidationListeners = new Set<AccessInvalidationListener>();
+
+export function registerAccessInvalidationListener(listener: AccessInvalidationListener): () => void {
+  _accessInvalidationListeners.add(listener);
+  return () => {
+    _accessInvalidationListeners.delete(listener);
+  };
+}
+
+function notifyAccessInvalidated(revision: number): void {
+  for (const listener of _accessInvalidationListeners) {
+    listener(revision);
+  }
+}
+
 // Registered by the app entry (init.ts) so UI components can trigger re-init
 // without depending on the app layer.
 let _reinitFn: (() => void) | null = null;
@@ -36,6 +52,8 @@ export function registerReinitFn(fn: () => void): void {
 
 /** Re-creates all service adapters with the current URL from the connection store. */
 export function reinitServices(): void {
+  serviceAccessRevision += 1;
+  notifyAccessInvalidated(serviceAccessRevision);
   _reinitFn?.();
 }
 
@@ -70,6 +88,7 @@ export function setServiceAccessContext(context: RunAccessContext | undefined): 
     !areCapabilitiesEqual(serviceAccessContext.capabilities, next.capabilities)
   ) {
     serviceAccessRevision += 1;
+    notifyAccessInvalidated(serviceAccessRevision);
   }
   serviceAccessContext = next;
 }
