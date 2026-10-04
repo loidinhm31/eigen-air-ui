@@ -153,6 +153,31 @@ describe("ChatBubble and ChatBubbleDebugDisclosure", () => {
     expect(requestDebugSpy).toHaveBeenCalledWith("session-1", "run-abc", expect.any(String));
   });
 
+  it("resolves session ID from message.id when present, overriding connection sessionId", () => {
+    const requestDebugSpy = vi.spyOn(useChatDebugStore.getState(), "requestDebug").mockResolvedValue({
+      status: "loading",
+    });
+
+    const { container } = render(
+      <ChatBubble
+        message={{
+          id: "msg-custom-sess-456-1-2",
+          role: "assistant",
+          content: "Historical answer with embedded session",
+          run_id: "run-xyz",
+        }}
+      />
+    );
+
+    const details = container.querySelector("details");
+    expect(details).toBeTruthy();
+
+    details!.open = true;
+    fireEvent(details!, new Event("toggle"));
+
+    expect(requestDebugSpy).toHaveBeenCalledWith("custom-sess-456", "run-xyz", expect.any(String));
+  });
+
   it("renders loading spinner and disabled copy button when historicalState is loading", () => {
     useChatDebugStore.setState({
       states: {

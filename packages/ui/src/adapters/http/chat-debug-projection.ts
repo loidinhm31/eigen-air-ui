@@ -96,7 +96,7 @@ export function projectExcerpts(
 
   let totalBytes = 0;
   for (const e of nonExpired) {
-    totalBytes += e.plaintext_bytes;
+    totalBytes += UTF8_ENCODER.encode(e.plaintext).byteLength;
   }
 
   const systemPrompt =

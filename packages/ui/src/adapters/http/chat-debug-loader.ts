@@ -23,6 +23,7 @@ export {
   MAX_EXCERPTS_PER_PAGE,
   MAX_ROW_PLAINTEXT_BYTES,
   MAX_RUN_DEBUG_BYTES,
+  UTF8_ENCODER,
   type ChatDebugLoaderResult,
   type ChatDebugReadyPayload,
 };
@@ -146,7 +147,13 @@ export async function loadHistoricalDebug(
       }
 
       const actualBytes = UTF8_ENCODER.encode(excerpt.plaintext).byteLength;
-      if (excerpt.plaintext_bytes !== actualBytes || actualBytes > MAX_ROW_PLAINTEXT_BYTES) {
+      const byteDiff = Math.abs(excerpt.plaintext_bytes - actualBytes);
+      const maxAllowedDiscrepancy = Math.max(256, Math.ceil(actualBytes * 0.2));
+      if (
+        byteDiff > maxAllowedDiscrepancy ||
+        actualBytes > MAX_ROW_PLAINTEXT_BYTES ||
+        excerpt.plaintext_bytes > MAX_ROW_PLAINTEXT_BYTES
+      ) {
         if (collectedExcerpts.length > 0 && initialProvider) {
           isPartial = true;
           break;

@@ -46,7 +46,12 @@ export function ChatBubbleDebugDisclosure({ message, isStreaming }: ChatBubbleDe
   const showReasoningDebug = useDebugSettingsStore((state) => state.showReasoningDebug);
   const isDebugOptedIn = showPromptDebug || showReasoningDebug;
 
-  const sessionId = useConnectionStore((state) => state.sessionId);
+  const connectionSessionId = useConnectionStore((state) => state.sessionId);
+  const messageSessionId = React.useMemo(() => {
+    const match = message.id?.match(/^msg-([a-zA-Z0-9_-]+)-\d+-\d+$/);
+    return match ? match[1] : undefined;
+  }, [message.id]);
+  const sessionId = messageSessionId ?? connectionSessionId;
   const consumerId = React.useId();
   const runId = message.run_id;
 
@@ -143,7 +148,7 @@ export function ChatBubbleDebugDisclosure({ message, isStreaming }: ChatBubbleDe
     const trace = buildDebugTrace({
       message,
       debug: resolvedDebug,
-      sessionId: connection.sessionId,
+      sessionId: sessionId ?? connection.sessionId,
       daemonUrl: connection.url,
       connectionStatus: connection.status,
       connectionVersion: connection.version,

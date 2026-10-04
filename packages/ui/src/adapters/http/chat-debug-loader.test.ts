@@ -6,6 +6,7 @@ import {
   MAX_DEBUG_PAGES,
   MAX_ROW_PLAINTEXT_BYTES,
   MAX_RUN_DEBUG_BYTES,
+  UTF8_ENCODER,
 } from "./chat-debug-loader.js";
 
 function makeMockSnapshot(overrides: Partial<RunSnapshotDto> = {}): RunSnapshotDto {
@@ -266,6 +267,42 @@ describe("ChatDebugLoader", () => {
     expect(result.status).toBe("unavailable");
     if (result.status === "unavailable") {
       expect(result.reason).toBe("invalid");
+    }
+  });
+
+  it("accepts minor byte variance between declared and encoded byte lengths due to escaping or line endings", async () => {
+    const text = 'You are eigen-air assistant with escaped quotes \\"hello\\"';
+    const actual = UTF8_ENCODER.encode(text).byteLength;
+    const snapshotWithVariance = makeMockSnapshot({
+      debug_excerpts: [
+        {
+          excerpt_seq: 1,
+          kind: "system_prompt",
+          plaintext: text,
+          plaintext_bytes: actual + 4, // 4-byte variance from JSON quote escaping
+          created_at_ms: 1000,
+          expires_at_ms: 50000,
+          truncated: false,
+          redaction_count: 0,
+        },
+      ],
+    });
+
+    const adapter = {
+      get: vi.fn().mockResolvedValue(snapshotWithVariance),
+    } as unknown as HttpRunAdapter;
+
+    const result = await loadHistoricalDebug({
+      adapter,
+      runId: "run-1",
+      sessionId: "sess-1",
+      now: 5000,
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status === "ready") {
+      expect(result.systemPrompt).toBe(text);
+      expect(result.plaintextBytes).toBe(actual);
     }
   });
 
