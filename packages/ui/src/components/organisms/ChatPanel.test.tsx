@@ -4,10 +4,12 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STORAGE_KEYS } from "@eigen-air-ui/shared/constants";
+import type { HistoricalDebugState } from "@eigen-air-ui/shared/types";
 import { useChatStore } from "../../stores/chatStore.js";
 import { useConnectionStore } from "../../stores/connectionStore.js";
 import { useDebugSettingsStore } from "../../stores/debugSettingsStore.js";
 import { useReadinessStore } from "../../stores/readinessStore.js";
+import { useChatDebugStore } from "../../stores/chat-debug-store.js";
 import { ChatPanel } from "./ChatPanel.js";
 
 const serviceMocks = vi.hoisted(() => ({
@@ -60,6 +62,7 @@ vi.mock("../../adapters/factory/ServiceFactory.js", () => ({
   },
   getRunService: () => ({ get: serviceMocks.getRunSnapshot }),
   getServiceAccessContext: () => ({}),
+  registerAccessInvalidationListener: () => () => {},
 }));
 
 const TEST_SKILL = {
@@ -683,7 +686,7 @@ describe("ChatPanel selected skill lifecycle", () => {
     expect(JSON.parse(persisted).state.messages.at(-1).debug).toBeUndefined();
   });
 
-  it("preserves system prompt and reasoning debug across history reloads and settings toggles", async () => {
+  it("does not merge debug across history messages by content or ID", async () => {
     useDebugSettingsStore.setState({
       showPromptDebug: true,
       showReasoningDebug: true,
@@ -691,17 +694,17 @@ describe("ChatPanel selected skill lifecycle", () => {
     useChatStore.setState({
       messages: [
         {
-          id: "assistant-run-1",
+          id: "old-msg-1",
           role: "assistant",
-          content: "Hello with debug",
+          content: "Done",
           debug: {
             provider: "local_llama",
             model: "gemma-4",
-            system_prompt: "persistent system prompt",
+            system_prompt: "old prompt",
             reasoning: {
               requested: true,
               available: true,
-              text: "persistent reasoning text",
+              text: "old reasoning",
             },
           },
         },
@@ -710,17 +713,121 @@ describe("ChatPanel selected skill lifecycle", () => {
     serviceMocks.getHistory.mockResolvedValue({
       messages: [
         {
-          id: "assistant-run-1",
+          id: "new-msg-2",
           role: "assistant",
-          content: "Hello with debug",
+          content: "Done",
         },
       ],
     });
 
     render(<ChatPanel />);
 
-    expect(await screen.findByText("persistent system prompt")).toBeTruthy();
-    expect(await screen.findByText("persistent reasoning text")).toBeTruthy();
+    await waitFor(() => {
+      expect(useChatStore.getState().messages).toHaveLength(1);
+    });
+    const loaded = useChatStore.getState().messages[0];
+    expect(loaded.id).toBe("new-msg-2");
+    expect(loaded.content).toBe("Done");
+    expect(loaded.debug).toBeUndefined();
+  });
+
+  it("preserves completed debug cache entries across session navigation", async () => {
+    useDebugSettingsStore.setState({ showPromptDebug: true, showReasoningDebug: true });
+    useConnectionStore.setState({ sessionId: "session-A", url: "http://localhost:18790" });
+    useChatDebugStore.setState({
+      states: {
+        "session-A::run-1": {
+          status: "ready",
+          runId: "run-1",
+          provider: "openai_compatible",
+          expiresAtMs: Date.now() + 60000,
+          isPartial: false,
+        },
+      },
+    });
+
+    const { rerender } = render(<ChatPanel />);
+
+    act(() => {
+      useConnectionStore.setState({ sessionId: "session-B" });
+    });
+    rerender(<ChatPanel />);
+
+    act(() => {
+      useConnectionStore.setState({ sessionId: "session-A" });
+    });
+    rerender(<ChatPanel />);
+
+    const stateA = useChatDebugStore.getState().getState("session-A", "run-1");
+    expect(stateA.status).toBe("ready");
+  });
+
+  it("toggling debug Off clears ephemeral message debug and purges debug cache", async () => {
+    useDebugSettingsStore.setState({ showPromptDebug: true, showReasoningDebug: true });
+    useChatStore.setState({
+      messages: [
+        {
+          id: "msg-1",
+          role: "assistant",
+          content: "Hello",
+          debug: {
+            provider: "local_llama",
+            model: "gemma-4",
+          },
+        },
+      ],
+    });
+    useChatDebugStore.setState({
+      states: {
+        "session-1::run-1": {
+          status: "ready",
+          runId: "run-1",
+          provider: "local_llama",
+          expiresAtMs: Date.now() + 60000,
+          isPartial: false,
+        },
+      },
+    });
+
+    const { rerender } = render(<ChatPanel />);
+
+    act(() => {
+      useDebugSettingsStore.setState({ showPromptDebug: false, showReasoningDebug: false });
+    });
+    rerender(<ChatPanel />);
+
+    const msgs = useChatStore.getState().messages;
+    expect(msgs[0].debug).toBeUndefined();
+    expect(useChatDebugStore.getState().states).toEqual({});
+  });
+
+  it("V19: live send finalization succeeds without waiting for pending historical loader and never sets stream error", async () => {
+    useDebugSettingsStore.setState({ showPromptDebug: true, showReasoningDebug: true });
+    let pendingHistoricalResolve: () => void = () => {};
+    const pendingPromise = new Promise<HistoricalDebugState>((resolve) => {
+      pendingHistoricalResolve = () => resolve({ status: "loading" });
+    });
+    vi.spyOn(useChatDebugStore.getState(), "requestDebug").mockReturnValue(pendingPromise);
+    serviceMocks.sendMessage.mockResolvedValue({
+      content: "Live turn answer",
+      can_continue: false,
+    });
+
+    render(<ChatPanel />);
+
+    const user = userEvent.setup();
+    const input = screen.getByPlaceholderText("Message eigen-air...");
+    await user.type(input, "Hello agent");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => {
+      expect(useChatStore.getState().isStreaming).toBe(false);
+    });
+    expect(useChatStore.getState().streamError).toBeNull();
+    const messages = useChatStore.getState().messages;
+    expect(messages.at(-1)?.content).toBe("Live turn answer");
+
+    pendingHistoricalResolve();
   });
 
   it("blocks composer and displays loading placeholder when model is starting", () => {

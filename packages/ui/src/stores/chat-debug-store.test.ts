@@ -191,4 +191,15 @@ describe("ChatDebugStore", () => {
     useChatDebugStore.getState().evictRun("run-1");
     expect(useChatDebugStore.getState().getState("sess-1", "run-1").status).toBe("idle");
   });
+
+  it("evicts session cache and state on evictSession", async () => {
+    const getFn = vi.fn().mockImplementation(async (runId: string) => makeTestSnapshot(runId, "sess-to-delete"));
+    setRunService({ get: getFn } as unknown as HttpRunAdapter);
+
+    await useChatDebugStore.getState().requestDebug("sess-to-delete", "run-1", "c-1");
+    expect(useChatDebugStore.getState().getState("sess-to-delete", "run-1").status).toBe("ready");
+
+    useChatDebugStore.getState().evictSession("sess-to-delete");
+    expect(useChatDebugStore.getState().getState("sess-to-delete", "run-1").status).toBe("idle");
+  });
 });

@@ -34,6 +34,7 @@ vi.mock("../../adapters/factory/ServiceFactory.js", () => ({
     onRunReconnect: () => () => undefined,
   }),
   getServiceAccessContext: () => ({}),
+  registerAccessInvalidationListener: () => () => {},
   getSessionService: () => ({ listSessions: service.listSessions }),
 }));
 

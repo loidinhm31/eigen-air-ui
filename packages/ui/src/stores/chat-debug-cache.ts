@@ -123,6 +123,14 @@ export class ChatDebugCache {
     }
   }
 
+  evictSession(sessionId: string): void {
+    for (const [key, entry] of this.entries.entries()) {
+      if (entry.sessionId === sessionId) {
+        this.deleteEntry(key);
+      }
+    }
+  }
+
   clear(): void {
     this.entries.clear();
     this.totalBytes = 0;

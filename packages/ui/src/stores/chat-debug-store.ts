@@ -22,6 +22,7 @@ export interface ChatDebugStore {
   invalidateAccess(nextEpoch?: number): void;
   clearDebugCache(): void;
   evictRun(runId: string): void;
+  evictSession(sessionId: string): void;
   expireStale(now?: number): void;
   seedFromSnapshot(snapshot: RunSnapshotDto, sessionId: string): void;
 }
@@ -163,6 +164,14 @@ export const useChatDebugStore = create<ChatDebugStore>((set, get) => ({
     memoryCache.evictRun(runId);
     set((s) => {
       const next = Object.fromEntries(Object.entries(s.states).filter(([, st]) => !("runId" in st) || st.runId !== runId));
+      return { states: next, earliestExpiryMs: memoryCache.getEarliestExpiry() };
+    });
+  },
+
+  evictSession: (sessionId) => {
+    memoryCache.evictSession(sessionId);
+    set((s) => {
+      const next = Object.fromEntries(Object.entries(s.states).filter(([key]) => !key.startsWith(`${sessionId}::`)));
       return { states: next, earliestExpiryMs: memoryCache.getEarliestExpiry() };
     });
   },

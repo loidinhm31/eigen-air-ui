@@ -4,6 +4,7 @@ import { getSessionService } from "../../adapters/factory/ServiceFactory.js";
 import { useBasePathNavigation } from "../../embed/base-path-navigation.js";
 import { useChatStore } from "../../stores/chatStore.js";
 import { useConnectionStore } from "../../stores/connectionStore.js";
+import { useChatDebugStore } from "../../stores/chat-debug-store.js";
 import { Button } from "../atoms/Button.js";
 import { NativeScrollArea } from "../atoms/NativeScrollArea.js";
 import { Spinner } from "../atoms/Spinner.js";
@@ -58,10 +59,13 @@ export function SessionsPage() {
     setError(null);
     try {
       const deleted = await getSessionService().deleteSession(id);
-      if (deleted && id === sessionId) {
-        const replacement = await getSessionService().createSession();
-        setSessionId(replacement.id);
-        clearMessages();
+      if (deleted) {
+        useChatDebugStore.getState().evictSession(id);
+        if (id === sessionId) {
+          const replacement = await getSessionService().createSession();
+          setSessionId(replacement.id);
+          clearMessages();
+        }
       }
       setSessions(await getSessionService().listSessions());
     } catch (e) {

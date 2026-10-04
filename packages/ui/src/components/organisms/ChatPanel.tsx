@@ -12,6 +12,8 @@ import { useChatStore } from "../../stores/chatStore.js";
 import { useConnectionStore } from "../../stores/connectionStore.js";
 import { useDebugSettingsStore } from "../../stores/debugSettingsStore.js";
 import { useMemoryStore } from "../../stores/memoryStore.js";
+import { useChatDebugStore } from "../../stores/chat-debug-store.js";
+import { extractModelFromSnapshot } from "../../adapters/http/chat-debug-projection.js";
 import { Button } from "../atoms/Button.js";
 import { Input } from "../atoms/Input.js";
 import { ScrollArea } from "../atoms/ScrollArea.js";
@@ -135,8 +137,7 @@ export function ChatPanel() {
 
   useEffect(() => {
     return () => {
-      clearTimeout(errorCopyTimeoutRef.current);
-      if (debugExpiryRef.current) clearTimeout(debugExpiryRef.current.timer);
+      clearTimeout(debugExpiryRef.current?.timer);
       sendGenerationRef.current += 1;
       debugGenerationRef.current += 1;
       startupDebugAbortRef.current?.abort();
@@ -144,14 +145,32 @@ export function ChatPanel() {
     };
   }, []);
 
-  const previousScopeRef = useRef<string | null>(null);
+  const previousAccessRef = useRef<string | null>(null);
   useEffect(() => {
-    const currentScope = `${identityKey ?? ""}:${authToken ?? ""}:${daemonUrl}:${sessionId ?? ""}`;
-    if (previousScopeRef.current !== null && previousScopeRef.current !== currentScope) {
+    const currentAccess = `${identityKey ?? ""}:${authToken ?? ""}:${daemonUrl}`;
+    if (previousAccessRef.current !== null && previousAccessRef.current !== currentAccess) {
+      clearCapturedDebug();
+      useChatDebugStore.getState().invalidateAccess();
+    }
+    previousAccessRef.current = currentAccess;
+  }, [identityKey, authToken, daemonUrl]);
+
+  const previousSessionRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (previousSessionRef.current !== null && previousSessionRef.current !== sessionId) {
+      debugGenerationRef.current += 1;
+      startupDebugAbortRef.current?.abort();
+      finalDebugAbortRef.current?.abort();
+      updateStreamingDebug(undefined);
+    }
+    previousSessionRef.current = sessionId ?? null;
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (!showPromptDebug && !showReasoningDebug) {
       clearCapturedDebug();
     }
-    previousScopeRef.current = currentScope;
-  }, [identityKey, authToken, daemonUrl, sessionId]);
+  }, [showPromptDebug, showReasoningDebug]);
 
   function clearCapturedDebug() {
     debugGenerationRef.current += 1;
@@ -161,14 +180,15 @@ export function ChatPanel() {
     useChatStore.setState((state) => ({
       messages: state.messages.map(({ debug: _debug, ...message }) => message),
     }));
-    if (debugExpiryRef.current) clearTimeout(debugExpiryRef.current.timer);
+    useChatDebugStore.getState().clearDebugCache();
+    clearTimeout(debugExpiryRef.current?.timer);
     debugExpiryRef.current = null;
   }
 
   function retainDebugUntil(expiresAt: number) {
     if (!Number.isFinite(expiresAt)) return;
     if (debugExpiryRef.current && debugExpiryRef.current.at <= expiresAt) return;
-    if (debugExpiryRef.current) clearTimeout(debugExpiryRef.current.timer);
+    clearTimeout(debugExpiryRef.current?.timer);
     debugExpiryRef.current = {
       at: expiresAt,
       timer: window.setTimeout(clearCapturedDebug, Math.max(0, expiresAt - Date.now())),
@@ -289,26 +309,12 @@ export function ChatPanel() {
         return;
       }
 
-      const existingMessages = useChatStore.getState().messages;
       const historyLoadRevision = useChatStore.getState().messageRevision;
       for (let attempt = 0; attempt < 10 && !cancelled; attempt++) {
         try {
           const history = await getChatService().getHistory(sessionId, getDebugOptions());
           if (!cancelled && useChatStore.getState().messageRevision === historyLoadRevision) {
-            const debugByContentOrId = new Map(
-              existingMessages
-                .filter((m) => m.debug)
-                .flatMap((m) => {
-                  const entries: [string, typeof m.debug][] = [[m.content, m.debug]];
-                  if (m.id) entries.push([m.id, m.debug]);
-                  return entries;
-                })
-            );
-            const merged = history.messages.map((m) => ({
-              ...m,
-              debug: m.debug ?? (m.id ? debugByContentOrId.get(m.id) : undefined) ?? debugByContentOrId.get(m.content),
-            }));
-            replaceMessages(merged);
+            replaceMessages(history.messages);
           }
           return;
         } catch (error) {
@@ -595,7 +601,7 @@ export function ChatPanel() {
                 : "";
               finalDebug = {
                 provider: runSnapshot.run.provider_id,
-                model: "default",
+                model: extractModelFromSnapshot(runSnapshot) || "Not reported",
                 system_prompt: settings.showPromptDebug
                   ? unexpired.find((excerpt) => excerpt.kind === "system_prompt")?.plaintext
                   : undefined,
@@ -603,6 +609,9 @@ export function ChatPanel() {
                   ? { requested: true, available: Boolean(reasoning), text: reasoning || null }
                   : undefined,
               };
+              if (sessionId) {
+                useChatDebugStore.getState().seedFromSnapshot(runSnapshot, sessionId);
+              }
             }
           }
         } catch {
