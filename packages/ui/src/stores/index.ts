@@ -30,3 +30,26 @@ export type {
   ArtifactBlobScope,
   ArtifactBlobScopeFilter,
 } from "./artifact-blob-cache.js";
+export {
+  IMAGE_JOB_POLL_MS,
+  IMAGE_REFRESH_MIN_SPACING_MS,
+  useImageArtifactStore,
+} from "./image-artifact-store.js";
+export type {
+  ImageArtifactStore,
+  ImageCapabilities,
+  ImageJobSelector,
+  ImageStoreStatus,
+} from "./image-artifact-store.js";
+export { bindImageGroupsToMessages, groupImageArtifactsByRun } from "./image-run-groups.js";
+export type { ImageBindableMessage, ImageGroupBinding, ImageRunGroup } from "./image-run-groups.js";
+export {
+  useImageCapabilities,
+  useImageHistorySync,
+  useSessionImageGroups,
+  useTrackedImageJobs,
+} from "./use-image-history.js";
+export { ImagePreviewError, isLeaseUsable, loadImagePreview } from "./image-preview-loader.js";
+export type { ImagePreviewErrorCode } from "./image-preview-loader.js";
+export { registerImagePreview } from "./image-lease-driver.js";
+export { downloadImageArtifact } from "./image-download.js";
