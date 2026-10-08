@@ -5,6 +5,7 @@ import { HttpToolAdapter } from "../http/HttpToolAdapter.js";
 import { HttpVaultKnowledgeAdapter } from "../http/HttpVaultKnowledgeAdapter.js";
 import { HttpUserQuestionAdapter } from "../http/HttpUserQuestionAdapter.js";
 import { HttpToolApprovalAdapter } from "../http/HttpToolApprovalAdapter.js";
+import { HttpArtifactAdapter } from "../http/HttpArtifactAdapter.js";
 import { HttpRunAdapter } from "../http/HttpRunAdapter.js";
 import { WsChatAdapter } from "../ws/WsChatAdapter.js";
 import {
@@ -17,6 +18,7 @@ import {
   setVaultKnowledgeService,
   setUserQuestionService,
   setToolApprovalService,
+  setArtifactService,
   setRunService,
   getServiceAccessContext,
 } from "./ServiceFactory.js";
@@ -73,4 +75,5 @@ export function initServicesForDaemonUrl(daemonUrl: string): void {
   setUserQuestionService(new HttpUserQuestionAdapter(httpUrl, access));
   setToolApprovalService(new HttpToolApprovalAdapter(httpUrl, access));
   setRunService(new HttpRunAdapter(httpUrl, access));
+  setArtifactService(new HttpArtifactAdapter(httpUrl, access));
 }

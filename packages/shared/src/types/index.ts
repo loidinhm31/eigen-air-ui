@@ -12,3 +12,5 @@ export * from "./memory-outcome-decoder.js";
 export * from "./request-provenance-decoder.js";
 export * from "./task-outcome-decoder.js";
 export * from "./tool-selection-decoder.js";
+export * from "./artifact.js";
+export * from "./artifact-decoder.js";

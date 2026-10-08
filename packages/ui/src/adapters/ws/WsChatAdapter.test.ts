@@ -37,6 +37,13 @@ const wsHarness = vi.hoisted(() => {
 
     onConnectionStatus() {}
     onProtocolError() {}
+    private invalidImageHintHandlers: Array<() => void> = [];
+    onInvalidImageHint(handler: () => void) {
+      this.invalidImageHintHandlers.push(handler);
+    }
+    emitInvalidImageHint() {
+      this.invalidImageHintHandlers.forEach((handler) => handler());
+    }
     onReconnect(handler: (fence?: unknown) => Promise<void>) {
       harness.reconnectHandler = handler;
     }
@@ -63,7 +70,12 @@ const wsHarness = vi.hoisted(() => {
 });
 
 vi.mock("./WsClient.js", () => ({ WsClient: wsHarness.FakeWsClient }));
-import { buildChatSendParams, buildDebugRequest, projectRunCorrelation } from "./WsChatAdapter.js";
+import {
+  WsChatAdapter,
+  buildChatSendParams,
+  buildDebugRequest,
+  projectRunCorrelation,
+} from "./WsChatAdapter.js";
 import { useConnectionStore } from "../../stores/connectionStore.js";
 
 
@@ -386,3 +398,129 @@ describe("WsChatAdapter auth and connection lifecycle", () => {
   });
 });
 
+
+describe("WsChatAdapter image hints", () => {
+  const jobHint = {
+    type: "event",
+    version: "v1",
+    event: "image_job.updated",
+    session_id: "session-synth-001",
+    run_id: "run-synth-001",
+    payload: {
+      job_id: "00000000-0000-4000-8000-000000000001",
+      session_id: "session-synth-001",
+      run_id: "run-synth-001",
+      state: "running",
+      revision: 3,
+      requested_count: 2,
+      completed_count: 0,
+    },
+  };
+  const artifactHint = {
+    type: "event",
+    version: "v1",
+    event: "image_artifact.committed",
+    session_id: "session-synth-001",
+    run_id: "run-synth-001",
+    payload: {
+      artifact_id: "10000000-0000-4000-8000-000000000001",
+      job_id: "00000000-0000-4000-8000-000000000001",
+      ordinal: 0,
+      state: "committed",
+      revision: 1,
+    },
+  };
+
+  it("dispatches decoded hints and invalid signals, supports unsubscribe, leaves other events alone", () => {
+    const adapter = new WsChatAdapter("ws://daemon");
+    const hints: unknown[] = [];
+    const runSignals: Array<{ event: string }> = [];
+    const reconnects: number[] = [];
+    adapter.subscribeRunCorrelation((signal) => runSignals.push(signal));
+    adapter.onRunReconnect(() => reconnects.push(1));
+    const unsubscribe = adapter.onImageHint((hint) => hints.push(hint));
+
+    wsHarness.harness.client?.emit(jobHint);
+    wsHarness.harness.client?.emit(artifactHint);
+    wsHarness.harness.client?.emitInvalidImageHint();
+    expect(hints).toEqual([jobHint, artifactHint, { invalid: true }]);
+
+    // Hints are not run lifecycle events: no run correlation, no reconnect side effects.
+    expect(runSignals).toEqual([]);
+    expect(reconnects).toEqual([]);
+
+    wsHarness.harness.client?.emit({
+      type: "event",
+      version: "v1",
+      event: "run.finished",
+      run_id: "run-synth-001",
+      payload: {},
+    });
+    expect(runSignals.map((signal) => signal.event)).toEqual(["run.finished"]);
+    expect(hints).toHaveLength(3);
+
+    unsubscribe();
+    wsHarness.harness.client?.emit(jobHint);
+    wsHarness.harness.client?.emitInvalidImageHint();
+    expect(hints).toHaveLength(3);
+  });
+
+  it("isolates a throwing subscriber: later subscribers still receive, the stream keeps running", () => {
+    const adapter = new WsChatAdapter("ws://daemon");
+    const received: unknown[] = [];
+    const runSignals: Array<{ event: string }> = [];
+    adapter.subscribeRunCorrelation((signal) => runSignals.push(signal));
+    adapter.onImageHint(() => {
+      throw new Error("subscriber boom");
+    });
+    adapter.onImageHint((hint) => received.push(hint));
+    const client = wsHarness.harness.client;
+
+    expect(() => client?.emit(jobHint)).not.toThrow();
+    expect(() => client?.emitInvalidImageHint()).not.toThrow();
+    expect(received).toEqual([jobHint, { invalid: true }]);
+
+    // Later frames are still processed after the throwing subscriber.
+    expect(() => client?.emit(artifactHint)).not.toThrow();
+    client?.emit({
+      type: "event",
+      version: "v1",
+      event: "run.finished",
+      run_id: "run-synth-001",
+      payload: {},
+    });
+    expect(received).toEqual([jobHint, { invalid: true }, artifactHint]);
+    expect(runSignals.map((signal) => signal.event)).toEqual(["run.finished"]);
+  });
+
+  it("never forwards decoded hints to the per-turn sendMessage stream callback", async () => {
+    const adapter = new WsChatAdapter("ws://daemon");
+    const streamed: Array<{ event?: string }> = [];
+    const hints: unknown[] = [];
+    adapter.onImageHint((hint) => hints.push(hint));
+    wsHarness.harness.nextResponse = {
+      ok: true,
+      data: {
+        status: "waiting_for_input",
+        run_id: "run-1",
+        question_id: "question-1",
+        snapshot_ref: "user_question:question-1",
+      },
+    };
+    // Waiting turns keep the stream handler registered, so it can observe later frames.
+    await adapter.sendMessage("start", "session-1", (event) => streamed.push(event));
+    const client = wsHarness.harness.client;
+    client?.emit(jobHint);
+    client?.emit({
+      type: "event",
+      version: "v1",
+      event: "run.delta",
+      payload: { delta: "x" },
+    });
+    client?.emit(artifactHint);
+
+    expect(streamed.map((event) => event.event)).toEqual(["run.delta"]);
+    expect(hints).toEqual([jobHint, artifactHint]);
+    wsHarness.harness.reset();
+  });
+});

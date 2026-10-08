@@ -1,0 +1,1194 @@
+{
+  "schema": "local_image_fixture.v1",
+  "revision": 1,
+  "description": "Canonical contract test vectors and fixture envelopes for local image generation Phase 01 client/public contracts.",
+  "vectors": {
+    "requests": {
+      "agent_tool_valid": {
+        "action": "generate",
+        "prompt": "A serene alpine lake surrounded by pine forests during golden hour",
+        "negative_prompt": "blurry, low quality, artifacts",
+        "n": 2,
+        "seed": 42,
+        "quality": "high",
+        "size": "portrait",
+        "session_id": "session-synth-001"
+      },
+      "direct_template_valid": {
+        "action": "generate",
+        "prompt": "A modern minimalist mechanical keyboard on an oak desk",
+        "negative_prompt": "blurry, distorted, bad reflections",
+        "n": 1,
+        "seed": 123456789,
+        "quality": "balanced",
+        "size": "square",
+        "template_id": "general-image",
+        "session_id": "session-synth-002"
+      },
+      "with_edit_image_valid": {
+        "action": "generate",
+        "prompt": "Transform daytime scenery into a starry midnight scene with aurora borealis",
+        "n": 1,
+        "edit_image": "workspace/inputs/source_landscape.png",
+        "strength": 0.75,
+        "quality": "balanced",
+        "size": "landscape"
+      },
+      "with_references_valid": {
+        "action": "generate",
+        "prompt": "A futuristic electric vehicle inspired by retro-futurism aesthetic",
+        "n": 1,
+        "images": [
+          "workspace/refs/style_guide_01.png",
+          "workspace/refs/color_palette_02.jpg"
+        ],
+        "quality": "high",
+        "size": "wide"
+      },
+      "custom_dimensions_valid": {
+        "action": "generate",
+        "prompt": "Architectural rendering of an eco-friendly treehouse villa",
+        "n": 1,
+        "width": 512,
+        "height": 384,
+        "quality": "fast"
+      },
+      "custom_dimensions_unaligned_valid": {
+        "action": "generate",
+        "prompt": "Architectural rendering of an eco-friendly treehouse villa with unaligned dimensions",
+        "n": 1,
+        "width": 500,
+        "height": 512,
+        "quality": "fast"
+      },
+      "custom_size_string_valid": {
+        "action": "generate",
+        "prompt": "Vintage botanical illustration of wild medicinal herbs",
+        "n": 1,
+        "size": "512x384",
+        "quality": "balanced"
+      }
+    },
+    "results": {
+      "agent_tool_success": {
+        "schema": "image_result.v1",
+        "job_id": "00000000-0000-4000-8000-000000000001",
+        "session_id": "session-synth-001",
+        "run_id": "run-synth-001",
+        "origin": "agent_tool",
+        "tool_call_id": "call_synth_agent_001",
+        "state": "succeeded",
+        "requested_count": 2,
+        "completed_count": 2,
+        "effective_quality": "high",
+        "effective_width": 384,
+        "effective_height": 512,
+        "effective_steps": 28,
+        "effective_backend": "vulkan",
+        "effective_model_id": "qwen-image-2.1",
+        "elapsed_ms": 3200,
+        "safe_code": null,
+        "artifacts": [
+          {
+            "schema": "image_artifact.v1",
+            "artifact_id": "10000000-0000-4000-8000-000000000001",
+            "job_id": "00000000-0000-4000-8000-000000000001",
+            "session_id": "session-synth-001",
+            "run_id": "run-synth-001",
+            "ordinal": 0,
+            "mime": "image/png",
+            "width": 384,
+            "height": 512,
+            "byte_size": 1542000,
+            "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "created_at_ms": 1700000001000,
+            "state": "committed",
+            "tool_call_id": "call_synth_agent_001"
+          },
+          {
+            "schema": "image_artifact.v1",
+            "artifact_id": "10000000-0000-4000-8000-000000000002",
+            "job_id": "00000000-0000-4000-8000-000000000001",
+            "session_id": "session-synth-001",
+            "run_id": "run-synth-001",
+            "ordinal": 1,
+            "mime": "image/png",
+            "width": 384,
+            "height": 512,
+            "byte_size": 1561000,
+            "sha256": "123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0",
+            "created_at_ms": 1700000002000,
+            "state": "committed",
+            "tool_call_id": "call_synth_agent_001"
+          }
+        ]
+      },
+      "direct_template_success": {
+        "schema": "image_result.v1",
+        "job_id": "00000000-0000-4000-8000-000000000002",
+        "session_id": "session-synth-002",
+        "run_id": "run-synth-002",
+        "origin": "direct_template",
+        "template_id": "general-image",
+        "state": "succeeded",
+        "requested_count": 1,
+        "completed_count": 1,
+        "effective_quality": "balanced",
+        "effective_width": 512,
+        "effective_height": 512,
+        "effective_steps": 20,
+        "effective_backend": "vulkan",
+        "effective_model_id": "qwen-image-2.1",
+        "elapsed_ms": 1850,
+        "safe_code": null,
+        "artifacts": [
+          {
+            "schema": "image_artifact.v1",
+            "artifact_id": "10000000-0000-4000-8000-000000000003",
+            "job_id": "00000000-0000-4000-8000-000000000002",
+            "session_id": "session-synth-002",
+            "run_id": "run-synth-002",
+            "ordinal": 0,
+            "mime": "image/png",
+            "width": 512,
+            "height": 512,
+            "byte_size": 1284000,
+            "sha256": "23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01",
+            "created_at_ms": 1700000003000,
+            "state": "committed"
+          }
+        ]
+      },
+      "retained_partial_failure": {
+        "schema": "image_result.v1",
+        "job_id": "00000000-0000-4000-8000-000000000003",
+        "session_id": "session-synth-003",
+        "run_id": "run-synth-003",
+        "origin": "agent_tool",
+        "tool_call_id": "call_synth_agent_003",
+        "state": "partial_failed",
+        "requested_count": 2,
+        "completed_count": 1,
+        "effective_quality": "balanced",
+        "effective_width": 512,
+        "effective_height": 512,
+        "effective_steps": 20,
+        "effective_backend": "vulkan",
+        "effective_model_id": "qwen-image-2.1",
+        "elapsed_ms": 2900,
+        "safe_code": "image_native_failed",
+        "artifacts": [
+          {
+            "schema": "image_artifact.v1",
+            "artifact_id": "10000000-0000-4000-8000-000000000004",
+            "job_id": "00000000-0000-4000-8000-000000000003",
+            "session_id": "session-synth-003",
+            "run_id": "run-synth-003",
+            "ordinal": 0,
+            "mime": "image/png",
+            "width": 512,
+            "height": 512,
+            "byte_size": 1310000,
+            "sha256": "3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012",
+            "created_at_ms": 1700000004000,
+            "state": "committed",
+            "tool_call_id": "call_synth_agent_003"
+          }
+        ]
+      },
+      "retained_partial_cancelled": {
+        "schema": "image_result.v1",
+        "job_id": "00000000-0000-4000-8000-000000000004",
+        "session_id": "session-synth-004",
+        "run_id": "run-synth-004",
+        "origin": "agent_tool",
+        "tool_call_id": "call_synth_agent_004",
+        "state": "partial_cancelled",
+        "requested_count": 3,
+        "completed_count": 1,
+        "effective_quality": "balanced",
+        "effective_width": 512,
+        "effective_height": 512,
+        "effective_steps": 20,
+        "effective_backend": "vulkan",
+        "effective_model_id": "qwen-image-2.1",
+        "elapsed_ms": 2100,
+        "safe_code": "image_cancelled",
+        "artifacts": [
+          {
+            "schema": "image_artifact.v1",
+            "artifact_id": "10000000-0000-4000-8000-000000000005",
+            "job_id": "00000000-0000-4000-8000-000000000004",
+            "session_id": "session-synth-004",
+            "run_id": "run-synth-004",
+            "ordinal": 0,
+            "mime": "image/png",
+            "width": 512,
+            "height": 512,
+            "byte_size": 1295000,
+            "sha256": "456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123",
+            "created_at_ms": 1700000005000,
+            "state": "committed",
+            "tool_call_id": "call_synth_agent_004"
+          }
+        ]
+      },
+      "retained_indeterminate": {
+        "schema": "image_result.v1",
+        "job_id": "00000000-0000-4000-8000-000000000005",
+        "session_id": "session-synth-005",
+        "run_id": "run-synth-005",
+        "origin": "direct_template",
+        "template_id": "illustration",
+        "state": "indeterminate",
+        "requested_count": 2,
+        "completed_count": 1,
+        "effective_quality": "balanced",
+        "effective_width": 512,
+        "effective_height": 512,
+        "effective_steps": 20,
+        "effective_backend": "vulkan",
+        "effective_model_id": "qwen-image-2.1",
+        "elapsed_ms": 15000,
+        "safe_code": "image_indeterminate",
+        "artifacts": [
+          {
+            "schema": "image_artifact.v1",
+            "artifact_id": "10000000-0000-4000-8000-000000000006",
+            "job_id": "00000000-0000-4000-8000-000000000005",
+            "session_id": "session-synth-005",
+            "run_id": "run-synth-005",
+            "ordinal": 0,
+            "mime": "image/png",
+            "width": 512,
+            "height": 512,
+            "byte_size": 1340000,
+            "sha256": "56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234",
+            "created_at_ms": 1700000006000,
+            "state": "committed"
+          }
+        ]
+      },
+      "unavailable_safe_code": {
+        "schema": "image_result.v1",
+        "job_id": "00000000-0000-4000-8000-000000000006",
+        "session_id": "session-synth-006",
+        "run_id": "run-synth-006",
+        "origin": "agent_tool",
+        "tool_call_id": "call_synth_agent_006",
+        "state": "failed",
+        "requested_count": 1,
+        "completed_count": 0,
+        "effective_quality": "balanced",
+        "effective_width": 512,
+        "effective_height": 512,
+        "effective_steps": 20,
+        "effective_backend": "vulkan",
+        "effective_model_id": "qwen-image-2.1",
+        "elapsed_ms": 450,
+        "safe_code": "image_resource_unavailable",
+        "artifacts": []
+      }
+    },
+    "snapshots": {
+      "job_snapshot_admitted": {
+        "schema": "image_job.v1",
+        "job_id": "00000000-0000-4000-8000-000000000001",
+        "session_id": "session-synth-001",
+        "run_id": "run-synth-001",
+        "origin": "agent_tool",
+        "tool_call_id": "call_synth_agent_001",
+        "state": "admitted",
+        "revision": 1,
+        "requested_count": 2,
+        "completed_count": 0,
+        "effective_quality": "high",
+        "effective_width": 384,
+        "effective_height": 512,
+        "effective_steps": 28,
+        "effective_backend": "vulkan",
+        "effective_model_id": "qwen-image-2.1",
+        "safe_code": null,
+        "created_at_ms": 1700000000000,
+        "updated_at_ms": 1700000000000,
+        "terminal_at_ms": null,
+        "artifacts": []
+      },
+      "job_snapshot_running": {
+        "schema": "image_job.v1",
+        "job_id": "00000000-0000-4000-8000-000000000001",
+        "session_id": "session-synth-001",
+        "run_id": "run-synth-001",
+        "origin": "agent_tool",
+        "tool_call_id": "call_synth_agent_001",
+        "state": "running",
+        "revision": 3,
+        "requested_count": 2,
+        "completed_count": 0,
+        "effective_quality": "high",
+        "effective_width": 384,
+        "effective_height": 512,
+        "effective_steps": 28,
+        "effective_backend": "vulkan",
+        "effective_model_id": "qwen-image-2.1",
+        "safe_code": null,
+        "created_at_ms": 1700000000000,
+        "updated_at_ms": 1700000001500,
+        "terminal_at_ms": null,
+        "artifacts": []
+      },
+      "job_snapshot_succeeded": {
+        "schema": "image_job.v1",
+        "job_id": "00000000-0000-4000-8000-000000000002",
+        "session_id": "session-synth-002",
+        "run_id": "run-synth-002",
+        "origin": "direct_template",
+        "template_id": "general-image",
+        "state": "succeeded",
+        "revision": 5,
+        "requested_count": 1,
+        "completed_count": 1,
+        "effective_quality": "balanced",
+        "effective_width": 512,
+        "effective_height": 512,
+        "effective_steps": 20,
+        "effective_backend": "vulkan",
+        "effective_model_id": "qwen-image-2.1",
+        "safe_code": null,
+        "created_at_ms": 1700000002000,
+        "updated_at_ms": 1700000003850,
+        "terminal_at_ms": 1700000003850,
+        "artifacts": [
+          {
+            "schema": "image_artifact.v1",
+            "artifact_id": "10000000-0000-4000-8000-000000000003",
+            "job_id": "00000000-0000-4000-8000-000000000002",
+            "session_id": "session-synth-002",
+            "run_id": "run-synth-002",
+            "ordinal": 0,
+            "mime": "image/png",
+            "width": 512,
+            "height": 512,
+            "byte_size": 1284000,
+            "sha256": "23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01",
+            "created_at_ms": 1700000003000,
+            "state": "committed"
+          }
+        ]
+      },
+      "job_snapshot_partial_cancelled": {
+        "schema": "image_job.v1",
+        "job_id": "00000000-0000-4000-8000-000000000004",
+        "session_id": "session-synth-004",
+        "run_id": "run-synth-004",
+        "origin": "agent_tool",
+        "tool_call_id": "call_synth_agent_004",
+        "state": "partial_cancelled",
+        "revision": 6,
+        "requested_count": 3,
+        "completed_count": 1,
+        "effective_quality": "balanced",
+        "effective_width": 512,
+        "effective_height": 512,
+        "effective_steps": 20,
+        "effective_backend": "vulkan",
+        "effective_model_id": "qwen-image-2.1",
+        "safe_code": "image_cancelled",
+        "created_at_ms": 1700000004000,
+        "updated_at_ms": 1700000006100,
+        "terminal_at_ms": 1700000006100,
+        "artifacts": [
+          {
+            "schema": "image_artifact.v1",
+            "artifact_id": "10000000-0000-4000-8000-000000000005",
+            "job_id": "00000000-0000-4000-8000-000000000004",
+            "session_id": "session-synth-004",
+            "run_id": "run-synth-004",
+            "ordinal": 0,
+            "mime": "image/png",
+            "width": 512,
+            "height": 512,
+            "byte_size": 1295000,
+            "sha256": "456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123",
+            "created_at_ms": 1700000005000,
+            "state": "committed",
+            "tool_call_id": "call_synth_agent_004"
+          }
+        ]
+      },
+      "job_snapshot_indeterminate": {
+        "schema": "image_job.v1",
+        "job_id": "00000000-0000-4000-8000-000000000005",
+        "session_id": "session-synth-005",
+        "run_id": "run-synth-005",
+        "origin": "direct_template",
+        "template_id": "illustration",
+        "state": "indeterminate",
+        "revision": 7,
+        "requested_count": 2,
+        "completed_count": 1,
+        "effective_quality": "balanced",
+        "effective_width": 512,
+        "effective_height": 512,
+        "effective_steps": 20,
+        "effective_backend": "vulkan",
+        "effective_model_id": "qwen-image-2.1",
+        "safe_code": "image_indeterminate",
+        "created_at_ms": 1700000005000,
+        "updated_at_ms": 1700000020000,
+        "terminal_at_ms": 1700000020000,
+        "artifacts": [
+          {
+            "schema": "image_artifact.v1",
+            "artifact_id": "10000000-0000-4000-8000-000000000006",
+            "job_id": "00000000-0000-4000-8000-000000000005",
+            "session_id": "session-synth-005",
+            "run_id": "run-synth-005",
+            "ordinal": 0,
+            "mime": "image/png",
+            "width": 512,
+            "height": 512,
+            "byte_size": 1340000,
+            "sha256": "56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234",
+            "created_at_ms": 1700000006000,
+            "state": "committed"
+          }
+        ]
+      }
+    },
+    "artifact_refs": {
+      "committed_artifact": {
+        "schema": "image_artifact.v1",
+        "artifact_id": "10000000-0000-4000-8000-000000000001",
+        "job_id": "00000000-0000-4000-8000-000000000001",
+        "session_id": "session-synth-001",
+        "run_id": "run-synth-001",
+        "ordinal": 0,
+        "mime": "image/png",
+        "width": 512,
+        "height": 512,
+        "byte_size": 1048576,
+        "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "created_at_ms": 1700000001000,
+        "state": "committed",
+        "tool_call_id": "call_synth_agent_001"
+      },
+      "unavailable_artifact": {
+        "schema": "image_artifact.v1",
+        "artifact_id": "10000000-0000-4000-8000-000000000007",
+        "job_id": "00000000-0000-4000-8000-000000000001",
+        "session_id": "session-synth-001",
+        "run_id": "run-synth-001",
+        "ordinal": 1,
+        "mime": "image/png",
+        "width": 512,
+        "height": 512,
+        "byte_size": 0,
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "created_at_ms": 1700000001000,
+        "state": "unavailable",
+        "tool_call_id": "call_synth_agent_001"
+      }
+    },
+    "artifact_lists": {
+      "artifact_list_valid": {
+        "schema": "image_artifact_list.v1",
+        "items": [
+          {
+            "schema": "image_artifact.v1",
+            "artifact_id": "10000000-0000-4000-8000-000000000001",
+            "job_id": "00000000-0000-4000-8000-000000000001",
+            "session_id": "session-synth-001",
+            "run_id": "run-synth-001",
+            "ordinal": 0,
+            "mime": "image/png",
+            "width": 512,
+            "height": 512,
+            "byte_size": 1048576,
+            "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "created_at_ms": 1700000001000,
+            "state": "committed",
+            "tool_call_id": "call_synth_agent_001"
+          },
+          {
+            "schema": "image_artifact.v1",
+            "artifact_id": "10000000-0000-4000-8000-000000000002",
+            "job_id": "00000000-0000-4000-8000-000000000001",
+            "session_id": "session-synth-001",
+            "run_id": "run-synth-001",
+            "ordinal": 1,
+            "mime": "image/png",
+            "width": 512,
+            "height": 512,
+            "byte_size": 1052000,
+            "sha256": "123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0",
+            "created_at_ms": 1700000002000,
+            "state": "committed",
+            "tool_call_id": "call_synth_agent_001"
+          }
+        ],
+        "next_cursor": null
+      },
+      "artifact_list_paginated": {
+        "schema": "image_artifact_list.v1",
+        "items": [
+          {
+            "schema": "image_artifact.v1",
+            "artifact_id": "10000000-0000-4000-8000-000000000001",
+            "job_id": "00000000-0000-4000-8000-000000000001",
+            "session_id": "session-synth-001",
+            "run_id": "run-synth-001",
+            "ordinal": 0,
+            "mime": "image/png",
+            "width": 512,
+            "height": 512,
+            "byte_size": 1048576,
+            "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "created_at_ms": 1700000001000,
+            "state": "committed",
+            "tool_call_id": "call_synth_agent_001"
+          }
+        ],
+        "next_cursor": "cursor-synth-epoch-02"
+      }
+    },
+    "templates": {
+      "manifest_example": {
+        "schema": "image_templates.v1",
+        "revision": 1,
+        "templates": [
+          {
+            "id": "general-image",
+            "name": "General Image",
+            "description": "General-purpose image generation for diverse subjects, compositions, and scenes.",
+            "prompt_template": "{prompt}",
+            "negative_prompt_default": "blurry, distorted, low quality, bad anatomy, artifacts",
+            "editable_fields": ["prompt", "negative_prompt", "quality", "size", "seed", "n"],
+            "defaults": {
+              "quality": "balanced",
+              "size": "square",
+              "n": 1
+            }
+          },
+          {
+            "id": "product-photograph",
+            "name": "Product Photograph",
+            "description": "Clean studio product photography with neutral lighting, sharp focus, and staged subject.",
+            "prompt_template": "studio product photograph of {prompt}, professional studio lighting, clean background, sharp focus, high detail",
+            "negative_prompt_default": "blurry, grainy, noisy, cluttered background, bad reflections, low resolution, artifacts",
+            "editable_fields": ["prompt", "negative_prompt", "quality", "size", "seed", "n"],
+            "defaults": {
+              "quality": "high",
+              "size": "square",
+              "n": 1
+            }
+          },
+          {
+            "id": "illustration",
+            "name": "Illustration",
+            "description": "Stylized digital illustration with clear artistic linework, expressive lighting, and curated color palette.",
+            "prompt_template": "stylized digital illustration of {prompt}, artistic style, vivid colors, expressive lighting, detailed rendering",
+            "negative_prompt_default": "photorealistic, photograph, blurry, noisy, low contrast, washed out, artifacts",
+            "editable_fields": ["prompt", "negative_prompt", "quality", "size", "seed", "n"],
+            "defaults": {
+              "quality": "balanced",
+              "size": "square",
+              "n": 1
+            }
+          }
+        ]
+      },
+      "public_list_example": {
+        "schema": "image_template_list.v1",
+        "revision": 1,
+        "templates": [
+          {
+            "id": "general-image",
+            "name": "General Image",
+            "description": "General-purpose image generation for diverse subjects, compositions, and scenes.",
+            "editable_fields": ["prompt", "negative_prompt", "quality", "size", "seed", "n"],
+            "defaults": {
+              "quality": "balanced",
+              "size": "square",
+              "n": 1
+            }
+          },
+          {
+            "id": "product-photograph",
+            "name": "Product Photograph",
+            "description": "Clean studio product photography with neutral lighting, sharp focus, and staged subject.",
+            "editable_fields": ["prompt", "negative_prompt", "quality", "size", "seed", "n"],
+            "defaults": {
+              "quality": "high",
+              "size": "square",
+              "n": 1
+            }
+          },
+          {
+            "id": "illustration",
+            "name": "Illustration",
+            "description": "Stylized digital illustration with clear artistic linework, expressive lighting, and curated color palette.",
+            "editable_fields": ["prompt", "negative_prompt", "quality", "size", "seed", "n"],
+            "defaults": {
+              "quality": "balanced",
+              "size": "square",
+              "n": 1
+            }
+          }
+        ]
+      }
+    },
+    "rejections": {
+      "extra_key_request": {
+        "payload": {
+          "prompt": "A sunset over the ocean",
+          "unauthorized_field": "injected_value"
+        },
+        "reason": "deny_unknown_fields rejects unexpected property unauthorized_field"
+      },
+      "extra_key_snapshot": {
+        "payload": {
+          "schema": "image_job.v1",
+          "job_id": "00000000-0000-4000-8000-000000000001",
+          "session_id": "session-1",
+          "run_id": "run-1",
+          "origin": "agent_tool",
+          "tool_call_id": "call-1",
+          "state": "admitted",
+          "revision": 1,
+          "requested_count": 1,
+          "completed_count": 0,
+          "effective_quality": "balanced",
+          "effective_width": 512,
+          "effective_height": 512,
+          "effective_steps": 20,
+          "effective_backend": "vulkan",
+          "effective_model_id": "qwen-image-2.1",
+          "created_at_ms": 1700000000000,
+          "updated_at_ms": 1700000000000,
+          "artifacts": [],
+          "private_host_path": "/var/data/staging/output.png"
+        },
+        "reason": "deny_unknown_fields rejects privacy-violating host path private_host_path"
+      },
+      "prompt_too_long": {
+        "byte_length": 8200,
+        "max_allowed": 8192,
+        "reason": "prompt length exceeds MAX_PROMPT_BYTES"
+      },
+      "prompt_contains_nul": {
+        "payload": {
+          "prompt": "forbidden\u0000nul_byte"
+        },
+        "reason": "prompt contains forbidden NUL character"
+      },
+      "negative_prompt_too_long": {
+        "byte_length": 2050,
+        "max_allowed": 2048,
+        "reason": "negative_prompt length exceeds MAX_NEGATIVE_PROMPT_BYTES"
+      },
+      "negative_prompt_contains_nul": {
+        "payload": {
+          "prompt": "valid prompt",
+          "negative_prompt": "forbidden\u0000nul_byte"
+        },
+        "reason": "negative_prompt contains forbidden NUL character"
+      },
+      "count_below_min": {
+        "payload": {
+          "prompt": "valid prompt",
+          "n": 0
+        },
+        "reason": "n must be >= 1"
+      },
+      "count_above_max": {
+        "payload": {
+          "prompt": "valid prompt",
+          "n": 5
+        },
+        "reason": "n must be <= 4"
+      },
+      "seed_out_of_range": {
+        "payload": {
+          "prompt": "valid prompt",
+          "seed": 2147483648
+        },
+        "reason": "seed exceeds 31-bit limit of 2147483647 (2^31 - 1)"
+      },
+      "steps_below_min": {
+        "payload": {
+          "prompt": "valid prompt",
+          "steps": 3
+        },
+        "reason": "explicit steps must be >= 4"
+      },
+      "steps_above_max": {
+        "payload": {
+          "prompt": "valid prompt",
+          "steps": 61
+        },
+        "reason": "explicit steps must be <= 60"
+      },
+      "strength_without_edit": {
+        "payload": {
+          "prompt": "valid prompt",
+          "strength": 0.75
+        },
+        "reason": "strength parameter requires edit_image to be present"
+      },
+      "strength_below_min": {
+        "payload": {
+          "prompt": "valid prompt",
+          "edit_image": "workspace/inputs/img.png",
+          "strength": 0.05
+        },
+        "reason": "strength must be >= 0.1"
+      },
+      "strength_above_max": {
+        "payload": {
+          "prompt": "valid prompt",
+          "edit_image": "workspace/inputs/img.png",
+          "strength": 1.05
+        },
+        "reason": "strength must be <= 1.0"
+      },
+      "too_many_references": {
+        "reference_count": 11,
+        "max_allowed": 10,
+        "reason": "reference image count exceeds MAX_REFERENCE_IMAGES"
+      },
+      "path_traversal": {
+        "payload": {
+          "prompt": "valid prompt",
+          "edit_image": "../../etc/passwd.png"
+        },
+        "reason": "path traversal (..) is not permitted"
+      },
+      "path_absolute": {
+        "payload": {
+          "prompt": "valid prompt",
+          "edit_image": "/var/data/image.png"
+        },
+        "reason": "absolute paths are not permitted"
+      },
+      "path_url": {
+        "payload": {
+          "prompt": "valid prompt",
+          "edit_image": "https://example.com/image.png"
+        },
+        "reason": "URL schemes are not permitted"
+      },
+      "path_data_uri": {
+        "payload": {
+          "prompt": "valid prompt",
+          "edit_image": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=="
+        },
+        "reason": "data URIs are not permitted"
+      },
+      "path_unsupported_extension": {
+        "payload": {
+          "prompt": "valid prompt",
+          "edit_image": "workspace/inputs/image.bmp"
+        },
+        "reason": "unsupported image extension (allowed: .png, .jpg, .jpeg, .webp)"
+      },
+      "dimension_below_min": {
+        "payload": {
+          "prompt": "valid prompt",
+          "width": 200,
+          "height": 512
+        },
+        "reason": "width is below MIN_DIMENSION (256)"
+      },
+      "dimension_above_max": {
+        "payload": {
+          "prompt": "valid prompt",
+          "width": 2100,
+          "height": 512
+        },
+        "reason": "width is above MAX_DIMENSION (2048)"
+      },
+      "mutually_exclusive_size_and_dimensions": {
+        "payload": {
+          "prompt": "valid prompt",
+          "size": "square",
+          "width": 512,
+          "height": 512
+        },
+        "reason": "size parameter is mutually exclusive with explicit width/height"
+      },
+      "incomplete_dimensions": {
+        "payload": {
+          "prompt": "valid prompt",
+          "width": 512
+        },
+        "reason": "both width and height must be specified together"
+      },
+      "action_install_rejected": {
+        "payload": {
+          "action": "install",
+          "prompt": "valid prompt"
+        },
+        "safe_code": "image_operator_setup_required",
+        "reason": "tool install action rejected; provisioning is strictly operator-driven"
+      },
+      "schema_mismatch_result": {
+        "payload": {
+          "schema": "image_result.v2"
+        },
+        "reason": "schema mismatch: expected image_result.v1"
+      },
+      "schema_mismatch_job": {
+        "payload": {
+          "schema": "image_job.legacy"
+        },
+        "reason": "schema mismatch: expected image_job.v1"
+      },
+      "artifact_mime_invalid": {
+        "payload": {
+          "schema": "image_artifact.v1",
+          "mime": "image/jpeg"
+        },
+        "reason": "mime mismatch: expected image/png"
+      },
+      "artifact_ordinal_out_of_range": {
+        "payload": {
+          "schema": "image_artifact.v1",
+          "ordinal": 4
+        },
+        "reason": "artifact ordinal exceeds maximum 3"
+      },
+      "artifact_sha256_invalid": {
+        "payload": {
+          "schema": "image_artifact.v1",
+          "sha256": "invalid-non-hex-sha256"
+        },
+        "reason": "artifact sha256 must be a 64-character lowercase hex string"
+      }
+    }
+  },
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/v1/image-templates",
+      "path_pattern": "/v1/image-templates",
+      "description": "List versioned public prompt templates; metadata and defaults only, excluding prompt template text",
+      "authenticated": true,
+      "required_capability": null,
+      "response_schema": "image_template_list.v1",
+      "success_statuses": [200]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/image-jobs",
+      "path_pattern": "/v1/image-jobs",
+      "description": "Submit direct template image generation job without chat provider dependencies",
+      "authenticated": true,
+      "required_capability": "image:generate:self",
+      "max_body_bytes": 32768,
+      "response_schema": "image_job.v1",
+      "success_statuses": [202]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/sessions/:session_id/image-artifacts",
+      "path_pattern": "/v1/sessions/{session_id}/image-artifacts",
+      "description": "List committed exact-scope image artifacts for a session with store-side filtering before keyset paging",
+      "authenticated": true,
+      "required_capability": "run:read:self",
+      "query_params": ["run_id", "cursor", "limit"],
+      "default_limit": 20,
+      "max_limit": 100,
+      "response_schema": "image_artifact_list.v1",
+      "success_statuses": [200]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/image-jobs/:id",
+      "path_pattern": "/v1/image-jobs/{id}",
+      "description": "Fetch exact-scope metadata-only image job snapshot",
+      "authenticated": true,
+      "required_capability": "run:read:self",
+      "query_params": ["session_id", "run_id"],
+      "response_schema": "image_job.v1",
+      "success_statuses": [200]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/image-jobs/:id/cancel",
+      "path_pattern": "/v1/image-jobs/{id}/cancel",
+      "description": "Request expected_revision CAS cancellation for an exact-scope image job",
+      "authenticated": true,
+      "required_capability": "image:cancel:self",
+      "max_body_bytes": 8192,
+      "response_schema": "image_job.v1",
+      "success_statuses": [200, 202]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/image-artifacts/:id",
+      "path_pattern": "/v1/image-artifacts/{id}",
+      "description": "Serve verified immutable committed PNG bytes under the 4-permit capture/body budget",
+      "authenticated": true,
+      "required_capability": "run:read:self",
+      "query_params": ["session_id", "run_id", "disposition"],
+      "response_mime": "image/png",
+      "max_response_bytes": 16777216,
+      "success_statuses": [200]
+    }
+  ],
+  "http_contract": {
+    "error_envelope_path": "error.code",
+    "create_request_max_bytes": 32768,
+    "cancel_request_max_bytes": 8192,
+    "artifact_byte_max_bytes": 16777216,
+    "capture_body_permits": 4,
+    "statuses": {
+      "template_list": 200,
+      "job_create": 202,
+      "artifact_list": 200,
+      "job_get": 200,
+      "cancel_pending": 202,
+      "cancel_terminal_noop": 200,
+      "cancel_stale_revision": 409,
+      "artifact_bytes": 200,
+      "unauthenticated": 401,
+      "foreign_unknown_missing_deleted_or_corrupt": 404,
+      "malformed_or_invalid_request": 422,
+      "unavailable_or_saturated": 503
+    },
+    "error_examples": {
+      "unauthenticated": "",
+      "unauthorized_no_run_principal": {
+        "error": {
+          "code": "unauthorized"
+        }
+      },
+      "not_found": {
+        "error": {
+          "code": "not_found"
+        }
+      },
+      "invalid_request": {
+        "error": {
+          "code": "image_invalid_request"
+        }
+      },
+      "conflict": {
+        "error": {
+          "code": "image_conflict"
+        }
+      },
+      "operator_setup_required": {
+        "error": {
+          "code": "image_operator_setup_required"
+        }
+      },
+      "profile_unqualified": {
+        "error": {
+          "code": "image_profile_unqualified"
+        }
+      },
+      "policy_denied": {
+        "error": {
+          "code": "image_policy_denied"
+        }
+      },
+      "busy": {
+        "error": {
+          "code": "image_busy"
+        }
+      },
+      "resource_unavailable": {
+        "error": {
+          "code": "image_resource_unavailable"
+        }
+      },
+      "indeterminate": {
+        "error": {
+          "code": "image_indeterminate"
+        }
+      }
+    },
+    "direct_tool_invoke_denial": {
+      "method": "POST",
+      "path": "/v1/tools/invoke",
+      "tool_name": "local_image",
+      "status": 404,
+      "body": {
+        "error": "not_found",
+        "message": "Tool 'local_image' not found"
+      }
+    }
+  },
+  "cursor_contract": {
+    "encoding": "base64url_no_pad",
+    "max_encoded_bytes": 1024,
+    "version": 1,
+    "selector_tuple": [
+      "tenant_id",
+      "user_id",
+      "workspace_id",
+      "session_id",
+      "run_id"
+    ],
+    "selector_example": {
+      "tenant_id": "local",
+      "user_id": "owner",
+      "workspace_id": "default",
+      "session_id": "session-synth-001",
+      "run_id": "run-synth-001"
+    },
+    "decoded_example": {
+      "v": 1,
+      "f": "6125288b83189969d13c606846b7d89affe4fbf45cc7ab577fcbe2144e736bd1",
+      "t": 1700000001000,
+      "i": "10000000-0000-4000-8000-000000000001"
+    },
+    "encoded_example": "eyJ2IjoxLCJmIjoiNjEyNTI4OGI4MzE4OTk2OWQxM2M2MDY4NDZiN2Q4OWFmZmU0ZmJmNDVjYzdhYjU3N2ZjYmUyMTQ0ZTczNmJkMSIsInQiOjE3MDAwMDAwMDEwMDAsImkiOiIxMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEifQ",
+    "mismatch_or_malformed_status": 404,
+    "mismatch_or_malformed_body": {
+      "error": {
+        "code": "not_found"
+      }
+    }
+  },
+  "byte_route_contract": {
+    "disposition_query_param": "disposition",
+    "disposition_default": "inline",
+    "disposition_allowed": ["inline", "attachment"],
+    "invalid_disposition_status": 422,
+    "unknown_query_status": 422,
+    "capture_permits": 4,
+    "saturation_status": 503,
+    "saturation_body": {
+      "error": {
+        "code": "image_resource_unavailable"
+      }
+    },
+    "corrupt_or_mutated_status": 404,
+    "corrupt_or_mutated_body": {
+      "error": {
+        "code": "not_found"
+      }
+    },
+    "headers": {
+      "Content-Type": "image/png",
+      "Content-Length": "<verified byte_size>",
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+      "Content-Disposition_inline": "inline; filename=\"10000000-0000-4000-8000-000000000001.png\"",
+      "Content-Disposition_attachment": "attachment; filename=\"10000000-0000-4000-8000-000000000001.png\""
+    },
+    "forbidden_headers": ["Accept-Ranges"],
+    "range_supported": false,
+    "redirects_supported": false,
+    "bearer_in_query_supported": false
+  },
+  "gateway_capabilities": {
+    "reader_capability_field": "image_artifacts",
+    "reader_version_field": "image_artifacts_version",
+    "reader_version": "image_artifacts.v1",
+    "generation_capability_field": "local_image",
+    "generation_version_field": "local_image_version",
+    "generation_version": "local_image.v1",
+    "phase_06_advertised": {
+      "image_artifacts": true,
+      "image_artifacts_version": "image_artifacts.v1"
+    },
+    "phase_06_omitted_fields": ["local_image", "local_image_version"]
+  },
+  "ws_hints": {
+    "audience_scope": [
+      "tenant_id",
+      "user_id",
+      "workspace_id",
+      "session_id",
+      "run_id"
+    ],
+    "required_capability": "run:read:self",
+    "requires_session_subscription": true,
+    "requires_persisted_run_match": true,
+    "on_loss_gap_or_reconnect": "refetch_snapshot",
+    "forbidden_payload_fields": [
+      "prompt",
+      "negative_prompt",
+      "relative_path",
+      "private_host_path",
+      "bytes",
+      "data",
+      "device",
+      "inode",
+      "service_request_id",
+      "service_job_id",
+      "service_identity",
+      "service_sha256"
+    ],
+    "job_updated_allowed_fields": [
+      "job_id",
+      "session_id",
+      "run_id",
+      "state",
+      "revision",
+      "requested_count",
+      "completed_count",
+      "safe_code"
+    ],
+    "artifact_committed_allowed_fields": [
+      "artifact_id",
+      "job_id",
+      "ordinal",
+      "state",
+      "revision"
+    ],
+    "events": {
+      "job_updated_active": {
+        "type": "event",
+        "version": "v1",
+        "event": "image_job.updated",
+        "session_id": "session-synth-001",
+        "run_id": "run-synth-001",
+        "payload": {
+          "job_id": "00000000-0000-4000-8000-000000000001",
+          "session_id": "session-synth-001",
+          "run_id": "run-synth-001",
+          "state": "running",
+          "revision": 3,
+          "requested_count": 2,
+          "completed_count": 0
+        }
+      },
+      "job_updated_terminal_failed": {
+        "type": "event",
+        "version": "v1",
+        "event": "image_job.updated",
+        "session_id": "session-synth-003",
+        "run_id": "run-synth-003",
+        "payload": {
+          "job_id": "00000000-0000-4000-8000-000000000003",
+          "session_id": "session-synth-003",
+          "run_id": "run-synth-003",
+          "state": "partial_failed",
+          "revision": 6,
+          "requested_count": 2,
+          "completed_count": 1,
+          "safe_code": "image_native_failed"
+        }
+      },
+      "artifact_committed": {
+        "type": "event",
+        "version": "v1",
+        "event": "image_artifact.committed",
+        "session_id": "session-synth-001",
+        "run_id": "run-synth-001",
+        "payload": {
+          "artifact_id": "10000000-0000-4000-8000-000000000001",
+          "job_id": "00000000-0000-4000-8000-000000000001",
+          "ordinal": 0,
+          "state": "committed",
+          "revision": 1
+        }
+      }
+    }
+  }
+}

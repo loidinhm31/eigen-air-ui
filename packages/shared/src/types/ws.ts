@@ -9,6 +9,7 @@ import type {
   SkillSearchResult,
 } from "./api.js";
 import type { TaskProgressWsEvent } from "./task-progress.js";
+import type { ImageArtifactCommittedPayload, ImageJobUpdatedPayload } from "./artifact.js";
 import type {
   ChatCompletedResponse,
   ChatWaitingForInputResponse,
@@ -111,6 +112,24 @@ type CorrelatedWsEvent<E extends string, P> = {
   payload: P;
 } & RunCorrelationFields;
 
+/**
+ * Metadata-only local-image hints (refetch signals, never authority). The backend always sends
+ * top-level `session_id`/`run_id` for these frames; they carry no sequence/correlation ids.
+ */
+export type ImageJobUpdatedWsEvent = CorrelatedWsEvent<
+  "image_job.updated",
+  ImageJobUpdatedPayload
+> & {
+  session_id: string;
+  run_id: string;
+};
+export type ImageArtifactCommittedWsEvent = CorrelatedWsEvent<
+  "image_artifact.committed",
+  ImageArtifactCommittedPayload
+> & { session_id: string; run_id: string };
+/** Discriminated on `event`. */
+export type ImageHintWsEvent = ImageJobUpdatedWsEvent | ImageArtifactCommittedWsEvent;
+
 export type WsEvent =
   | CorrelatedWsEvent<"run.started", RunStartedPayload>
   | CorrelatedWsEvent<"chunk", ChunkPayload>
@@ -125,6 +144,7 @@ export type WsEvent =
   | TaskProgressWsEvent
   | UserQuestionUpdatedEvent
   | ToolApprovalUpdatedEvent
+  | ImageHintWsEvent
   | CorrelatedWsEvent<"error", WsErrorPayload>;
 
 export type WsFrame = WsReq | WsRes | WsEvent;

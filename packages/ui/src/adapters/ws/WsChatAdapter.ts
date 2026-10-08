@@ -1,6 +1,8 @@
 import { WsClient, type WsReconnectFence } from "./WsClient.js";
 import type {
   DebugRequestOptions,
+  ImageHintCallback,
+  ImageHintSignal,
   IChatService,
   SendMessageOptions,
   StreamEventCallback,
@@ -21,11 +23,16 @@ import type {
   SessionsDeleteResponse,
   SessionsListResponse,
   WsEvent,
+  ImageHintWsEvent,
   UserQuestionUpdatedEvent,
   ToolApprovalUpdatedEvent,
   TaskProgressWsEvent,
 } from "@eigen-air-ui/shared/types";
-import { decodeChatHistoryResponse, decodeChatSendResponse } from "@eigen-air-ui/shared/types";
+import {
+  decodeChatHistoryResponse,
+  decodeChatSendResponse,
+  isImageHintEventName,
+} from "@eigen-air-ui/shared/types";
 import { WS_METHODS } from "@eigen-air-ui/shared/constants";
 import { useConnectionStore } from "../../stores/connectionStore.js";
 
@@ -92,6 +99,7 @@ export class WsChatAdapter implements IChatService, ISessionService {
   private readonly approvalProtocolSubscribers = new Set<() => void>();
   private readonly questionProtocolSubscribers = new Set<() => void>();
   private readonly taskProgressSubscribers = new Set<(event: TaskProgressWsEvent) => void>();
+  private readonly imageHintSubscribers = new Set<ImageHintCallback>();
   private readonly waitingHandlers = new Set<(event: WsEvent) => void>();
   private readonly accessProvider?: WsAccessProvider;
 
@@ -99,6 +107,12 @@ export class WsChatAdapter implements IChatService, ISessionService {
     this.accessProvider = accessProvider;
     this.client = new WsClient(wsUrl);
     this.client.onEvent((event) => {
+      if (isImageHintEventName(event.event)) {
+        // Hints are metadata-only refetch signals: never authority, not run lifecycle, so they
+        // skip run correlation and mutate no store here.
+        this.notifyImageHint(event as ImageHintWsEvent);
+        return;
+      }
       if (event.event === "tool_approval.updated") {
         this.approvalSubscribers.forEach((callback) => callback(event));
       }
@@ -110,6 +124,7 @@ export class WsChatAdapter implements IChatService, ISessionService {
       }
       this.forwardRunCorrelation(event);
     });
+    this.client.onInvalidImageHint(() => this.notifyImageHint({ invalid: true }));
     this.client.onConnectionStatus((status) => {
       if (status === "reconnecting") useConnectionStore.getState().setStatus("connecting");
       if (status === "offline") useConnectionStore.getState().setStatus("disconnected");
@@ -154,6 +169,27 @@ export class WsChatAdapter implements IChatService, ISessionService {
   subscribeTaskProgress(callback: (event: TaskProgressWsEvent) => void): () => void {
     this.taskProgressSubscribers.add(callback);
     return () => this.taskProgressSubscribers.delete(callback);
+  }
+
+  /**
+   * Subscribe to image hints (decoded) and `{ invalid: true }` for malformed/undecodable ones.
+   * Undecodable frames also signal invalid, so a misbehaving peer can fire it unboundedly:
+   * consumers MUST coalesce/debounce the refetch it triggers. A throwing subscriber is isolated.
+   */
+  onImageHint(callback: ImageHintCallback): () => void {
+    this.imageHintSubscribers.add(callback);
+    return () => this.imageHintSubscribers.delete(callback);
+  }
+
+  /** Delivers to every subscriber; one throwing subscriber never skips the rest or the stream. */
+  private notifyImageHint(signal: ImageHintSignal): void {
+    this.imageHintSubscribers.forEach((callback) => {
+      try {
+        callback(signal);
+      } catch {
+        // Isolated by design; the error text is never logged (hint consumers are store-fed).
+      }
+    });
   }
 
   onToolApprovalProtocolError(callback: () => void): () => void {
@@ -242,6 +278,8 @@ export class WsChatAdapter implements IChatService, ISessionService {
     let waitingQuestionId: string | undefined;
     let keepHandler = false;
     const handler = (event: WsEvent) => {
+      // Hints are for `onImageHint` subscribers only; the per-turn stream never sees them.
+      if (isImageHintEventName(event.event)) return;
       if (event.event === "run.started") {
         this.activeRunId = event.payload.run_id;
       } else if (event.event === "run.finished" || event.event === "run.completed") {

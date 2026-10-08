@@ -4,6 +4,7 @@ import type {
   ConnectResponse,
   RunLifecycleStatus,
   UserQuestionUpdatedEvent,
+  ImageHintWsEvent,
   ToolApprovalUpdatedEvent,
   TaskProgressWsEvent,
   WsEvent,
@@ -25,6 +26,19 @@ export type RunCorrelationCallback = (event: RunCorrelationSignal) => void;
 export type UserQuestionEventCallback = (event: UserQuestionUpdatedEvent) => void;
 export type ToolApprovalEventCallback = (event: ToolApprovalUpdatedEvent) => void;
 export type TaskProgressEventCallback = (event: TaskProgressWsEvent) => void;
+/**
+ * Malformed image hint, or ANY undecodable frame (it may have been a hint). Carries no payload.
+ * A misbehaving peer can emit these without bound.
+ */
+export interface InvalidImageHintSignal {
+  invalid: true;
+}
+/**
+ * Metadata-only refetch hint. NEVER authority: consumers refetch the authorized REST snapshot
+ * on every hint (valid or invalid) and ignore hints whose scope is not the current session.
+ */
+export type ImageHintSignal = ImageHintWsEvent | InvalidImageHintSignal;
+export type ImageHintCallback = (hint: ImageHintSignal) => void;
 export interface DebugRequestOptions {
   includePrompt: boolean;
   includeReasoning: boolean;
@@ -57,4 +71,12 @@ export interface IChatService {
   subscribeToolApproval?(callback: ToolApprovalEventCallback): () => void;
   onToolApprovalProtocolError?(callback: () => void): () => void;
   subscribeTaskProgress?(callback: TaskProgressEventCallback): () => void;
+  /**
+   * Metadata-only image refetch hints; returns unsubscribe. Decoded hints go to every subscriber
+   * and never reach the per-turn `sendMessage` stream callback. `{ invalid: true }` is signalled
+   * for malformed hints and for undecodable frames alike, so consumers MUST coalesce/debounce
+   * the refetch they trigger (an unbounded invalid-frame stream must not become unbounded
+   * REST calls). A subscriber that throws is isolated: later subscribers and frames still run.
+   */
+  onImageHint?(handler: ImageHintCallback): () => void;
 }

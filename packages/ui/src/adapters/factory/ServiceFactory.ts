@@ -7,6 +7,7 @@ import type { ISessionService } from "./interfaces/ISessionService.js";
 import type { IVaultKnowledgeService } from "./interfaces/IVaultKnowledgeService.js";
 import type { IUserQuestionService } from "./interfaces/IUserQuestionService.js";
 import type { IToolApprovalService } from "./interfaces/IToolApprovalService.js";
+import type { IArtifactAdapter } from "./interfaces/IArtifactAdapter.js";
 import type { HttpRunAdapter } from "../http/HttpRunAdapter.js";
 import type { RunAccessContext } from "../http/HttpRunAdapter.js";
 import { getStoredAuthToken } from "./tokenStorage.js";
@@ -20,6 +21,7 @@ let sessionService: ISessionService | null = null;
 let vaultKnowledgeService: IVaultKnowledgeService | null = null;
 let userQuestionService: IUserQuestionService | null = null;
 let toolApprovalService: IToolApprovalService | null = null;
+let artifactService: IArtifactAdapter | null = null;
 let runService: HttpRunAdapter | null = null;
 let serviceAccessContext: RunAccessContext = {
   authToken: typeof window !== "undefined" ? getStoredAuthToken() : undefined,
@@ -136,6 +138,9 @@ export function setToolApprovalService(s: IToolApprovalService) {
 export function setUserQuestionService(s: IUserQuestionService) {
   userQuestionService = s;
 }
+export function setArtifactService(s: IArtifactAdapter) {
+  artifactService = s;
+}
 export function setRunService(s: HttpRunAdapter) {
   runService = s;
 }
@@ -178,6 +183,11 @@ export function getToolApprovalService(): IToolApprovalService {
   return toolApprovalService;
 }
 
+export function getArtifactService(): IArtifactAdapter {
+  if (!artifactService) throw new Error("IArtifactAdapter not initialized");
+  return artifactService;
+}
+
 export function getRunService(): HttpRunAdapter {
   if (!runService) throw new Error("HttpRunAdapter not initialized");
   return runService;
@@ -194,5 +204,6 @@ export type {
   IVaultKnowledgeService,
   IUserQuestionService,
   IToolApprovalService,
+  IArtifactAdapter,
 };
 export type { StreamEventCallback } from "./interfaces/IChatService.js";

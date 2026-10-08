@@ -345,3 +345,142 @@ describe("WsClient lifecycle", () => {
     expect(authRequestResolved).toBe(false);
   });
 });
+
+describe("WsClient image hints", () => {
+  const hint = {
+    type: "event",
+    version: "v1",
+    event: "image_job.updated",
+    session_id: "session-1",
+    run_id: "run-1",
+    payload: {
+      job_id: "job-1",
+      session_id: "session-1",
+      run_id: "run-1",
+      state: "running",
+      revision: 2,
+      requested_count: 1,
+      completed_count: 0,
+    },
+  };
+
+  it("decodes valid hints and drops malformed ones in decodeInboundWsEvent", () => {
+    expect(decodeInboundWsEvent(hint as unknown as WsEvent)).toMatchObject({
+      event: "image_job.updated",
+      payload: { job_id: "job-1" },
+    });
+    const withPrompt = { ...hint, payload: { ...hint.payload, prompt: "secret" } };
+    expect(decodeInboundWsEvent(withPrompt as unknown as WsEvent)).toBeUndefined();
+    const scopeMismatch = { ...hint, payload: { ...hint.payload, run_id: "run-2" } };
+    expect(decodeInboundWsEvent(scopeMismatch as unknown as WsEvent)).toBeUndefined();
+    const unknownVersion = { ...hint, version: "v2" };
+    expect(decodeInboundWsEvent(unknownVersion as unknown as WsEvent)).toBeUndefined();
+  });
+
+  it("signals malformed hints separately from protocol errors and keeps the stream alive", async () => {
+    const sockets: FakeSocket[] = [];
+    class FakeSocket {
+      static readonly OPEN = 1;
+      static readonly CLOSED = 3;
+      readyState = 0;
+      onopen: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+      onmessage: ((event: { data: string }) => void) | null = null;
+      constructor() {
+        sockets.push(this);
+      }
+      close() {
+        this.readyState = FakeSocket.CLOSED;
+      }
+      send() {}
+    }
+    vi.stubGlobal("WebSocket", FakeSocket);
+
+    const client = new WsClient("ws://daemon");
+    const events: string[] = [];
+    const invalid = vi.fn();
+    const protocolError = vi.fn();
+    client.onEvent((event) => events.push(event.event));
+    client.onInvalidImageHint(invalid);
+    client.onProtocolError(protocolError);
+    const connected = client.connect();
+    const socket = sockets[0];
+    if (!socket) throw new Error("socket not created");
+    socket.readyState = FakeSocket.OPEN;
+    socket.onopen?.();
+    await connected;
+
+    const deliver = (frame: unknown) => socket.onmessage?.({ data: JSON.stringify(frame) });
+    deliver(hint);
+    deliver({ ...hint, payload: { ...hint.payload, state: "exploded" } });
+    deliver({ ...hint, event: "image_artifact.committed", payload: { artifact_id: "a" } });
+    deliver({ type: "event", version: "v1", event: "run.delta", payload: { delta: "x" } });
+
+    expect(events).toEqual(["image_job.updated", "run.delta"]);
+    expect(invalid).toHaveBeenCalledTimes(2);
+    expect(protocolError).not.toHaveBeenCalled();
+
+    // An undecodable frame may have been a hint: both signals fire.
+    socket.onmessage?.({ data: "{not json" });
+    expect(protocolError).toHaveBeenCalledOnce();
+    expect(invalid).toHaveBeenCalledTimes(3);
+    client.disconnect();
+  });
+
+  it("isolates a throwing invalid-hint handler: later handlers, protocol errors and frames still run", async () => {
+    class FakeSocket {
+      static readonly OPEN = 1;
+      static readonly CLOSED = 3;
+      static last: FakeSocket | undefined;
+      readyState = 0;
+      onopen: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+      onmessage: ((event: { data: string }) => void) | null = null;
+      constructor() {
+        FakeSocket.last = this;
+      }
+      close() {
+        this.readyState = FakeSocket.CLOSED;
+      }
+      send() {}
+    }
+    vi.stubGlobal("WebSocket", FakeSocket);
+
+    const client = new WsClient("ws://daemon");
+    const events: string[] = [];
+    const healthy = vi.fn();
+    const protocolError = vi.fn();
+    client.onEvent((event) => events.push(event.event));
+    client.onInvalidImageHint(() => {
+      throw new Error("handler boom");
+    });
+    client.onInvalidImageHint(healthy);
+    client.onProtocolError(protocolError);
+    const connected = client.connect();
+    const socket = FakeSocket.last;
+    if (!socket) throw new Error("socket not created");
+    socket.readyState = FakeSocket.OPEN;
+    socket.onopen?.();
+    await connected;
+
+    const malformedHint = { ...hint, payload: { ...hint.payload, state: "exploded" } };
+    expect(() => socket.onmessage?.({ data: JSON.stringify(malformedHint) })).not.toThrow();
+    expect(() => socket.onmessage?.({ data: "{not json" })).not.toThrow();
+    expect(healthy).toHaveBeenCalledTimes(2);
+    expect(protocolError).toHaveBeenCalledOnce();
+
+    socket.onmessage?.({ data: JSON.stringify(hint) });
+    socket.onmessage?.({
+      data: JSON.stringify({
+        type: "event",
+        version: "v1",
+        event: "run.delta",
+        payload: { delta: "x" },
+      }),
+    });
+    expect(events).toEqual(["image_job.updated", "run.delta"]);
+    client.disconnect();
+  });
+});

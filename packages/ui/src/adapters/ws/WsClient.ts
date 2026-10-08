@@ -1,4 +1,6 @@
 import {
+  decodeImageHintWsEvent,
+  isImageHintEventName,
   decodeTaskProgressWsEvent,
   decodeUserQuestionEvent,
   decodeToolApprovalEvent,
@@ -45,7 +47,10 @@ function createRequestId(): string {
 }
 
 
-/** Preserve legacy events while rejecting malformed additive G6 events. */
+/**
+ * Preserve legacy events while rejecting malformed additive events. A malformed image hint
+ * yields `undefined` here; `WsClient` reports it via `onInvalidImageHint` (not a protocol error).
+ */
 export function decodeInboundWsEvent(frame: WsEvent): WsEvent | undefined {
   if (frame.event === "user_question.updated") {
     try {
@@ -57,6 +62,13 @@ export function decodeInboundWsEvent(frame: WsEvent): WsEvent | undefined {
   if (frame.event === "tool_approval.updated") {
     try {
       return decodeToolApprovalEvent(frame);
+    } catch {
+      return undefined;
+    }
+  }
+  if (isImageHintEventName(frame.event)) {
+    try {
+      return decodeImageHintWsEvent(frame);
     } catch {
       return undefined;
     }
@@ -82,6 +94,7 @@ export class WsClient {
   private reconnectAbort?: AbortController;
   private statusHandlers: Array<(status: WsConnectionStatus) => void> = [];
   private protocolErrorHandlers: Array<() => void> = [];
+  private invalidImageHintHandlers: Array<() => void> = [];
 
   constructor(private readonly url: string) {}
 
@@ -174,6 +187,30 @@ export class WsClient {
     };
   }
 
+  /**
+   * Fired for a malformed image hint, and for any undecodable frame (which may have been a hint:
+   * hints are refetch signals, so a lost one must trigger the same snapshot refetch).
+   */
+  onInvalidImageHint(cb: () => void) {
+    this.invalidImageHintHandlers.push(cb);
+    return () => {
+      this.invalidImageHintHandlers = this.invalidImageHintHandlers.filter(
+        (handler) => handler !== cb
+      );
+    };
+  }
+
+  /** Each handler is isolated: a throwing one never skips the rest or later frames. */
+  private emitInvalidImageHint() {
+    for (const handler of [...this.invalidImageHintHandlers]) {
+      try {
+        handler();
+      } catch {
+        // Isolated by design.
+      }
+    }
+  }
+
   private notifyStatus(status: WsConnectionStatus) {
     this.statusHandlers.forEach((handler) => handler(status));
   }
@@ -181,6 +218,7 @@ export class WsClient {
   private handleMessage(raw: string) {
     const frame = decodeWsFrameJson(raw);
     if (!frame) {
+      this.emitInvalidImageHint();
       this.protocolErrorHandlers.forEach((handler) => handler());
       return;
     }
@@ -194,6 +232,8 @@ export class WsClient {
       const event = decodeInboundWsEvent(frame);
       if (event) {
         this.eventHandlers.forEach((h) => h(event));
+      } else if (isImageHintEventName(frame.event)) {
+        this.emitInvalidImageHint();
       } else {
         this.protocolErrorHandlers.forEach((handler) => handler());
       }

@@ -237,7 +237,21 @@ export interface ToolInvokeResult {
 
 // --- Config ---
 
+/**
+ * Gateway capability advertisement under `capabilities` of `GET /v1/config` / WS `config.get`.
+ * Only image fields are typed. Backend omits false/absent fields; consumers MUST treat
+ * missing or unknown versions as unavailable (see `imageReadersAvailable` /
+ * `imageGenerationAvailable`). Reader and generation gates are independent.
+ */
+export interface GatewayCapabilities {
+  image_artifacts?: boolean;
+  image_artifacts_version?: string;
+  local_image?: boolean;
+  local_image_version?: string;
+}
+
 export interface ServerConfig {
+  capabilities?: GatewayCapabilities;
   provider: { type: string; model: string };
   memory: { type: string };
   server: { host: string; port: number };

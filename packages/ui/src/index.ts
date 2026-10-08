@@ -16,6 +16,7 @@ export {
   setUserQuestionService,
   setToolApprovalService,
   setRunService,
+  setArtifactService,
   getChatService,
   getMemoryService,
   getToolService,
@@ -26,6 +27,7 @@ export {
   getUserQuestionService,
   getToolApprovalService,
   getRunService,
+  getArtifactService,
   registerReinitFn,
   reinitServices,
   hasReinitFn,
@@ -50,9 +52,29 @@ export type {
   IVaultKnowledgeService,
   IUserQuestionService,
   IToolApprovalService,
+  IArtifactAdapter,
   StreamEventCallback,
   MemoryServiceOptions,
 } from "./adapters/factory/ServiceFactory.js";
+export type {
+  ImageHintCallback,
+  ImageHintSignal,
+  InvalidImageHintSignal,
+} from "./adapters/factory/interfaces/IChatService.js";
+export { ArtifactAdapterError } from "./adapters/factory/interfaces/IArtifactAdapter.js";
+export type {
+  ArtifactAdapterErrorKind,
+  ArtifactBytesOptions,
+  ArtifactBytesRequest,
+  ArtifactCancelRequest,
+  ArtifactCancelResult,
+  ArtifactDownload,
+  ArtifactJobSelector,
+  ArtifactListQuery,
+  ArtifactPageQuery,
+  ArtifactRequestOptions,
+} from "./adapters/factory/interfaces/IArtifactAdapter.js";
+export { HttpArtifactAdapter } from "./adapters/http/HttpArtifactAdapter.js";
 export { WsChatAdapter } from "./adapters/ws/WsChatAdapter.js";
 export { WsClient } from "./adapters/ws/WsClient.js";
 export { HttpRunAdapter } from "./adapters/http/HttpRunAdapter.js";
