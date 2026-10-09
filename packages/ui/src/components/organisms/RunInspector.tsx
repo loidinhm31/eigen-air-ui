@@ -8,6 +8,7 @@ import { RequestProvenancePanel } from "../molecules/RequestProvenancePanel.js";
 import { TaskOutcomesPanel } from "../molecules/TaskOutcomesPanel.js";
 import { ToolDecisionsPanel } from "../molecules/ToolDecisionsPanel.js";
 import { ToolCallsPanel } from "../molecules/ToolCallsPanel.js";
+import { RunImageOutcomesPanel } from "../molecules/RunImageOutcomesPanel.js";
 import { HistoricalToolApprovalsPanel } from "../molecules/HistoricalToolApprovalsPanel.js";
 import { formatTimestamp, runDurationText } from "./runInspectorFormatting.js";
 
@@ -150,6 +151,9 @@ export function RunInspector({
       <MemoryOutcomesPanel events={snapshot.events} />
       <RequestProvenancePanel events={snapshot.events} />
       <TaskOutcomesPanel events={snapshot.events} />
+      {run.session_id && run.run_id && (
+        <RunImageOutcomesPanel sessionId={run.session_id} runId={run.run_id} />
+      )}
       <section aria-labelledby="run-debug-heading">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">

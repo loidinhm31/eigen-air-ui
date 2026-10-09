@@ -21,13 +21,17 @@
  *   `status` change instead (the store refreshes at most once per second regardless).
  * - Render a loading state, not "no images", while `status === "idle"` (e.g. right after an
  *   invalidation or session switch, before the listing lands).
+ * - Distinguish "capabilities could not be read" (`useImageCapabilityCheck().failed`: unknown
+ *   capabilities AND an `unavailable` listing, which only a failed/expired read can produce)
+ *   from "known, readers off" (render nothing). Only the former shows a notice + `check()`.
  */
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ImageJobSnapshot } from "@eigen-air-ui/shared/types";
 import { getChatService } from "../adapters/factory/ServiceFactory.js";
 import type { IChatService } from "../adapters/factory/interfaces/IChatService.js";
 import { useConnectionStore } from "./connectionStore.js";
 import { useImageArtifactStore, type ImageCapabilities } from "./image-artifact-store.js";
+import { ownValue } from "./image-job-tracker.js";
 import {
   bindImageGroupsToMessages,
   groupImageArtifactsByRun,
@@ -137,4 +141,62 @@ export function useTrackedImageJobs(): readonly ImageJobSnapshot[] {
       ),
     [jobs]
   );
+}
+
+/** Own lookup of the current snapshot of a tracked job (`undefined` once dropped/cleared). */
+export function getTrackedImageJob(jobId: string): ImageJobSnapshot | undefined {
+  return ownValue(useImageArtifactStore.getState().jobs, jobId);
+}
+
+export interface ImageCapabilityCheck {
+  /** The capability read failed in this mount: history availability is UNKNOWN, not "off". */
+  failed: boolean;
+  /** A `check()` is in flight. */
+  checking: boolean;
+  /** One new capabilities read + listing (single-flight per hook instance). Never throws. */
+  check(): void;
+}
+
+/**
+ * Read-failure discriminator for the owner session. `unknown` capabilities with an
+ * `unavailable` listing is produced only by a failed/expired/invalidated-then-failed capability
+ * read (`known` + readers off is a different state, and a denied listing needs readers). Never
+ * derived from chat provider readiness. A transient "unknown + idle" (read in flight, or after an
+ * invalidation) is NOT a failure.
+ */
+export function useImageCapabilityCheck(sessionId: string | null): ImageCapabilityCheck {
+  const failed = useImageArtifactStore(
+    (s) =>
+      sessionId !== null &&
+      s.activeSessionId === sessionId &&
+      s.capabilities.status === "unknown" &&
+      s.status === "unavailable"
+  );
+  const [checking, setChecking] = useState(false);
+  const inFlight = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  const check = useCallback(() => {
+    if (sessionId === null || inFlight.current) return;
+    inFlight.current = true;
+    setChecking(true);
+    void (async () => {
+      try {
+        await useImageArtifactStore.getState().refreshSession(sessionId);
+      } catch {
+        // refreshSession never rejects by contract; a failed check simply leaves `failed` set
+      } finally {
+        inFlight.current = false;
+        if (mounted.current) setChecking(false);
+      }
+    })();
+  }, [sessionId]);
+
+  return { failed, checking, check };
 }

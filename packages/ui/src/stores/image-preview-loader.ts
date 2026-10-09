@@ -17,10 +17,12 @@ import {
   type ArtifactBytesRequest,
 } from "../adapters/factory/interfaces/IArtifactAdapter.js";
 import {
+  ARTIFACT_CACHE_MAX_ENTRIES,
   ARTIFACT_PREVIEW_LEASE_MS,
   ArtifactBlobCacheError,
   createDefaultArtifactBlobCacheDeps,
   getArtifactBlobCache,
+  type ArtifactBlobCache,
   type ArtifactBlobLease,
 } from "./artifact-blob-cache.js";
 import { useImageArtifactStore } from "./image-artifact-store.js";
@@ -31,6 +33,8 @@ export type ImagePreviewErrorCode =
   | "authorization_stale"
   | "denied"
   | "busy"
+  /** Every cache slot is pinned by another live preview (recoverable when one is released). */
+  | "capacity"
   | "failed"
   | "aborted";
 
@@ -57,6 +61,142 @@ export function toArtifactBytesRequest(artifact: ImageArtifactRef): ArtifactByte
     sha256: artifact.sha256,
     width: artifact.width,
     height: artifact.height,
+  };
+}
+
+/**
+ * Capacity-gated admission. A preview needs one slot (distinct artifact) from the moment it is
+ * admitted until its lease is released or revoked. At most `capacityOverride ??
+ * ARTIFACT_CACHE_MAX_ENTRIES` slots exist (the cache's entry bound, so an admitted load can never
+ * meet a fully pinned pool). Callers that find no free slot wait in a FIFO queue; every freed slot
+ * admits exactly the next waiter(s) that fit, so nothing is retried, nothing is woken needlessly
+ * and no retry budget is spent while merely waiting. Waiting is abortable (offscreen / unmount)
+ * and holds nothing. A key that is already held (a second view of one artifact) shares its slot.
+ */
+interface Waiter {
+  key: string;
+  admit: () => void;
+}
+interface Admission {
+  holders: Map<string, number>;
+  queue: Waiter[];
+}
+/** One state per cache instance: a replaced cache (tests) starts with no holders or waiters. */
+const admissions = new WeakMap<ArtifactBlobCache, Admission>();
+let capacityOverride: number | undefined;
+
+/** Test seam: bound the number of simultaneously leased previews (`undefined` = cache bound). */
+export function setPreviewAdmissionCapacity(capacity: number | undefined): void {
+  capacityOverride = capacity;
+  pumpAdmission(admissionFor(getArtifactBlobCache()));
+}
+
+function admissionFor(cache: ArtifactBlobCache): Admission {
+  let admission = admissions.get(cache);
+  if (!admission) {
+    admission = { holders: new Map(), queue: [] };
+    admissions.set(cache, admission);
+  }
+  return admission;
+}
+
+function canAdmit(admission: Admission, key: string): boolean {
+  const capacity = capacityOverride ?? ARTIFACT_CACHE_MAX_ENTRIES;
+  return admission.holders.has(key) || admission.holders.size < capacity;
+}
+
+function reserveSlot(admission: Admission, key: string): void {
+  admission.holders.set(key, (admission.holders.get(key) ?? 0) + 1);
+}
+
+/** Admit queued waiters, in order, while they fit (one new artifact per freed slot). */
+function pumpAdmission(admission: Admission): void {
+  for (let i = 0; i < admission.queue.length; ) {
+    const waiter = admission.queue[i]!;
+    if (!canAdmit(admission, waiter.key)) {
+      i += 1;
+      continue;
+    }
+    admission.queue.splice(i, 1);
+    reserveSlot(admission, waiter.key);
+    waiter.admit();
+  }
+}
+
+function freeSlot(admission: Admission, key: string): void {
+  const held = admission.holders.get(key) ?? 0;
+  if (held <= 1) admission.holders.delete(key);
+  else admission.holders.set(key, held - 1);
+  pumpAdmission(admission);
+}
+
+/**
+ * Reserve a slot, waiting FIFO when none is free. `onQueueChange(true)` fires synchronously when
+ * the caller starts to wait, `(false)` once admitted. Rejects `aborted` (queue entry removed,
+ * nothing reserved) when `signal` fires while waiting. Resolves whether it had to wait.
+ */
+async function admit(
+  admission: Admission,
+  key: string,
+  signal: AbortSignal | undefined,
+  onQueueChange: ((queued: boolean) => void) | undefined
+): Promise<boolean> {
+  if (canAdmit(admission, key)) {
+    reserveSlot(admission, key);
+    return false;
+  }
+  onQueueChange?.(true);
+  await new Promise<void>((resolve, reject) => {
+    const waiter: Waiter = {
+      key,
+      admit: () => {
+        signal?.removeEventListener("abort", onAbort);
+        resolve();
+      },
+    };
+    const onAbort = () => {
+      const at = admission.queue.indexOf(waiter);
+      if (at >= 0) admission.queue.splice(at, 1);
+      reject(new ImagePreviewError("aborted"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    admission.queue.push(waiter);
+  });
+  onQueueChange?.(false);
+  return true;
+}
+
+/**
+ * Same lease, but the admission slot is freed by its first release OR revocation (the entry left
+ * the cache either way). Idempotent; the caller must not free the slot separately afterwards.
+ */
+function holdSlotWhileLeased(
+  lease: ArtifactBlobLease,
+  admission: Admission,
+  key: string
+): ArtifactBlobLease {
+  let freed = false;
+  const free = () => {
+    if (freed) return;
+    freed = true;
+    freeSlot(admission, key);
+  };
+  const offRevoked = lease.onRevoked(free);
+  let released = false;
+  return {
+    key: lease.key,
+    url: lease.url,
+    get revoked() {
+      return lease.revoked;
+    },
+    onRevoked: (callback) => lease.onRevoked(callback),
+    release: () => {
+      if (released) return;
+      released = true;
+      offRevoked();
+      lease.release();
+      free();
+    },
   };
 }
 
@@ -87,7 +227,8 @@ export function toImagePreviewError(
       case "lease_expired":
         return new ImagePreviewError("authorization_stale");
       case "capacity_exhausted":
-        return new ImagePreviewError("busy");
+        // Every cache slot is pinned by a live preview: recoverable once any lease is released.
+        return new ImagePreviewError("capacity");
       default:
         return new ImagePreviewError("failed");
     }
@@ -120,21 +261,8 @@ export function isLeaseUsable(lease: ArtifactBlobLease): boolean {
   return !lease.revoked && getArtifactBlobCache().isLeaseValid(lease.key);
 }
 
-/**
- * Acquire an object-URL lease for a committed artifact. The caller owns `release()` and must
- * check `isLeaseUsable` before (re)rendering. Rejects with `ImagePreviewError` only.
- */
-export async function loadImagePreview(
-  artifact: ImageArtifactRef,
-  { signal }: { signal?: AbortSignal } = {}
-): Promise<ArtifactBlobLease> {
-  if (artifact.state !== "committed") throw new ImagePreviewError("unavailable");
-  if (signal?.aborted) throw new ImagePreviewError("aborted");
-
-  const cache = getArtifactBlobCache();
-  // Revoke expired URLs physically before anything can be redisplayed.
-  cache.expireStale();
-
+/** Listing stamp that authorizes bytes now, else refresh the session and throw `authorization_stale`. */
+function requireAuthorizedStamp(artifact: ImageArtifactRef, cache: ArtifactBlobCache): number {
   const { session_id: sessionId, run_id: runId } = artifact;
   const stamp: unknown = useImageArtifactStore.getState().listingStampFor(sessionId, runId);
   // Only an own, finite number authorizes bytes (never a prototype member / NaN / Infinity).
@@ -146,29 +274,80 @@ export async function loadImagePreview(
     triggerSessionRefresh(sessionId);
     throw new ImagePreviewError("authorization_stale");
   }
+  return stamp;
+}
 
-  const request = toArtifactBytesRequest(artifact);
-  let lease: ArtifactBlobLease;
+export interface LoadImagePreviewOptions {
+  signal?: AbortSignal;
+  /**
+   * `true` (synchronously) when no preview slot is free and the load starts waiting its turn,
+   * `false` once admitted. Never called again after `signal` aborted.
+   */
+  onQueueChange?: (queued: boolean) => void;
+}
+
+/**
+ * Acquire an object-URL lease for a committed artifact. When every preview slot is leased, the
+ * call waits FIFO for a freed slot (see "Capacity-gated admission"); waiting is cancelled by
+ * `signal`. The caller owns `release()` and must check `isLeaseUsable` before (re)rendering.
+ * Rejects with `ImagePreviewError` only.
+ */
+export async function loadImagePreview(
+  artifact: ImageArtifactRef,
+  { signal, onQueueChange }: LoadImagePreviewOptions = {}
+): Promise<ArtifactBlobLease> {
+  if (artifact.state !== "committed") throw new ImagePreviewError("unavailable");
+  if (signal?.aborted) throw new ImagePreviewError("aborted");
+
+  const cache = getArtifactBlobCache();
+  // Revoke expired URLs physically before anything can be redisplayed.
+  cache.expireStale();
+
+  const { session_id: sessionId, run_id: runId, artifact_id: artifactId } = artifact;
+  // Fail fast (no waiting for a slot that would be spent on a stale attempt).
+  let stamp = requireAuthorizedStamp(artifact, cache);
+
+  const admission = admissionFor(cache);
+  const slotKey = `${sessionId}\u0000${runId}\u0000${artifactId}`;
+  const waited = await admit(admission, slotKey, signal, onQueueChange);
+
+  // From here a slot is reserved: it is handed to the lease below or freed on every other exit.
+  let slotOwnedByLease = false;
   try {
-    lease = await cache.acquire(
-      { ...currentScope(), sessionId, runId, artifactId: artifact.artifact_id },
-      (loadSignal) =>
-        getArtifactService().fetchArtifactBytes(request, {
-          signal: loadSignal,
-          disposition: "inline",
-        }),
-      { signal, authorizedAtMs: stamp }
-    );
-  } catch (error) {
-    const mapped = toImagePreviewError(error, artifact, signal);
-    if (mapped.code === "authorization_stale") triggerSessionRefresh(sessionId);
-    throw mapped;
-  }
-  if (signal?.aborted || !isLeaseUsable(lease)) {
-    lease.release();
     if (signal?.aborted) throw new ImagePreviewError("aborted");
-    triggerSessionRefresh(sessionId);
-    throw new ImagePreviewError("authorization_stale");
+    if (waited) {
+      // The wait can outlast the authorization window: re-validate with the live stamp.
+      cache.expireStale();
+      stamp = requireAuthorizedStamp(artifact, cache);
+    }
+
+    const request = toArtifactBytesRequest(artifact);
+    let lease: ArtifactBlobLease;
+    try {
+      lease = await cache.acquire(
+        { ...currentScope(), sessionId, runId, artifactId },
+        (loadSignal) =>
+          getArtifactService().fetchArtifactBytes(request, {
+            signal: loadSignal,
+            disposition: "inline",
+          }),
+        { signal, authorizedAtMs: stamp }
+      );
+    } catch (error) {
+      const mapped = toImagePreviewError(error, artifact, signal);
+      if (mapped.code === "authorization_stale") triggerSessionRefresh(sessionId);
+      throw mapped;
+    }
+    lease = holdSlotWhileLeased(lease, admission, slotKey);
+    slotOwnedByLease = true;
+    if (signal?.aborted || !isLeaseUsable(lease)) {
+      lease.release();
+      if (signal?.aborted) throw new ImagePreviewError("aborted");
+      triggerSessionRefresh(sessionId);
+      throw new ImagePreviewError("authorization_stale");
+    }
+    return lease;
+  } finally {
+    if (!slotOwnedByLease) freeSlot(admission, slotKey);
   }
-  return lease;
 }

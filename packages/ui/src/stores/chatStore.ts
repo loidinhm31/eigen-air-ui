@@ -25,28 +25,52 @@ interface ChatStore {
   clearMessages(): void;
 }
 
-function stripChatDebug(message: ChatMessage): ChatMessage {
-  const persistedMessage = { ...message };
-  delete persistedMessage.debug;
-  return persistedMessage;
+/** Persisted-message bounds (UTF-16 code units). Storage is a hint, never authority. */
+const MAX_PERSISTED_CONTENT_LENGTH = 256 * 1024;
+const MAX_PERSISTED_ID_LENGTH = 512;
+
+function boundedId(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 && value.length <= MAX_PERSISTED_ID_LENGTH
+    ? value
+    : undefined;
+}
+
+/**
+ * Strict whitelist for the persistence boundary (both directions): `role` (user/assistant/system),
+ * bounded string `content`, optional bounded `id`/`run_id`. Everything else is dropped: debug,
+ * tool fields and any forged extras (attachments, URLs, blobs). A message without a valid
+ * role/content is dropped entirely; an invalid optional id is dropped alone. Images are never
+ * persisted: the server artifact listing is the only authority for them. Persisted chat is an
+ * untrusted hint (history is refetched from the server on load) and nothing consumes persisted
+ * `tool_calls`/`tool_call_id`, so a restored message only needs role/content/id/run_id.
+ */
+function toPersistedMessage(value: unknown): ChatMessage | null {
+  if (!value || typeof value !== "object") return null;
+  const { role, content, id, run_id } = value as Record<string, unknown>;
+  if (
+    (role !== "user" && role !== "assistant" && role !== "system") ||
+    typeof content !== "string" ||
+    content.length > MAX_PERSISTED_CONTENT_LENGTH
+  ) {
+    return null;
+  }
+  const messageId = boundedId(id);
+  const runId = boundedId(run_id);
+  return {
+    ...(messageId !== undefined ? { id: messageId } : {}),
+    ...(runId !== undefined ? { run_id: runId } : {}),
+    role,
+    content,
+  };
 }
 
 type PersistedChatState = Pick<ChatStore, "messages">;
-
-function isChatMessage(value: unknown): value is ChatMessage {
-  if (!value || typeof value !== "object") return false;
-  const message = value as Partial<ChatMessage>;
-  return (
-    (message.role === "user" || message.role === "assistant" || message.role === "system") &&
-    typeof message.content === "string"
-  );
-}
 
 function sanitizePersistedChatState(persistedState: unknown): PersistedChatState {
   const persisted = persistedState as Partial<PersistedChatState> | null;
   return {
     messages: Array.isArray(persisted?.messages)
-      ? persisted.messages.filter(isChatMessage).map(stripChatDebug)
+      ? persisted.messages.flatMap((message) => toPersistedMessage(message) ?? [])
       : [],
   };
 }
@@ -174,7 +198,7 @@ export const useChatStore = create<ChatStore>()(
       // Debug data is intentionally ephemeral: it may be rendered for the
       // current response, but prompts and reasoning must never reach storage.
       partialize: (state) => ({
-        messages: state.messages.map(stripChatDebug),
+        messages: state.messages.flatMap((message) => toPersistedMessage(message) ?? []),
       }),
     }
   )

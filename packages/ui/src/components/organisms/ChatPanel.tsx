@@ -24,6 +24,8 @@ import type { PaletteSelection } from "../molecules/commandPaletteModel.js";
 import { ToolCallCard } from "../molecules/ToolCallCard.js";
 import { PendingQuestionRegion } from "./PendingQuestionRegion.js";
 import { PendingToolApprovalRegion } from "./PendingToolApprovalRegion.js";
+import { ChatImageGenerateAction, ChatImageHistory } from "./ChatImageHistory.js";
+import { useImageHistorySync } from "../../stores/use-image-history.js";
 import { useUserQuestionStore } from "../../stores/userQuestionStore.js";
 import { useToolApprovalStore } from "../../stores/toolApprovalStore.js";
 import { useReadinessStore } from "../../stores/readinessStore.js";
@@ -70,6 +72,7 @@ export function ChatPanel() {
   })();
   const sessionId = useConnectionStore((state) => state.sessionId);
   const connectionStatus = useConnectionStore((state) => state.status);
+  useImageHistorySync(sessionId ?? null); // single owner of the image history lifecycle
   const questionBlocksComposer = useUserQuestionStore(
     (state) => state.composerBlockedSessionId === sessionId
   );
@@ -781,7 +784,9 @@ export function ChatPanel() {
       <div className="border-border flex items-center justify-between border-b px-4 py-2">
         <div className="flex items-center gap-3 min-w-0">
           <div className="min-w-0">
-            <p className="text-sm font-medium">Chat</p>
+            <p className="text-sm font-medium focus:outline-none" data-chat-heading="">
+              Chat
+            </p>
             {sessionId && (
               <p className="text-muted-foreground truncate font-mono text-xs" title={sessionId}>
                 Session: {sessionId}
@@ -802,6 +807,7 @@ export function ChatPanel() {
           )}
         </div>
         <div className="flex items-center gap-2">
+          <ChatImageGenerateAction sessionId={sessionId ?? null} />
           <Button
             variant={showReasoningDebug || showPromptDebug ? "secondary" : "ghost"}
             size="sm"
@@ -828,9 +834,11 @@ export function ChatPanel() {
       </div>
       <ScrollArea className="w-full min-w-0 flex-1">
         <div className="flex w-full min-w-0 flex-col overflow-x-hidden">
-          {displayedMessages.map((msg, index) => (
-            <ChatBubble key={msg.id ?? `${msg.role}-${index}`} message={msg} />
-          ))}
+          <ChatImageHistory
+            sessionId={sessionId ?? null}
+            messages={displayedMessages}
+            renderMessage={(msg) => <ChatBubble message={msg} />}
+          />
           {Object.values(toolCalls).map((tc) => (
             <div key={tc.id} className="w-full min-w-0 max-w-full">
               <ToolCallCard call={tc} result={toolResults[tc.id]} />

@@ -49,3 +49,10 @@ export {
   formatTaskOutcomeReason,
   type TaskOutcomesPanelProps,
 } from "./TaskOutcomesPanel.js";
+export { ChatImageAttachment, type ChatImageAttachmentProps } from "./ChatImageAttachment.js";
+export { ChatImageRunGroup, type ChatImageRunGroupProps } from "./ChatImageRunGroup.js";
+export {
+  DirectImageTemplateAction,
+  type DirectImageTemplateActionProps,
+} from "./DirectImageTemplateAction.js";
+export { RunImageOutcomesPanel, type RunImageOutcomesPanelProps } from "./RunImageOutcomesPanel.js";
