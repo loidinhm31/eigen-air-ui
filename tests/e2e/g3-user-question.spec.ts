@@ -443,7 +443,7 @@ test("keeps the card disabled while offline, then reconciles after service recov
   await openQuestion(page);
   fixture.state.offline = true;
   fixture.sendHint({ snapshot_refetch_required: true });
-  await expect(page.getByRole("status")).toContainText(
+  await expect(page.getByTestId("pending-question-region").getByRole("status")).toContainText(
     "Reconnecting; checking current question state"
   );
   await expect(page.getByLabel(PROMPT)).toBeDisabled();
@@ -502,7 +502,9 @@ test("sends one resolve mutation and returns focus only after accepted submissio
     "data-question-state",
     "answered"
   );
-  await expect(page.getByRole("status")).toContainText("agent is continuing");
+  await expect(page.getByTestId("pending-question-region").getByRole("status")).toContainText(
+    "agent is continuing"
+  );
   await expect(page.getByPlaceholder("Message eigen-air...")).toBeDisabled();
   fixture.completeContinuation();
   await expect(page.getByRole("heading", { name: "Agent question" })).not.toBeVisible();
