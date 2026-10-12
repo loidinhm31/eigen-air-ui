@@ -189,6 +189,9 @@ export function createImageJobTracker(host: JobTrackerHost): ImageJobTracker {
     const token = tokenFor(snapshot.job_id);
     host.setJobs(withOwn(jobs, snapshot.job_id, snapshot));
     if (!isJobTerminal(snapshot)) {
+      if (!previous || snapshot.revision > previous.revision) {
+        clearPoll(snapshot.job_id);
+      }
       schedulePoll(snapshot.job_id, host.generation(), token);
       return;
     }

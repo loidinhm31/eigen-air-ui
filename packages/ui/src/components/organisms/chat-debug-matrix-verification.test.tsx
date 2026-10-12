@@ -11,6 +11,7 @@ import { useReadinessStore } from "../../stores/readinessStore.js";
 import { useChatDebugStore } from "../../stores/chat-debug-store.js";
 import { ChatDebugCache } from "../../stores/chat-debug-cache.js";
 import { ChatPanel } from "./ChatPanel.js";
+import { HttpRunAdapter } from "../../adapters/http/HttpRunAdapter.js";
 
 const serviceMocks = vi.hoisted(() => ({
   sendMessage: vi.fn(),
@@ -226,6 +227,73 @@ describe("Chat Debug Matrix Verification (V01-V02, V05-V12, V15-V17, V19)", () =
       expect(serviceMocks.getRunSnapshot).toHaveBeenCalledTimes(1);
       expect(serviceMocks.getRunSnapshot).toHaveBeenCalledWith("run-turn-1", expect.anything());
     });
+  });
+
+  it.each([0, -1, 1])("validates REST plaintext bytes before disclosure (delta %i)", async (delta) => {
+    const prompt = 'Prompt "quoted" \\ path\r\nTiếng Việt 日本語';
+    const reasoning = 'Reasoning "quoted" \\ path\r\nTiếng Việt 日本語';
+    const snapshot = makeSnapshot("run-rest", "session-1", prompt, reasoning);
+    snapshot.debug_excerpts![0].plaintext_bytes += delta;
+    serviceMocks.getHistory.mockResolvedValue({
+      messages: [{
+        id: "msg-session-1-0-1",
+        role: "assistant",
+        content: "REST-backed historical answer",
+        run_id: "run-rest",
+      }],
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify(snapshot))));
+    const adapter = new HttpRunAdapter("http://daemon", {
+      capabilities: new Set(["run:read:debug"]),
+    });
+    serviceMocks.getRunSnapshot.mockImplementation((runId, options) => adapter.get(runId, options));
+
+    const { container } = render(<ChatPanel />);
+    await screen.findByText("REST-backed historical answer");
+    expect(serviceMocks.getRunSnapshot).not.toHaveBeenCalled();
+    openDetails(container.querySelector("details")!);
+
+    if (delta === 0) {
+      await waitFor(() => {
+        const text = Array.from(container.querySelectorAll("pre"), (node) => node.textContent);
+        expect(text).toContain(prompt);
+        expect(text).toContain(reasoning);
+      });
+      expect(screen.queryByText("Debug trace is invalid or corrupted.")).toBeNull();
+      expect(screen.getByRole("button", { name: /copy debug information/i }).hasAttribute("disabled")).toBe(false);
+    } else {
+      expect(await screen.findByText("Debug trace is invalid or corrupted.")).toBeTruthy();
+      expect(container.querySelector("pre")).toBeNull();
+      expect(screen.getByRole("button", { name: /copy debug information/i }).hasAttribute("disabled")).toBe(true);
+    }
+    expect(serviceMocks.getRunSnapshot).toHaveBeenCalledWith("run-rest", expect.anything());
+  });
+
+  it("preserves the server invalid reason when no plaintext can be decrypted", async () => {
+    const snapshot = makeSnapshot("run-invalid", "session-1");
+    snapshot.run.redaction = {
+      metadata_only: true,
+      debug_requested: true,
+      debug_available: false,
+      unavailable_reason: "invalid",
+    };
+    snapshot.debug_excerpts = [];
+    serviceMocks.getHistory.mockResolvedValue({
+      messages: [{
+        id: "msg-session-1-0-1",
+        role: "assistant",
+        content: "Undecryptable historical answer",
+        run_id: "run-invalid",
+      }],
+    });
+    serviceMocks.getRunSnapshot.mockResolvedValue(snapshot);
+
+    const { container } = render(<ChatPanel />);
+    await screen.findByText("Undecryptable historical answer");
+    openDetails(container.querySelector("details")!);
+    expect(await screen.findByText("Debug trace is invalid or corrupted.")).toBeTruthy();
+    expect(container.querySelector("pre")).toBeNull();
+    expect(screen.getByRole("button", { name: /copy debug information/i }).hasAttribute("disabled")).toBe(true);
   });
 
   // V02: Global Debug ON alone, remounting ChatPanel, and programmatic streaming auto-open do not trigger historical REST requests

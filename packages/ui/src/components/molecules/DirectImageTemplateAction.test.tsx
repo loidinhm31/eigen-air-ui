@@ -479,6 +479,58 @@ describe("DirectImageTemplateAction", () => {
       expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
     });
 
+    it("renders progressbar, percentage, backend badge, and inline image preview when artifacts exist", async () => {
+      useImageArtifactStore.getState().trackJob(
+        job({
+          state: "running",
+          requested_count: 2,
+          completed_count: 1,
+          effective_backend: "vulkan",
+        })
+      );
+      const view = await renderReady();
+      const bar = screen.getByRole("progressbar", { name: "Image generation progress" });
+      expect(bar.getAttribute("aria-valuenow")).toBe("50");
+      expect(screen.getByText("50%")).toBeTruthy();
+      expect(screen.getByText("VULKAN")).toBeTruthy();
+
+      act(() => {
+        useImageArtifactStore.getState().trackJob(
+          job({
+            revision: 2,
+            state: "succeeded",
+            terminal_at_ms: 9,
+            requested_count: 2,
+            completed_count: 2,
+            effective_backend: "vulkan",
+            artifacts: [
+              {
+                schema: "image_artifact.v1",
+                artifact_id: "art-1",
+                job_id: "job-1",
+                session_id: "s1",
+                run_id: "r1",
+                ordinal: 0,
+                mime: "image/png",
+                width: 512,
+                height: 512,
+                byte_size: 100,
+                sha256: "a".repeat(64),
+                created_at_ms: 5,
+                state: "committed",
+              },
+            ],
+          })
+        );
+      });
+      expect(bar.getAttribute("aria-valuenow")).toBe("100");
+      expect(screen.getByText("100%")).toBeTruthy();
+      expect(screen.getByRole("group", { name: "Generated images" })).toBeTruthy();
+      expect(screen.getByRole("figure", { name: "Generated image 1 of 1" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Download image 1 of 1" })).toBeTruthy();
+      view.unmount();
+    });
+
     it("a createJob resolving after close still tracks the job, and reopening never double-submits", async () => {
       const gate = deferred<ImageJobSnapshot>();
       service.createJob.mockReturnValue(gate.promise);

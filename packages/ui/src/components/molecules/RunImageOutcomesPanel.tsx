@@ -15,6 +15,7 @@ import {
   IMAGE_CANCEL_FAILED_MESSAGE,
   IMAGE_CAPABILITY_CHECK_LABEL,
   IMAGE_CAPABILITY_FAILED_MESSAGE,
+  imageJobProgress,
   imageJobSummary,
   isImageJobActive,
   useNoticeFocusHandoff,
@@ -236,26 +237,56 @@ export function RunImageOutcomesPanel({ sessionId, runId }: RunImageOutcomesPane
           {jobs.map((job, index) => {
             const ordinal = index + 1;
             const busy = cancelling.has(job.job_id);
+            const progress = imageJobProgress(job);
             return (
               <li
                 key={job.job_id}
                 tabIndex={-1}
-                className="border-border flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-xs focus:outline-none"
+                className="border-border space-y-1.5 rounded-md border p-2 text-xs focus:outline-none"
               >
-                <span>{imageJobSummary(job)}</span>
-                {isImageJobActive(job) && job.state !== "cancel_requested" && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    aria-label={`${busy ? "Cancelling" : "Cancel"} image job ${ordinal}`}
-                    aria-disabled={busy || undefined}
-                    aria-busy={busy || undefined}
-                    onClick={(event) => void cancelJob(job.job_id, ordinal, event.currentTarget)}
-                  >
-                    {busy ? "Cancelling…" : "Cancel"}
-                  </Button>
-                )}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span>{imageJobSummary(job)}</span>
+                  <div className="flex items-center gap-2">
+                    <span
+                      data-image-job-backend=""
+                      className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 font-mono text-[10px] font-medium"
+                    >
+                      {progress.backendLabel}
+                    </span>
+                    <span
+                      data-image-job-percent=""
+                      className="font-mono text-xs font-medium tabular-nums"
+                    >
+                      {progress.percent}%
+                    </span>
+                    {isImageJobActive(job) && job.state !== "cancel_requested" && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        aria-label={`${busy ? "Cancelling" : "Cancel"} image job ${ordinal}`}
+                        aria-disabled={busy || undefined}
+                        aria-busy={busy || undefined}
+                        onClick={(event) => void cancelJob(job.job_id, ordinal, event.currentTarget)}
+                      >
+                        {busy ? "Cancelling…" : "Cancel"}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                <div
+                  role="progressbar"
+                  aria-label={`Image job ${ordinal} progress`}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={progress.percent}
+                  className="bg-muted h-1.5 w-full overflow-hidden rounded-full"
+                >
+                  <div
+                    className="bg-primary h-full transition-all duration-300"
+                    style={{ width: `${progress.fillPercent}%` }}
+                  />
+                </div>
               </li>
             );
           })}

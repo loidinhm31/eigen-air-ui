@@ -147,10 +147,9 @@ export async function loadHistoricalDebug(
       }
 
       const actualBytes = UTF8_ENCODER.encode(excerpt.plaintext).byteLength;
-      const byteDiff = Math.abs(excerpt.plaintext_bytes - actualBytes);
-      const maxAllowedDiscrepancy = Math.max(256, Math.ceil(actualBytes * 0.2));
+      // The server counts final plaintext UTF-8 bytes; JSON decoding preserves them.
       if (
-        byteDiff > maxAllowedDiscrepancy ||
+        excerpt.plaintext_bytes !== actualBytes ||
         actualBytes > MAX_ROW_PLAINTEXT_BYTES ||
         excerpt.plaintext_bytes > MAX_ROW_PLAINTEXT_BYTES
       ) {

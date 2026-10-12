@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RunSnapshotDto } from "@eigen-air-ui/shared/types";
 import { HttpRunAdapter } from "./HttpRunAdapter.js";
 import {
@@ -8,6 +8,8 @@ import {
   MAX_RUN_DEBUG_BYTES,
   UTF8_ENCODER,
 } from "./chat-debug-loader.js";
+
+afterEach(() => vi.unstubAllGlobals());
 
 function makeMockSnapshot(overrides: Partial<RunSnapshotDto> = {}): RunSnapshotDto {
   return {
@@ -270,16 +272,16 @@ describe("ChatDebugLoader", () => {
     }
   });
 
-  it("accepts minor byte variance between declared and encoded byte lengths due to escaping or line endings", async () => {
-    const text = 'You are eigen-air assistant with escaped quotes \\"hello\\"';
+  it("preserves exact plaintext bytes through REST JSON escaping and decoding", async () => {
+    const text = 'Quotes "hello", slash \\, CRLF\r\nand Unicode Tiếng Việt 日本語';
     const actual = UTF8_ENCODER.encode(text).byteLength;
-    const snapshotWithVariance = makeMockSnapshot({
+    const snapshot = makeMockSnapshot({
       debug_excerpts: [
         {
           excerpt_seq: 1,
           kind: "system_prompt",
           plaintext: text,
-          plaintext_bytes: actual + 4, // 4-byte variance from JSON quote escaping
+          plaintext_bytes: actual,
           created_at_ms: 1000,
           expires_at_ms: 50000,
           truncated: false,
@@ -288,9 +290,11 @@ describe("ChatDebugLoader", () => {
       ],
     });
 
-    const adapter = {
-      get: vi.fn().mockResolvedValue(snapshotWithVariance),
-    } as unknown as HttpRunAdapter;
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(snapshot)));
+    vi.stubGlobal("fetch", fetch);
+    const adapter = new HttpRunAdapter("http://daemon", {
+      capabilities: new Set(["run:read:debug"]),
+    });
 
     const result = await loadHistoricalDebug({
       adapter,
@@ -299,11 +303,31 @@ describe("ChatDebugLoader", () => {
       now: 5000,
     });
 
+    expect(fetch.mock.calls[0][0]).toBe("http://daemon/v1/runs/run-1?include_debug=true");
     expect(result.status).toBe("ready");
     if (result.status === "ready") {
       expect(result.systemPrompt).toBe(text);
       expect(result.plaintextBytes).toBe(actual);
     }
+  });
+
+  it.each([-1, 1, 4])("rejects a declared byte discrepancy of %i without tolerance", async (delta) => {
+    const snapshot = makeMockSnapshot();
+    const excerpt = snapshot.debug_excerpts![0];
+    snapshot.debug_excerpts = [{
+      ...excerpt,
+      plaintext_bytes: UTF8_ENCODER.encode(excerpt.plaintext).byteLength + delta,
+    }];
+    const adapter = {
+      get: vi.fn().mockResolvedValue(snapshot),
+    } as unknown as HttpRunAdapter;
+
+    await expect(loadHistoricalDebug({
+      adapter,
+      runId: "run-1",
+      sessionId: "sess-1",
+      now: 5000,
+    })).resolves.toEqual({ status: "unavailable", runId: "run-1", reason: "invalid" });
   });
 
   it("enforces row byte ceiling (MAX_ROW_PLAINTEXT_BYTES = 16 KiB)", async () => {

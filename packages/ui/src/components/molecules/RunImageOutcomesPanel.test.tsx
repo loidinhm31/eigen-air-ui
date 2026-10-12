@@ -216,6 +216,40 @@ describe("RunImageOutcomesPanel", () => {
     expect(screen.getByRole("figure")).toBeTruthy();
   });
 
+  it("renders progressbar, percentage, and backend badge without reporting failed jobs as 100%", () => {
+    seed({
+      jobs: [
+        job({
+          job_id: "job-1",
+          state: "running",
+          requested_count: 2,
+          completed_count: 1,
+          effective_backend: "vulkan",
+        }),
+        job({
+          job_id: "job-2",
+          created_at_ms: 2,
+          state: "failed",
+          terminal_at_ms: 9,
+          requested_count: 1,
+          completed_count: 0,
+          effective_backend: "cpu",
+          safe_code: "image_native_failed",
+        }),
+      ],
+    });
+    mount();
+    const bar1 = screen.getByRole("progressbar", { name: "Image job 1 progress" });
+    expect(bar1.getAttribute("aria-valuenow")).toBe("50");
+    expect(screen.getByText("50%")).toBeTruthy();
+    expect(screen.getByText("VULKAN")).toBeTruthy();
+
+    const bar2 = screen.getByRole("progressbar", { name: "Image job 2 progress" });
+    expect(bar2.getAttribute("aria-valuenow")).toBe("0");
+    expect(screen.getByText("0%")).toBeTruthy();
+    expect(screen.getByText("CPU")).toBeTruthy();
+  });
+
   it("cancels an active job through the store and shows 'Cancel requested' without a button", async () => {
     seed({ jobs: [job({ state: "running" })] });
     cancelJob.mockImplementation(async () => {

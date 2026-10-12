@@ -21,9 +21,11 @@ import {
   DirectImageTemplateFields,
   type DirectImageFieldRefs,
 } from "./direct-image-template-fields.js";
+import { ChatImageRunGroup } from "./ChatImageRunGroup.js";
 import {
   describeImageActionError,
   imageErrorKindMessage,
+  imageJobProgress,
   imageJobSummary,
   isImageJobActive,
 } from "./image-ui-messages.js";
@@ -247,6 +249,7 @@ export function DirectImageTemplateAction({
   const shownCancelError =
     job !== undefined && cancelError?.jobId === job.job_id ? cancelError.message : undefined;
   const statusText = submitting ? "Submitting image job…" : job ? imageJobSummary(job) : "";
+  const jobProgress = job ? imageJobProgress(job) : null;
 
   return (
     <section
@@ -351,6 +354,50 @@ export function DirectImageTemplateAction({
             >
               {statusText}
             </div>
+            {jobProgress && (
+              <div className="space-y-1 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span
+                    data-image-job-backend=""
+                    className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 font-mono text-[10px] font-medium"
+                  >
+                    {jobProgress.backendLabel}
+                  </span>
+                  <span
+                    data-image-job-percent=""
+                    className="font-mono text-xs font-medium tabular-nums"
+                  >
+                    {jobProgress.percent}%
+                  </span>
+                </div>
+                <div
+                  role="progressbar"
+                  aria-label="Image generation progress"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={jobProgress.percent}
+                  className="bg-muted h-1.5 w-full overflow-hidden rounded-full"
+                >
+                  <div
+                    className="bg-primary h-full transition-all duration-300"
+                    style={{ width: `${jobProgress.fillPercent}%` }}
+                  />
+                </div>
+              </div>
+            )}
+            {job && job.artifacts.length > 0 && (
+              <ChatImageRunGroup
+                group={{
+                  sessionId: job.session_id,
+                  runId: job.run_id,
+                  jobIds: [job.job_id],
+                  toolCallIds: [],
+                  items: job.artifacts,
+                }}
+                label="Generated images"
+                className="px-0 pt-1 pb-0"
+              />
+            )}
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 type="submit"

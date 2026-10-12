@@ -4,6 +4,7 @@ import {
   isValidExpectedPng,
   readBoundedBytes,
   readVerifiedPng,
+  sha256FallbackHex,
   type ExpectedPng,
 } from "./artifact-bytes.js";
 import {
@@ -233,17 +234,40 @@ describe("readVerifiedPng", () => {
     }
   });
 
-  it("fails closed with `unsupported` when crypto.subtle is missing, returning no bytes", async () => {
+  it("verifies valid PNGs and rejects tampered bytes when crypto.subtle is missing (LAN HTTP fallback)", async () => {
     for (const stub of [{}, undefined]) {
       vi.stubGlobal("crypto", stub);
-      const p = probe();
+      const okBlob = await readVerifiedPng(pngResponse(new Blob([PNG_256]).stream()), expected);
+      expect(okBlob.type).toBe("image/png");
+      expect(new Uint8Array(await okBlob.arrayBuffer())).toEqual(PNG_256);
+
+      const bad = PNG_256.slice();
+      bad[bad.length - 1]! ^= 0xff;
       const error = await failureOf(
-        readVerifiedPng(pngResponse(probedStream([PNG_256], p)), expected)
+        readVerifiedPng(pngResponse(new Blob([bad]).stream()), expected)
       );
-      expect(error.kind).toBe("unsupported");
-      expect(error.message).toBe("artifact_adapter_unsupported");
-      expect(p.pulled).toBe(0);
-      expect(p.cancelled).toBe(true);
+      expect(error.kind).toBe("integrity");
+    }
+  });
+
+  it("sha256FallbackHex matches FIPS 180-4 test vectors and WebCrypto across padding boundaries", async () => {
+    const enc = new TextEncoder();
+    expect(sha256FallbackHex(new Uint8Array(0))).toBe(
+      "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    );
+    expect(sha256FallbackHex(enc.encode("abc"))).toBe(
+      "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    );
+    expect(
+      sha256FallbackHex(enc.encode("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"))
+    ).toBe("248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1");
+
+    for (const len of [1, 54, 55, 56, 57, 63, 64, 65, 119, 120, 128, 513]) {
+      const buf = new Uint8Array(len);
+      for (let i = 0; i < len; i += 1) {
+        buf[i] = (i * 131 + 17) & 0xff;
+      }
+      expect(sha256FallbackHex(buf)).toBe(await sha256Hex(buf));
     }
   });
 

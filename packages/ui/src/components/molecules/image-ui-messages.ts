@@ -147,6 +147,32 @@ export function imageJobSummary(job: ImageJobSnapshot): string {
   return parts.join(" · ");
 }
 
+export interface ImageJobProgressInfo {
+  /** Truthful committed-item percentage (0..100). Never reports non-succeeded jobs as 100%. */
+  percent: number;
+  /** Visual bar width (0..100) reflecting stage progression while active. */
+  fillPercent: number;
+  /** Execution backend badge (`VULKAN` or `CPU`). */
+  backendLabel: string;
+}
+/**
+ * Computes committed-item completion percentage (`0%–100%`) and backend badge
+ * from the authoritative job snapshot. `fillPercent` equals `percent` so sighted
+ * progress bar width matches `aria-valuenow` 1:1.
+ */
+export function imageJobProgress(job: ImageJobSnapshot): ImageJobProgressInfo {
+  const ratio =
+    job.requested_count > 0
+      ? Math.round((Math.min(job.completed_count, job.requested_count) / job.requested_count) * 100)
+      : 0;
+  const percent = job.state === "succeeded" ? 100 : Math.min(99, Math.max(0, ratio));
+  return {
+    percent,
+    fillPercent: percent,
+    backendLabel: job.effective_backend.toUpperCase(),
+  };
+}
+
 /**
  * What a recovery notice ("Check again" / listing "Retry") is waiting for:
  * `failed` a failure notice is shown, `busy` the recovery is in flight, `done` it settled

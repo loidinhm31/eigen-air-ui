@@ -599,16 +599,20 @@ describe("HttpArtifactAdapter transport hardening", () => {
     }
   });
 
-  it("fails closed with `unsupported` and cancels the body when crypto.subtle is missing", async () => {
+  it("verifies PNG bytes via pure-TS SHA-256 fallback and rejects tampered bytes when crypto.subtle is missing", async () => {
     vi.stubGlobal("crypto", {});
-    const probe = { pulled: 0, cancelled: false };
-    fetchMock.mockImplementation(async () =>
-      pngResponse(probedStream([PNG_256.slice(0, 60), PNG_256.slice(60)], probe))
+    fetchMock.mockImplementationOnce(async () =>
+      pngResponse(new Blob([PNG_256.slice(0, 60), PNG_256.slice(60)]).stream())
     );
+    const blob = await adapter.fetchArtifactBytes(bytesRequest);
+    expect(blob.type).toBe("image/png");
+    expect(new Uint8Array(await blob.arrayBuffer())).toEqual(PNG_256);
+
+    const tampered = PNG_256.slice();
+    tampered[tampered.length - 1]! ^= 0xff;
+    fetchMock.mockImplementationOnce(async () => pngResponse(new Blob([tampered]).stream()));
     const error = await failureOf(adapter.fetchArtifactBytes(bytesRequest));
-    expect(error.kind).toBe("unsupported");
-    expect(probe.pulled).toBeLessThanOrEqual(1);
-    expect(probe.cancelled).toBe(true);
+    expect(error.kind).toBe("integrity");
   });
 });
 
