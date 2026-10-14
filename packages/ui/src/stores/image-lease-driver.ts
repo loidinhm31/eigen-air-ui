@@ -34,7 +34,7 @@ let wallClock: () => number = () => Date.now();
 /** Registration refcount per session (a preview of that session is on screen). */
 const registrations = new Map<string, number>();
 let total = 0;
-let timer: number | undefined;
+let timer: ReturnType<typeof setInterval> | undefined;
 /** Bumped by dispose so unregister closures from a previous life can never touch the new one. */
 let epoch = 0;
 let lastWallMs = 0;
