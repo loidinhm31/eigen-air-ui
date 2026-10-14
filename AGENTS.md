@@ -1,4 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
+
+This file provides guidance to AI coding agents and developers working with code in this repository.
 
 Eigen Air UI is the standalone web and desktop frontend for the Eigen Air
 daemon. It is a PNPM/Turborepo workspace with a Vite web app and a Tauri v2

@@ -127,7 +127,7 @@ private handleClose() {
 }
 
 @layer base {
-  body { /* Wrapped in @layer to prevent leak to glean-oak-app */ }
+  body { /* Wrapped in @layer to prevent leak to glean-hub-app */ }
 }
 ```
 
@@ -144,9 +144,9 @@ private handleClose() {
 - @tailwindcss/vite plugin registers CSS at document level, but only if import path resolves
 
 **Why Embedded Mode Works:**
-- glean-oak-app uses Shadow DOM isolation with regex replacements (reference: FinCatchEmbed.tsx pattern in CLAUDE.md)
+- glean-hub-app uses Shadow DOM isolation with regex replacements (reference: FinCatchEmbed.tsx pattern in CLAUDE.md)
 - CSS scoped to Shadow DOM; element selectors in `@layer base` don't leak to light DOM
-- CSS loads reliably because glean-oak-app handles import
+- CSS loads reliably because glean-hub-app handles import
 
 ### nonclaw-ui CSS Loading
 
@@ -187,7 +187,7 @@ body { /* No @layer protection; app not documented as embeddable */ }
 | **Reconnect (on close)** | Manual user action | Socket.IO-style auto-reconnect (exponential backoff) |
 | **CSS Import Style** | Vite alias (`@robo-fleet/ui/styles`) | Direct package export (`@nonclaw-ui/ui/styles`) |
 | **CSS Scanning** | `@source` directive in CSS | Tailwind content config (if defined) |
-| **Element Selector Protection** | `@layer base` for glean-oak-app compatibility | None (app not embeddable) |
+| **Element Selector Protection** | `@layer base` for glean-hub-app compatibility | None (app not embeddable) |
 
 ---
 
