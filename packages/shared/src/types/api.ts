@@ -204,17 +204,69 @@ export interface KnowledgeRelationRequest {
 
 // --- Skill ---
 
+export type SkillSourceKind =
+  | "bundled"
+  | "workspace_local"
+  | "configured"
+  | "runtime_install"
+  | "imported"
+  | "operator_markdown";
+
+export type SkillFormatKind = "toml" | "markdown";
+
+export type SkillCompatibilityKind = "native" | "needs_adaptation";
+
+export type SkillEligibilityKind =
+  | "selectable"
+  | "disabled"
+  | "inspection_required"
+  | "needs_adaptation"
+  | "missing_tools"
+  | "grant_denied"
+  | "unavailable";
+
+export interface ResourceEntry {
+  path: string;
+  size: number;
+  sha256: string;
+}
+
 export interface Skill {
   id: string;
   name: string;
   description: string;
   tags?: string[];
+  version?: string | null;
+  source?: SkillSourceKind;
+  format?: SkillFormatKind;
+  install_id?: string | null;
+  catalog_generation?: number | null;
+  content_revision?: string | null;
+  local_state_revision?: number | null;
+  enabled?: boolean;
+  inspected_content_revision?: string | null;
+  compatibility?: SkillCompatibilityKind;
+  eligibility?: SkillEligibilityKind;
+  required_tools?: string[];
+  optional_tools?: string[];
+  diagnostics?: string[];
 }
 
-export interface SkillSearchResult {
-  name: string;
-  description: string;
-  score: number;
+export interface SkillPackageDetailDTO extends Skill {
+  system_prompt?: string | null;
+  resources?: ResourceEntry[];
+  archive_sha256?: string | null;
+}
+
+export interface SkillResourceResponse {
+  path: string;
+  content: string;
+  size: number;
+  truncated: boolean;
+}
+
+export interface SkillSearchResult extends Skill {
+  score?: number;
 }
 
 // --- Tool ---

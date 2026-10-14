@@ -1,7 +1,17 @@
 import type { IChatService } from "./interfaces/IChatService.js";
 import type { IMemoryService, MemoryServiceOptions } from "./interfaces/IMemoryService.js";
 import type { IToolService } from "./interfaces/IToolService.js";
-import type { ISkillService } from "./interfaces/ISkillService.js";
+import type {
+  ISkillService,
+  SkillListOptions,
+  SkillSearchOptions,
+  SkillGetOptions,
+  SkillImportOptions,
+  SkillReplaceOptions,
+  SkillSetEnabledOptions,
+  SkillUninstallOptions,
+  SkillResourceOptions,
+} from "./interfaces/ISkillService.js";
 import type { IConfigService } from "./interfaces/IConfigService.js";
 import type { ISessionService } from "./interfaces/ISessionService.js";
 import type { IVaultKnowledgeService } from "./interfaces/IVaultKnowledgeService.js";
@@ -199,6 +209,14 @@ export type {
   MemoryServiceOptions,
   IToolService,
   ISkillService,
+  SkillListOptions,
+  SkillSearchOptions,
+  SkillGetOptions,
+  SkillImportOptions,
+  SkillReplaceOptions,
+  SkillSetEnabledOptions,
+  SkillUninstallOptions,
+  SkillResourceOptions,
   IConfigService,
   ISessionService,
   IVaultKnowledgeService,

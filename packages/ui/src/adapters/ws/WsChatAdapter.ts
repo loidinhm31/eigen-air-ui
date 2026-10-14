@@ -63,6 +63,12 @@ export function buildChatSendParams(
     ...(options.selectedSkillId !== undefined
       ? { selected_skill_id: options.selectedSkillId }
       : {}),
+    ...(options.selectedSkillInstallId !== undefined
+      ? { selected_skill_install_id: options.selectedSkillInstallId }
+      : {}),
+    ...(options.selectedSkillContentRevision !== undefined
+      ? { selected_skill_content_revision: options.selectedSkillContentRevision }
+      : {}),
     ...(options.allowToolLimitContinue ? { allow_tool_limit_continue: true } : {}),
     ...(debug ? { debug } : {}),
   };

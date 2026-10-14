@@ -13,7 +13,16 @@ describe("CommandPalette", () => {
     const user = userEvent.setup();
     render(
       <CommandPalette
-        skills={[{ id: "code_review", name: "Code review", description: "Review code" }]}
+        skills={[
+          {
+            id: "code_review",
+            name: "Code review",
+            description: "Review code",
+            enabled: true,
+            eligibility: "selectable",
+            compatibility: "native",
+          },
+        ]}
         onSelect={onSelect}
         onRequestComposerFocus={onRequestComposerFocus}
       />
@@ -51,7 +60,16 @@ describe("CommandPalette", () => {
     render(
       <>
         <CommandPalette
-          skills={[{ id: "ship-it", name: "Ship it", description: "Untrusted <b>metadata</b>" }]}
+          skills={[
+            {
+              id: "ship-it",
+              name: "Ship it",
+              description: "Untrusted <b>metadata</b>",
+              enabled: true,
+              eligibility: "selectable",
+              compatibility: "native",
+            },
+          ]}
           onSelect={onSelect}
         />
         <button type="button">Next field</button>
@@ -74,7 +92,14 @@ describe("CommandPalette", () => {
     await user.click(screen.getByRole("option", { name: /Ship it/ }));
     expect(onSelect).toHaveBeenLastCalledWith({
       kind: "skill",
-      skill: { id: "ship-it", name: "Ship it", description: "Untrusted <b>metadata</b>" },
+      skill: {
+        id: "ship-it",
+        name: "Ship it",
+        description: "Untrusted <b>metadata</b>",
+        enabled: true,
+        eligibility: "selectable",
+        compatibility: "native",
+      },
     });
   });
 

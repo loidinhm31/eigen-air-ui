@@ -207,13 +207,23 @@ describe("buildChatSendParams", () => {
     });
   });
 
-  it("passes through only the exact selected skill ID transport field", () => {
-    const selectedSkillId = "x".repeat(256);
+  it("passes through exact selected skill identity transport fields", () => {
+    const selectedSkillId = "qwen-image-local";
+    const selectedSkillInstallId = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
+    const selectedSkillContentRevision = "a".repeat(64);
 
-    expect(buildChatSendParams("ordinary message", undefined, { selectedSkillId })).toEqual({
-      message: "ordinary message",
+    expect(
+      buildChatSendParams("generate an image", undefined, {
+        selectedSkillId,
+        selectedSkillInstallId,
+        selectedSkillContentRevision,
+      })
+    ).toEqual({
+      message: "generate an image",
       stream: true,
       selected_skill_id: selectedSkillId,
+      selected_skill_install_id: selectedSkillInstallId,
+      selected_skill_content_revision: selectedSkillContentRevision,
     });
   });
 

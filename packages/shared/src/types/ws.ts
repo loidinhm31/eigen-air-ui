@@ -160,6 +160,8 @@ export interface ChatSendParams {
   stream?: boolean;
   session_id?: string;
   selected_skill_id?: string;
+  selected_skill_install_id?: string;
+  selected_skill_content_revision?: string;
   allow_tool_limit_continue?: boolean;
   debug?: DebugRequest;
 }

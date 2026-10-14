@@ -20,7 +20,8 @@ import { ScrollArea } from "../atoms/ScrollArea.js";
 import { Spinner } from "../atoms/Spinner.js";
 import { ChatBubble } from "../molecules/ChatBubble.js";
 import { CommandPalette } from "../molecules/CommandPalette.js";
-import type { PaletteSelection } from "../molecules/commandPaletteModel.js";
+import { type PaletteSelection, isSkillSelectable } from "../molecules/commandPaletteModel.js";
+import { SkillHttpError } from "../../adapters/http/HttpSkillAdapter.js";
 import { ToolCallCard } from "../molecules/ToolCallCard.js";
 import { PendingQuestionRegion } from "./PendingQuestionRegion.js";
 import { PendingToolApprovalRegion } from "./PendingToolApprovalRegion.js";
@@ -44,6 +45,14 @@ const PROVIDER_WAIT_STATUS = "Waiting for agent response...";
 const TOOL_LIMIT_CONTINUE_PROMPT =
   "Continue from the previous tool results and finish the answer. Use tools only if necessary.";
 
+function isSelectionStale(current: Skill | null, list: readonly Skill[]): boolean {
+  if (!current) return false;
+  const match = list.find((s) => s.id === current.id);
+  if (!match) return true;
+  if (current.install_id && match.install_id !== current.install_id) return true;
+  if (current.content_revision && match.content_revision !== current.content_revision) return true;
+  return !isSkillSelectable(match);
+}
 export function ChatPanel() {
   const [input, setInput] = useState("");
   const {
@@ -129,6 +138,7 @@ export function ChatPanel() {
   const [skillsLoading, setSkillsLoading] = useState(true);
   const [skillLoadError, setSkillLoadError] = useState<string | null>(null);
   const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
+  const [staleSkillWarning, setStaleSkillWarning] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const errorCopyTimeoutRef = useRef<number | undefined>(undefined);
   const [copiedError, setCopiedError] = useState(false);
@@ -153,6 +163,8 @@ export function ChatPanel() {
     const currentAccess = `${identityKey ?? ""}:${authToken ?? ""}:${daemonUrl}`;
     if (previousAccessRef.current !== null && previousAccessRef.current !== currentAccess) {
       clearCapturedDebug();
+      setSelectedSkill(null);
+      setStaleSkillWarning(null);
       useChatDebugStore.getState().invalidateAccess();
     }
     previousAccessRef.current = currentAccess;
@@ -268,11 +280,18 @@ export function ChatPanel() {
         if (cancelled) return;
         setSkills(availableSkills);
         setSkillsLoading(false);
+        if (isSelectionStale(selectedSkill, availableSkills)) {
+          setSelectedSkill(null);
+          setStaleSkillWarning(
+            `Selected skill "${selectedSkill?.name}" was modified, disabled, uninstalled, or requires new inspection. Selection was cleared.`
+          );
+        }
       })
-      .catch(() => {
+      .catch((err) => {
         if (cancelled) return;
-        setSkills([]);
         setSkillsLoading(false);
+        if (err instanceof SkillHttpError && err.kind === "aborted") return;
+        setSkills([]);
         setSkillLoadError("Installed skills unavailable");
       });
 
@@ -282,9 +301,32 @@ export function ChatPanel() {
   }, [connectionStatus]);
 
   useEffect(() => {
+    if (!paletteOpen || connectionStatus !== "connected") return;
+    let cancelled = false;
+
+    Promise.resolve()
+      .then(() => getSkillService().list())
+      .then((availableSkills) => {
+        if (cancelled) return;
+        setSkills(availableSkills);
+        if (isSelectionStale(selectedSkill, availableSkills)) {
+          setSelectedSkill(null);
+          setStaleSkillWarning(
+            `Selected skill "${selectedSkill?.name}" was modified, disabled, uninstalled, or requires new inspection. Selection was cleared.`
+          );
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [paletteOpen, connectionStatus]);
+  useEffect(() => {
     startupDebugAbortRef.current?.abort();
     finalDebugAbortRef.current?.abort();
     setSelectedSkill(null);
+    setStaleSkillWarning(null);
     setPaletteOpen(false);
   }, [connectionStatus, sessionId]);
   useEffect(() => {
@@ -349,7 +391,9 @@ export function ChatPanel() {
   async function sendPrompt(
     msg: string,
     allowToolLimitContinue = false,
-    selectedSkillId?: string
+    selectedSkillId?: string,
+    selectedSkillInstallId?: string,
+    selectedSkillContentRevision?: string
   ): Promise<boolean> {
     if (!msg.trim() || isStreaming || composerBlocked) return false;
     setToolCalls({});
@@ -541,10 +585,18 @@ export function ChatPanel() {
             startupDebugAbortRef.current?.abort();
             updateStreamingDebug(undefined);
             setStreamError(event.payload.message);
+            if (event.payload.code === "selected_skill_unavailable") {
+              setSelectedSkill(null);
+              setStaleSkillWarning(
+                event.payload.message ?? "The selected skill is unavailable. Selection has been cleared."
+              );
+            }
           }
         },
         {
           ...(selectedSkillId !== undefined ? { selectedSkillId } : {}),
+          ...(selectedSkillInstallId !== undefined ? { selectedSkillInstallId } : {}),
+          ...(selectedSkillContentRevision !== undefined ? { selectedSkillContentRevision } : {}),
           ...(allowToolLimitContinue ? { allowToolLimitContinue: true } : {}),
           ...(debug ? { debug } : {}),
         }
@@ -699,13 +751,26 @@ export function ChatPanel() {
   }
 
   async function handleSend() {
-    if (!input.trim() || isStreaming || composerBlocked) return;
+    if (!input.trim() || isStreaming || composerBlocked || staleSkillWarning) return;
+    if (selectedSkill && isSelectionStale(selectedSkill, skills)) {
+      setStaleSkillWarning(
+        `Selected skill "${selectedSkill.name}" was modified, disabled, uninstalled, or requires new inspection. Selection was cleared.`
+      );
+      setSelectedSkill(null);
+      return;
+    }
     const msg = input.trim();
-    const selectedSkillId = selectedSkill?.id;
+    const currentSelectedSkill = selectedSkill;
     setInput("");
     setSelectedSkill(null);
     setPaletteOpen(false);
-    const accepted = await sendPrompt(msg, false, selectedSkillId);
+    const accepted = await sendPrompt(
+      msg,
+      false,
+      currentSelectedSkill?.id,
+      currentSelectedSkill?.install_id ?? undefined,
+      currentSelectedSkill?.content_revision ?? undefined
+    );
     if (!accepted) {
       setInput((current) => (current ? current : msg));
     }
@@ -714,11 +779,13 @@ export function ChatPanel() {
   function handlePaletteSelect(outcome: PaletteSelection) {
     if (outcome.kind === "command") {
       setSelectedSkill(null);
+      setStaleSkillWarning(null);
       setInput(outcome.command);
       return;
     }
 
     setSelectedSkill(outcome.skill);
+    setStaleSkillWarning(null);
   }
 
   async function handleContinueFromLimit() {
@@ -904,6 +971,21 @@ export function ChatPanel() {
             onRetry={retryReadiness}
           />
         </div>
+        {staleSkillWarning && (
+          <div
+            role="alert"
+            className="mb-2 flex items-center justify-between rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-300"
+          >
+            <span>{staleSkillWarning}</span>
+            <button
+              type="button"
+              className="ml-2 font-bold underline hover:no-underline"
+              onClick={() => setStaleSkillWarning(null)}
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
         {selectedSkill && (
           <div className="mb-2 flex items-center gap-2" role="status">
             <span className="border-border bg-accent rounded-full border px-2.5 py-1 text-xs">

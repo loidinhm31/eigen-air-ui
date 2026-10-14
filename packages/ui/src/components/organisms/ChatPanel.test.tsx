@@ -69,8 +69,14 @@ const TEST_SKILL = {
   id: "code_review",
   name: "Code review",
   description: "Review code without exposing instructions",
+  source: "imported" as const,
+  format: "markdown" as const,
+  install_id: "install-uuid-1",
+  content_revision: "content-rev-1",
+  enabled: true,
+  compatibility: "native" as const,
+  eligibility: "selectable" as const,
 };
-
 const TEST_RUN_SNAPSHOT = {
   schema_version: 1,
   run: {
@@ -522,6 +528,8 @@ describe("ChatPanel selected skill lifecycle", () => {
     await waitFor(() => expect(serviceMocks.sendMessage).toHaveBeenCalledTimes(1));
     expect(serviceMocks.sendMessage.mock.calls[0]?.[3]).toMatchObject({
       selectedSkillId: "code_review",
+      selectedSkillInstallId: "install-uuid-1",
+      selectedSkillContentRevision: "content-rev-1",
     });
     expect(screen.queryByText("Skill: Code review")).toBeNull();
 
@@ -614,6 +622,89 @@ describe("ChatPanel selected skill lifecycle", () => {
     await user.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(serviceMocks.sendMessage).toHaveBeenCalledOnce());
     expect(serviceMocks.sendMessage.mock.calls[0]?.[3]).not.toHaveProperty("selectedSkillId");
+  });
+
+  it("clears selected skill and displays alert when skill becomes stale on refresh", async () => {
+    const user = userEvent.setup();
+    render(<ChatPanel />);
+
+    await selectTestSkill(user);
+    expect(screen.getByText("Skill: Code review")).toBeTruthy();
+
+    serviceMocks.listSkills.mockResolvedValueOnce([
+      {
+        ...TEST_SKILL,
+        content_revision: "content-rev-2",
+        eligibility: "inspection_required",
+      },
+    ]);
+
+    await user.click(screen.getByRole("button", { name: "Open commands and skills" }));
+    await waitFor(() => {
+      expect(screen.queryByText("Skill: Code review")).toBeNull();
+      expect(screen.getByRole("alert").textContent).toMatch(
+        /was modified, disabled, uninstalled, or requires new inspection/
+      );
+    });
+  });
+
+  it("blocks sending and preserves draft message until stale alert is acknowledged", async () => {
+    serviceMocks.sendMessage.mockResolvedValue({ content: "ok", tool_calls_made: 0 });
+    const user = userEvent.setup();
+    render(<ChatPanel />);
+
+    await selectTestSkill(user);
+    expect(screen.getByText("Skill: Code review")).toBeTruthy();
+
+    const composer = screen.getByPlaceholderText("Message eigen-air...") as HTMLInputElement;
+    await user.type(composer, "my pending prompt");
+
+    serviceMocks.listSkills.mockResolvedValueOnce([
+      {
+        ...TEST_SKILL,
+        enabled: false,
+        eligibility: "disabled",
+      },
+    ]);
+    await user.click(screen.getByRole("button", { name: "Open commands and skills" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeTruthy();
+    });
+
+    // Pressing enter while alert is showing is blocked
+    await user.type(composer, "{enter}");
+    expect(serviceMocks.sendMessage).not.toHaveBeenCalled();
+    expect(composer.value).toBe("my pending prompt");
+
+    // Clicking send while alert is showing is blocked
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    expect(serviceMocks.sendMessage).not.toHaveBeenCalled();
+    expect(composer.value).toBe("my pending prompt");
+
+    // Acknowledge by dismissing the alert
+    await user.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    // Now send proceeds
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(serviceMocks.sendMessage).toHaveBeenCalledOnce());
+    expect(serviceMocks.sendMessage.mock.calls[0]?.[3]).not.toHaveProperty("selectedSkillId");
+  });
+
+  it("clears selected skill on host access or daemon URL rotation", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<ChatPanel />);
+
+    await selectTestSkill(user);
+    expect(screen.getByText("Skill: Code review")).toBeTruthy();
+
+    useConnectionStore.getState().setUrl("http://127.0.0.1:19999");
+    rerender(<ChatPanel />);
+
+    await waitFor(() => {
+      expect(screen.queryByText("Skill: Code review")).toBeNull();
+    });
   });
 
   it("keeps built-in commands usable when skill discovery fails synchronously", async () => {

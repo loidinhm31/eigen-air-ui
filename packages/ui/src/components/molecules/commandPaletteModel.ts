@@ -71,10 +71,15 @@ export function commandPaletteOutcome(option: CommandPaletteOption): PaletteSele
     : { kind: "skill", skill: option.skill };
 }
 
+export function isSkillSelectable(skill: Skill): boolean {
+  return skill.enabled === true && skill.eligibility === "selectable";
+}
+
 export function createCommandPaletteOptions(skills: readonly Skill[] = []): CommandPaletteOption[] {
+  const selectableSkills = skills.filter(isSkillSelectable);
   return [
     ...BUILT_IN_COMMANDS.map((command) => ({ kind: "command" as const, ...command })),
-    ...skills.map((skill) => ({
+    ...selectableSkills.map((skill) => ({
       kind: "skill" as const,
       id: skill.id,
       name: skill.name,

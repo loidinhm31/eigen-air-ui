@@ -46,6 +46,8 @@ export interface DebugRequestOptions {
 
 export interface SendMessageOptions {
   selectedSkillId?: string;
+  selectedSkillInstallId?: string;
+  selectedSkillContentRevision?: string;
   allowToolLimitContinue?: boolean;
   debug?: DebugRequestOptions;
 }
