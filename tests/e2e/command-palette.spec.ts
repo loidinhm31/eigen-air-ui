@@ -16,6 +16,8 @@ test.beforeEach(async ({ page }) => {
           name: "Code review",
           description: "Review code without exposing server instructions",
           tags: ["review"],
+          enabled: true,
+          eligibility: "selectable",
         },
       ]),
     });

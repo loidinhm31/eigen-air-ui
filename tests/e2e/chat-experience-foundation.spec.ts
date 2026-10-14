@@ -38,7 +38,7 @@ async function installDeterministicChatFixture(page: Page) {
       status: 200,
       contentType: "application/json",
       body: JSON.stringify([
-        { id: "stale-skill", name: "Stale skill", description: "Unavailable fixture skill" },
+        { id: "stale-skill", name: "Stale skill", description: "Unavailable fixture skill", enabled: true, eligibility: "selectable" },
       ]),
     });
   });
