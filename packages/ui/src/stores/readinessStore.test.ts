@@ -106,4 +106,45 @@ describe("readinessStore", () => {
     await vi.advanceTimersByTimeAsync(3000);
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
+
+  it("invalidates cached ready state on invalidate()", async () => {
+    const readySnapshot: ProviderReadinessSnapshot = {
+      status: "ready",
+      retryable: false,
+      details: { stages: [] },
+    };
+    const fetcher = vi.fn().mockResolvedValue(readySnapshot);
+    useReadinessStore.getState().startPolling(fetcher, "ctx-1");
+    await Promise.resolve();
+
+    expect(useReadinessStore.getState().phase).toBe("ready");
+    expect(useReadinessStore.getState().canInfer).toBe(true);
+
+    useReadinessStore.getState().invalidate();
+    expect(useReadinessStore.getState().phase).toBe("idle");
+    expect(useReadinessStore.getState().canInfer).toBe(false);
+    expect(useReadinessStore.getState().snapshot).toBeNull();
+  });
+
+  it("polls anew when contextKey changes even if previously ready", async () => {
+    const readySnapshot: ProviderReadinessSnapshot = {
+      status: "ready",
+      retryable: false,
+      details: { stages: [] },
+    };
+    const fetcher = vi.fn().mockResolvedValue(readySnapshot);
+    useReadinessStore.getState().startPolling(fetcher, "ctx-1");
+    await Promise.resolve();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    // Re-polling with same contextKey does not re-poll
+    useReadinessStore.getState().startPolling(fetcher, "ctx-1");
+    await Promise.resolve();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    // Re-polling with DIFFERENT contextKey triggers fresh poll
+    useReadinessStore.getState().startPolling(fetcher, "ctx-2");
+    await Promise.resolve();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
 });

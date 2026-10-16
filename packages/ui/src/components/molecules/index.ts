@@ -60,3 +60,20 @@ export {
   ExecutionTargetSelector,
   type ExecutionTargetSelectorProps,
 } from "./ExecutionTargetSelector.js";
+export {
+  CompanionInstallCard,
+  type CompanionInstallCardProps,
+} from "./CompanionInstallCard.js";
+export {
+  COMPANION_PLATFORMS,
+  type CompanionPlatformId,
+  type PlatformConfig,
+} from "./companion-platforms.js";
+export {
+  CompanionPairingApproval,
+  type CompanionPairingApprovalProps,
+} from "./CompanionPairingApproval.js";
+export {
+  StorageSelectionRequest,
+  type StorageSelectionRequestProps,
+} from "./StorageSelectionRequest.js";

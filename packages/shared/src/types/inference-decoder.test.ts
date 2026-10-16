@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  decodeApprovePairingResponse,
   decodeCanonicalOperationSnapshot,
   decodeCatalogArtifact,
   decodeExecutionTarget,
@@ -9,8 +10,8 @@ import {
   decodeRunInferenceProgressEvent,
   decodeStageCounters,
   decodeStorageRootDescriptor,
+  decodeStorageSelectionResponse,
 } from "./inference-decoder.js";
-
 describe("inference-decoder", () => {
   describe("decodeStageCounters", () => {
     it("decodes valid stage counters and sanitizes negative/infinite values", () => {
@@ -287,6 +288,59 @@ describe("inference-decoder", () => {
       expect(decoded.requires_acceptance).toBe(true);
       expect(decoded.files).toHaveLength(1);
       expect(decoded.files[0].filename).toBe("model.gguf");
+    });
+  });
+
+  describe("decodeApprovePairingResponse", () => {
+    it("decodes valid approve pairing response", () => {
+      const raw = {
+        status: "approved",
+        pairing_id: "pair_abc123",
+        expires_at_ms: 1700000000000,
+      };
+      const decoded = decodeApprovePairingResponse(raw);
+      expect(decoded.status).toBe("approved");
+      expect(decoded.pairing_id).toBe("pair_abc123");
+      expect(decoded.expires_at_ms).toBe(1700000000000);
+    });
+
+    it("throws on missing pairing_id, status, non-positive expiry or invalid object", () => {
+      expect(() => decodeApprovePairingResponse(null)).toThrow();
+      expect(() => decodeApprovePairingResponse({})).toThrow();
+      expect(() => decodeApprovePairingResponse({ pairing_id: "" })).toThrow();
+      expect(() => decodeApprovePairingResponse({ pairing_id: "p1", status: "" })).toThrow();
+      expect(() => decodeApprovePairingResponse({ pairing_id: "p1", status: "approved", expires_at_ms: 0 })).toThrow();
+    });
+  });
+
+  describe("decodeStorageSelectionResponse", () => {
+    it("decodes valid storage selection response", () => {
+      const raw = {
+        request_id: "req_xyz789",
+        device_id: "dev_12345678",
+        kind: "model_root",
+        status: "awaiting_local_approval",
+        expires_at_ms: 1700000600000,
+        approved_root_id: "root_usr1",
+        approved_label: "Fast SSD",
+      };
+      const decoded = decodeStorageSelectionResponse(raw);
+      expect(decoded.request_id).toBe("req_xyz789");
+      expect(decoded.device_id).toBe("dev_12345678");
+      expect(decoded.kind).toBe("model_root");
+      expect(decoded.status).toBe("awaiting_local_approval");
+      expect(decoded.expires_at_ms).toBe(1700000600000);
+      expect(decoded.approved_root_id).toBe("root_usr1");
+      expect(decoded.approved_label).toBe("Fast SSD");
+    });
+
+    it("throws on missing fields, invalid kind/status or non-positive expiry", () => {
+      expect(() => decodeStorageSelectionResponse(null)).toThrow();
+      expect(() => decodeStorageSelectionResponse({ request_id: "req_1" })).toThrow();
+      expect(() => decodeStorageSelectionResponse({ device_id: "dev_1" })).toThrow();
+      expect(() => decodeStorageSelectionResponse({ request_id: "r1", device_id: "d1", kind: "unknown_kind", status: "approved", expires_at_ms: 100 })).toThrow();
+      expect(() => decodeStorageSelectionResponse({ request_id: "r1", device_id: "d1", kind: "model_root", status: "invalid_status", expires_at_ms: 100 })).toThrow();
+      expect(() => decodeStorageSelectionResponse({ request_id: "r1", device_id: "d1", kind: "model_root", status: "approved", expires_at_ms: -1 })).toThrow();
     });
   });
 });

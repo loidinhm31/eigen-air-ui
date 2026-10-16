@@ -3,12 +3,16 @@ import {
   registerReinitFn,
   initServicesForDaemonUrl,
   setServiceAccessContext,
+  setLocalCompanionService,
   getStoredAuthToken,
   saveStoredAuthToken,
 } from "@eigen-air-ui/ui";
 import { DEFAULT_AUTH_TOKEN, DEFAULT_DAEMON_URL } from "@eigen-air-ui/shared/constants";
 
 export function initServices() {
+  // Browser environment has no embedded/IPC local companion controller.
+  setLocalCompanionService(null);
+
   if (typeof window !== "undefined") {
     // If accessed from remote host (e.g. 100.91.26.60) but store has localhost, align to remote daemon
     const connectionStore = useConnectionStore.getState();

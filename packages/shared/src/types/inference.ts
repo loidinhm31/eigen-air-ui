@@ -197,7 +197,39 @@ export interface PollPairingResponse {
 }
 
 export interface ApprovePairingRequest {
-  confirmed: boolean;
+  code: string;
+  confirmed?: boolean;
+}
+
+export interface ApprovePairingResponse {
+  status: string;
+  pairing_id: string;
+  expires_at_ms: number;
+}
+
+export type StorageSelectionStatus =
+  | "requested"
+  | "awaiting_local_approval"
+  | "approved"
+  | "cancelled"
+  | "expired"
+  | "failed";
+
+export interface StorageSelectionRequest {
+  kind?: StorageRootKind;
+  request_id?: string;
+  label?: string;
+}
+
+export interface StorageSelectionResponse {
+  request_id: string;
+  device_id: string;
+  kind: StorageRootKind;
+  status: StorageSelectionStatus;
+  expires_at_ms: number;
+  approved_root_id?: string;
+  approved_label?: string;
+  error_message?: string;
 }
 
 export interface FinalizePairingRequest {

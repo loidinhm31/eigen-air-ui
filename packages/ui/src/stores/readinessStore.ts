@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { ProviderReadinessSnapshot, ReadinessState } from "@eigen-air-ui/shared/types";
+import { registerAccessInvalidationListener } from "../adapters/factory/ServiceFactory.js";
 
 export type ReadinessPhase = "idle" | "checking" | "starting" | "ready" | "degraded_cpu" | "failed";
 
@@ -15,6 +16,7 @@ export interface ReadinessStoreState {
   stopPolling(): void;
   retry(): void;
   reset(): void;
+  invalidate(newContextKey?: string): void;
 }
 
 type TimeoutHandle = number;
@@ -37,6 +39,12 @@ function clearPollingHandle(): void {
 }
 
 export const useReadinessStore = create<ReadinessStoreState>((set, get) => {
+  if (typeof registerAccessInvalidationListener === "function") {
+    registerAccessInvalidationListener(() => {
+      get().invalidate();
+    });
+  }
+
   async function executePoll(generation: number): Promise<void> {
     if (generation !== activeGeneration || !activeFetcher) {
       return;
@@ -103,6 +111,7 @@ export const useReadinessStore = create<ReadinessStoreState>((set, get) => {
       const currentPhase = get().phase;
 
       // If already in terminal ready/degraded state for the same context, no need to restart
+      // BUT if contextKey is absent or different, force restart
       if (
         contextKey !== undefined &&
         contextKey === activeContextKey &&
@@ -111,7 +120,6 @@ export const useReadinessStore = create<ReadinessStoreState>((set, get) => {
         return;
       }
       activeContextKey = contextKey ?? null;
-
       clearPollingHandle();
       const generation = ++activeGeneration;
 
@@ -156,6 +164,20 @@ export const useReadinessStore = create<ReadinessStoreState>((set, get) => {
       activeGeneration++;
       activeFetcher = null;
       activeContextKey = null;
+
+      set({
+        phase: "idle",
+        snapshot: null,
+        error: null,
+        canInfer: false,
+      });
+    },
+
+    invalidate: (newContextKey?: string) => {
+      clearPollingHandle();
+      activeGeneration++;
+      activeFetcher = null;
+      activeContextKey = newContextKey ?? null;
 
       set({
         phase: "idle",

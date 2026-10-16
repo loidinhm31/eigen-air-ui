@@ -1,10 +1,12 @@
 import type {
+  ApprovePairingResponse,
   CanonicalOperationSnapshot,
   DeviceRetirementOptions,
-  ExecutionTargetInput,
   ModelInventoryItem,
   PublicDeviceSummary,
   StorageRootDescriptor,
+  StorageRootKind,
+  StorageSelectionResponse,
 } from "@eigen-air-ui/shared/types";
 
 export interface IInferenceService {
@@ -29,5 +31,7 @@ export interface IInferenceService {
   getDevice(deviceId: string): Promise<PublicDeviceSummary>;
   revokeDevice(deviceId: string): Promise<PublicDeviceSummary>;
   retireDevice(deviceId: string, options?: DeviceRetirementOptions): Promise<PublicDeviceSummary>;
-  approvePairing(pairingId: string, confirmed: boolean): Promise<{ status: string; pairing_id: string; expires_at_ms: number }>;
+  approvePairing(pairingId: string, code: string): Promise<ApprovePairingResponse>;
+  requestDeviceStorageSelection(deviceId: string, kind?: StorageRootKind, label?: string): Promise<StorageSelectionResponse>;
+  getDeviceStorageSelection(deviceId: string, requestId: string): Promise<StorageSelectionResponse>;
 }

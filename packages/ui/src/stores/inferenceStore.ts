@@ -74,7 +74,7 @@ export interface InferenceStoreState {
 
   applyOperationSnapshot: (snapshot: CanonicalOperationSnapshot, contextKey?: string) => void;
   applyOperationEvent: (event: InferenceOperationProgressEvent, contextKey?: string) => void;
-  applyRunProgressEvent: (event: RunInferenceProgressEvent) => void;
+  applyRunProgressEvent: (event: RunInferenceProgressEvent, contextKey?: string) => void;
   clearRunProgress: (sessionId: string, runId?: string) => void;
 
   invalidateAccess: () => void;
@@ -117,7 +117,15 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
         serverModels: [],
         serverRoots: [],
         selectedServerRootId: null,
+        loadingServerModels: false,
+        serverModelsError: null,
         devices: [],
+        loadingDevices: false,
+        devicesError: null,
+        companionStatus: null,
+        companionRoots: [],
+        loadingCompanion: false,
+        companionError: null,
         operations: {},
         runProgress: {},
         accessKey: computeAccessKey(),
@@ -375,7 +383,9 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
       }));
     },
 
-    applyRunProgressEvent: (event: RunInferenceProgressEvent) => {
+    applyRunProgressEvent: (event: RunInferenceProgressEvent, contextKey?: string) => {
+      const currentKey = get().accessKey;
+      if (contextKey && contextKey !== currentKey) return;
       const key = `${event.session_id}:${event.run_id}:${event.turn_index}`;
       const existing = get().runProgress[key];
       if (existing && existing.revision > event.revision) {
@@ -433,6 +443,38 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
           label: device.display_label || `Device ${target.device_id.slice(0, 8)}`,
           reason: `Device is ${device.status}`,
         };
+      }
+
+      // Check live connection metadata if available
+      const meta = device.runtime_metadata ?? {};
+      if (meta.connected === false || meta.online === false) {
+        return {
+          canInfer: false,
+          isReady: false,
+          phase: "offline",
+          label: device.display_label || `Device ${target.device_id.slice(0, 8)}`,
+          reason: "Device is offline",
+        };
+      }
+
+      // Check model installation if installed_models array is advertised
+      if (target.model_artifact_id && Array.isArray(meta.installed_models)) {
+        const installed = meta.installed_models.some((m: unknown) => {
+          if (m === target.model_artifact_id) return true;
+          if (m && typeof m === "object" && "artifact_id" in m) {
+            return m.artifact_id === target.model_artifact_id;
+          }
+          return false;
+        });
+        if (!installed) {
+          return {
+            canInfer: false,
+            isReady: false,
+            phase: "failed",
+            label: device.display_label || `Device ${target.device_id.slice(0, 8)}`,
+            reason: `Model '${target.model_artifact_id}' not installed on device`,
+          };
+        }
       }
 
       return {

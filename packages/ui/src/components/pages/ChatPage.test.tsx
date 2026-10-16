@@ -16,6 +16,8 @@ vi.mock("../../adapters/factory/ServiceFactory.js", () => ({
   getConfigService: () => ({
     getReadiness: mockGetReadiness,
   }),
+  registerAccessInvalidationListener: vi.fn(() => () => {}),
+  getServiceAccessContext: () => ({ accessRevision: 0 }),
 }));
 
 describe("ChatPage readiness polling lifecycle", () => {

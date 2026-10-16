@@ -4,6 +4,8 @@ import {
   decodeTaskProgressWsEvent,
   decodeUserQuestionEvent,
   decodeToolApprovalEvent,
+  decodeInferenceOperationProgressEvent,
+  decodeRunInferenceProgressEvent,
   decodeWsFrameJson,
   type WsReq,
   type WsRes,
@@ -69,6 +71,22 @@ export function decodeInboundWsEvent(frame: WsEvent): WsEvent | undefined {
   if (isImageHintEventName(frame.event)) {
     try {
       return decodeImageHintWsEvent(frame);
+    } catch {
+      return undefined;
+    }
+  }
+  if (frame.event === "inference.operation.updated") {
+    try {
+      const decodedPayload = decodeInferenceOperationProgressEvent(frame.payload);
+      return { ...frame, payload: decodedPayload };
+    } catch {
+      return undefined;
+    }
+  }
+  if (frame.event === "run.inference.progress") {
+    try {
+      const decodedPayload = decodeRunInferenceProgressEvent(frame.payload);
+      return { ...frame, payload: decodedPayload };
     } catch {
       return undefined;
     }

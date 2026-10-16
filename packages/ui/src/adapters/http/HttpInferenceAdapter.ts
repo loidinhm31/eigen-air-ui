@@ -1,15 +1,20 @@
 import type {
+  ApprovePairingResponse,
   CanonicalOperationSnapshot,
   DeviceRetirementOptions,
   ModelInventoryItem,
   PublicDeviceSummary,
   StorageRootDescriptor,
+  StorageRootKind,
+  StorageSelectionResponse,
 } from "@eigen-air-ui/shared/types";
 import {
+  decodeApprovePairingResponse,
   decodeCanonicalOperationSnapshot,
   decodeModelInventoryItem,
   decodePublicDeviceSummary,
   decodeStorageRootDescriptor,
+  decodeStorageSelectionResponse,
 } from "@eigen-air-ui/shared/types";
 import type { IInferenceService } from "../factory/interfaces/IInferenceService.js";
 import {
@@ -228,17 +233,41 @@ export class HttpInferenceAdapter implements IInferenceService {
     return decodePublicDeviceSummary(raw);
   }
 
-  async approvePairing(
-    pairingId: string,
-    confirmed: boolean
-  ): Promise<{ status: string; pairing_id: string; expires_at_ms: number }> {
-    return this.request<{ status: string; pairing_id: string; expires_at_ms: number }>(
+  async approvePairing(pairingId: string, code: string): Promise<ApprovePairingResponse> {
+    const raw = await this.request<unknown>(
       `/v1/inference/pairings/${encodeURIComponent(pairingId)}/approve`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirmed }),
+        body: JSON.stringify({ code, confirmed: true }),
       }
     );
+    return decodeApprovePairingResponse(raw);
+  }
+
+  async requestDeviceStorageSelection(
+    deviceId: string,
+    kind: StorageRootKind = "model_root",
+    label?: string
+  ): Promise<StorageSelectionResponse> {
+    const raw = await this.request<unknown>(
+      `/v1/inference/devices/${encodeURIComponent(deviceId)}/storage-selection`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, label }),
+      }
+    );
+    return decodeStorageSelectionResponse(raw);
+  }
+
+  async getDeviceStorageSelection(
+    deviceId: string,
+    requestId: string
+  ): Promise<StorageSelectionResponse> {
+    const raw = await this.request<unknown>(
+      `/v1/inference/devices/${encodeURIComponent(deviceId)}/storage-selection/${encodeURIComponent(requestId)}`
+    );
+    return decodeStorageSelectionResponse(raw);
   }
 }

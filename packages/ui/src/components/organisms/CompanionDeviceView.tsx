@@ -1,14 +1,24 @@
 import * as React from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   ConfiguredStorageRoot,
   LocalCompanionStatus,
   PublicDeviceSummary,
 } from "@eigen-air-ui/shared/types";
+import {
+  getServiceAccessContext,
+  hasLocalCompanion,
+  registerAccessInvalidationListener,
+} from "../../adapters/factory/ServiceFactory.js";
+import { useConnectionStore } from "../../stores/connectionStore.js";
+import {
+  CompanionInstallCard,
+  CompanionPairingApproval,
+  StorageSelectionRequest,
+} from "../molecules/index.js";
 import { Badge } from "../atoms/Badge.js";
 import { Button } from "../atoms/Button.js";
 import { Spinner } from "../atoms/Spinner.js";
-
 export interface CompanionDeviceViewProps {
   status: LocalCompanionStatus | null;
   roots: ConfiguredStorageRoot[];
@@ -39,19 +49,36 @@ export function CompanionDeviceView({
   const [retireConfirmDevice, setRetireConfirmDevice] = useState<string | null>(null);
   const [cleanupOutcome, setCleanupOutcome] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [selectedStorageDeviceId, setSelectedStorageDeviceId] = useState<string | null>(null);
+  const isLocalSupported = hasLocalCompanion() || status !== null;
   const isRunning = status && status.status !== "stopped";
+  const daemonUrl = useConnectionStore((s) => s.url);
+  const serverHost = React.useMemo(() => {
+    try {
+      return new URL(daemonUrl).host;
+    } catch {
+      return daemonUrl;
+    }
+  }, [daemonUrl]);
+  const [accessRevision, setAccessRevision] = useState(() => getServiceAccessContext().accessRevision ?? 0);
+  useEffect(() => {
+    return registerAccessInvalidationListener((rev) => setAccessRevision(rev));
+  }, []);
+  const accountLabel = React.useMemo(() => {
+    const ctx = getServiceAccessContext();
+    return ctx.identityKey ? `Account: ${ctx.identityKey}` : "Authenticated Operator";
+  }, [accessRevision]);
 
   return (
     <div className="space-y-6 text-sm">
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Local Desktop Companion
-          </h3>
-          {loading && <Spinner size="sm" />}
-        </div>
-
-        <div className="rounded-md border border-border/70 bg-card p-3 space-y-3">
+      {isLocalSupported ? (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Local Desktop Companion
+            </h3>
+            {loading && <Spinner size="sm" />}
+          </div>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="font-medium">Companion Controller</span>
@@ -179,7 +206,12 @@ export function CompanionDeviceView({
             </div>
           )}
         </div>
-      </div>
+      ) : (
+        <div className="space-y-4">
+          <CompanionInstallCard />
+          <CompanionPairingApproval serverHost={serverHost} accountLabel={accountLabel} />
+        </div>
+      )}
 
       <div className="space-y-3">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -219,17 +251,30 @@ export function CompanionDeviceView({
 
                 <div className="flex items-center gap-2">
                   {d.status === "active" && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="text-destructive hover:bg-destructive/10"
-                      onClick={async () => {
-                        await onRevokeDevice(d.device_id);
-                        setCleanupOutcome(`Device '${d.display_label}' revoked on server.`);
-                      }}
-                    >
-                      Revoke
-                    </Button>
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          setSelectedStorageDeviceId((prev) =>
+                            prev === d.device_id ? null : d.device_id
+                          )
+                        }
+                      >
+                        {selectedStorageDeviceId === d.device_id ? "Hide Storage" : "Remote Storage"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-destructive hover:bg-destructive/10"
+                        onClick={async () => {
+                          await onRevokeDevice(d.device_id);
+                          setCleanupOutcome(`Device '${d.display_label}' revoked on server.`);
+                        }}
+                      >
+                        Revoke
+                      </Button>
+                    </>
                   )}
                   {d.status !== "retired" && (
                     <Button
@@ -242,6 +287,16 @@ export function CompanionDeviceView({
                   )}
                 </div>
               </div>
+
+              {selectedStorageDeviceId === d.device_id && (
+                <div className="mt-2 pt-2 border-t border-border/50">
+                  <StorageSelectionRequest
+                    deviceId={d.device_id}
+                    deviceName={d.display_label}
+                    onApproved={() => setSelectedStorageDeviceId(null)}
+                  />
+                </div>
+              )}
 
               {retireConfirmDevice === d.device_id && (
                 <div className="mt-2 rounded border border-border/70 bg-muted/30 p-2.5 space-y-2">

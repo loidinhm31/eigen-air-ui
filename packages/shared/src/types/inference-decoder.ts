@@ -1,4 +1,5 @@
 import type {
+  ApprovePairingResponse,
   CanonicalOperationSnapshot,
   CatalogArtifact,
   CatalogFileDescriptor,
@@ -14,6 +15,8 @@ import type {
   StageStatus,
   StorageRootDescriptor,
   StorageRootKind,
+  StorageSelectionResponse,
+  StorageSelectionStatus,
 } from "./inference.js";
 
 const VALID_STAGES: Record<OperationStage, true> = {
@@ -53,6 +56,15 @@ const VALID_MODEL_FAMILIES: Record<ModelFamily, true> = {
   gemma: true,
   qwen: true,
 };
+const VALID_STORAGE_SELECTION_STATUSES: Record<StorageSelectionStatus, true> = {
+  requested: true,
+  awaiting_local_approval: true,
+  approved: true,
+  cancelled: true,
+  expired: true,
+  failed: true,
+};
+
 
 export function decodeStageCounters(raw: unknown): StageCounters {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
@@ -331,5 +343,59 @@ export function decodeCatalogArtifact(raw: unknown): CatalogArtifact {
     runtime_min_version: typeof obj.runtime_min_version === "string" ? obj.runtime_min_version : "0.1.0",
     recommended_ram_bytes: typeof obj.recommended_ram_bytes === "number" ? obj.recommended_ram_bytes : 0,
     recommended_vram_bytes: typeof obj.recommended_vram_bytes === "number" ? obj.recommended_vram_bytes : 0,
+  };
+}
+
+export function decodeApprovePairingResponse(raw: unknown): ApprovePairingResponse {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("Invalid ApprovePairingResponse: expected object");
+  }
+  const obj = raw as Record<string, unknown>;
+  if (typeof obj.pairing_id !== "string" || !obj.pairing_id) {
+    throw new Error("Invalid pairing_id in ApprovePairingResponse");
+  }
+  if (typeof obj.status !== "string" || !obj.status) {
+    throw new Error("Invalid status in ApprovePairingResponse");
+  }
+  if (typeof obj.expires_at_ms !== "number" || obj.expires_at_ms <= 0) {
+    throw new Error("Invalid expires_at_ms in ApprovePairingResponse");
+  }
+  return {
+    status: obj.status,
+    pairing_id: obj.pairing_id,
+    expires_at_ms: obj.expires_at_ms,
+  };
+}
+
+export function decodeStorageSelectionResponse(raw: unknown): StorageSelectionResponse {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("Invalid StorageSelectionResponse: expected object");
+  }
+  const obj = raw as Record<string, unknown>;
+  if (typeof obj.request_id !== "string" || !obj.request_id) {
+    throw new Error("Invalid request_id in StorageSelectionResponse");
+  }
+  if (typeof obj.device_id !== "string" || !obj.device_id) {
+    throw new Error("Invalid device_id in StorageSelectionResponse");
+  }
+  if (typeof obj.kind !== "string" || !VALID_STORAGE_ROOT_KINDS[obj.kind as StorageRootKind]) {
+    throw new Error(`Invalid kind in StorageSelectionResponse: ${String(obj.kind)}`);
+  }
+  if (typeof obj.status !== "string" || !VALID_STORAGE_SELECTION_STATUSES[obj.status as StorageSelectionStatus]) {
+    throw new Error(`Invalid status in StorageSelectionResponse: ${String(obj.status)}`);
+  }
+  if (typeof obj.expires_at_ms !== "number" || obj.expires_at_ms <= 0) {
+    throw new Error("Invalid expires_at_ms in StorageSelectionResponse");
+  }
+
+  return {
+    request_id: obj.request_id,
+    device_id: obj.device_id,
+    kind: obj.kind as StorageRootKind,
+    status: obj.status as StorageSelectionStatus,
+    expires_at_ms: obj.expires_at_ms,
+    approved_root_id: typeof obj.approved_root_id === "string" ? obj.approved_root_id : undefined,
+    approved_label: typeof obj.approved_label === "string" ? obj.approved_label : undefined,
+    error_message: typeof obj.error_message === "string" ? obj.error_message : undefined,
   };
 }

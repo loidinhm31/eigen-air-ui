@@ -96,21 +96,43 @@ export function ChatPanel() {
   const canInfer = useReadinessStore((state) => state.canInfer);
   const retryReadiness = useReadinessStore((state) => state.retry);
   const [currentSessionTarget, setCurrentSessionTarget] = useState<ExecutionTarget | undefined>(undefined);
+  const [isResolvingTarget, setIsResolvingTarget] = useState<boolean>(true);
+  const [targetLookupFailed, setTargetLookupFailed] = useState<boolean>(false);
 
   useEffect(() => {
     let cancelled = false;
+    // Fail-closed: reset currentSessionTarget immediately on session switch
+    setCurrentSessionTarget(undefined);
+    setIsResolvingTarget(true);
+    setTargetLookupFailed(false);
     async function loadCurrentSessionTarget() {
       if (!sessionId) {
-        setCurrentSessionTarget(undefined);
+        setIsResolvingTarget(false);
         return;
       }
       try {
-        const sessions = await getSessionService().listSessions();
+        const sessionService = getSessionService();
+        if (typeof sessionService.listSessions !== "function") {
+          setCurrentSessionTarget({ kind: "server", provider_id: "default" });
+          setTargetLookupFailed(false);
+          return;
+        }
+        const sessions = await sessionService.listSessions();
         if (cancelled) return;
         const current = sessions.find((s) => s.id === sessionId);
-        setCurrentSessionTarget(current?.execution_target);
+        setCurrentSessionTarget(
+          current?.execution_target ?? { kind: "server", provider_id: "default" }
+        );
+        setTargetLookupFailed(false);
       } catch {
-        // preserve current target
+        if (!cancelled) {
+          setCurrentSessionTarget(undefined);
+          setTargetLookupFailed(true);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsResolvingTarget(false);
+        }
       }
     }
     void loadCurrentSessionTarget();
@@ -120,49 +142,35 @@ export function ChatPanel() {
   }, [sessionId]);
 
   const devices = useInferenceStore((state) => state.devices);
+  const getStoreTargetReadiness = useInferenceStore((state) => state.getTargetReadiness);
   const targetReadiness = React.useMemo(() => {
-    if (!currentSessionTarget || currentSessionTarget.kind === "server") {
-      const isReady = readinessPhase === "ready" || readinessPhase === "degraded_cpu";
-      return {
-        canInfer: canInfer && isReady,
-        isReady,
-        phase: isReady ? ("ready" as const) : readinessPhase === "failed" ? ("failed" as const) : ("loading" as const),
-        label: "Server",
-        reason: readinessError ?? undefined,
-      };
-    }
-    const dev = devices.find((d) => d.device_id === currentSessionTarget.device_id);
-    if (!dev) {
+    if (isResolvingTarget) {
       return {
         canInfer: false,
         isReady: false,
-        phase: "offline" as const,
-        label: `Device ${currentSessionTarget.device_id.slice(0, 8)}`,
-        reason: "Device not found for current owner",
+        phase: "loading" as const,
+        label: "Resolving Target...",
       };
     }
-    if (dev.status !== "active") {
+    if (targetLookupFailed) {
       return {
         canInfer: false,
         isReady: false,
         phase: "failed" as const,
-        label: dev.display_label || `Device ${currentSessionTarget.device_id.slice(0, 8)}`,
-        reason: `Device is ${dev.status}`,
+        label: "Target Resolution Failed",
+        reason: "Failed to resolve session target",
       };
     }
-    return {
-      canInfer: true,
-      isReady: true,
-      phase: "ready" as const,
-      label: dev.display_label || `Device ${currentSessionTarget.device_id.slice(0, 8)}`,
-    };
-  }, [currentSessionTarget, devices, canInfer, readinessPhase, readinessError]);
+    return getStoreTargetReadiness(currentSessionTarget);
+  }, [isResolvingTarget, targetLookupFailed, currentSessionTarget, devices, canInfer, readinessPhase, readinessError, getStoreTargetReadiness]);
 
   const isConnected = connectionStatus === "connected";
   const targetBlocksComposer =
-    currentSessionTarget && currentSessionTarget.kind === "client_device"
+    isResolvingTarget ||
+    targetLookupFailed ||
+    (currentSessionTarget && currentSessionTarget.kind === "client_device"
       ? !targetReadiness.canInfer || !targetReadiness.isReady
-      : !canInfer || (readinessPhase !== "ready" && readinessPhase !== "degraded_cpu");
+      : !canInfer || (readinessPhase !== "ready" && readinessPhase !== "degraded_cpu"));
 
   const readinessBlocksComposer = !isConnected || targetBlocksComposer;
   const composerBlocked =
@@ -189,7 +197,6 @@ export function ChatPanel() {
   const setShowPromptDebug = useDebugSettingsStore((state) => state.setShowPromptDebug);
   const setShowReasoningDebug = useDebugSettingsStore((state) => state.setShowReasoningDebug);
   const accessContext = getServiceAccessContext();
-  const accessRevision = accessContext.accessRevision;
   const identityKey = accessContext.identityKey;
   const authToken = accessContext.authToken;
   const daemonUrl = useConnectionStore((state) => state.url);
@@ -666,9 +673,11 @@ export function ChatPanel() {
               );
             }
           } else if (event.event === "run.inference.progress") {
-            useInferenceStore.getState().applyRunProgressEvent(event.payload);
+            const currentAccessKey = useInferenceStore.getState().accessKey;
+            useInferenceStore.getState().applyRunProgressEvent(event.payload, currentAccessKey);
           } else if (event.event === "inference.operation.updated") {
-            useInferenceStore.getState().applyOperationEvent(event.payload);
+            const currentAccessKey = useInferenceStore.getState().accessKey;
+            useInferenceStore.getState().applyOperationEvent(event.payload, currentAccessKey);
           }
         },
         {
@@ -1067,7 +1076,31 @@ export function ChatPanel() {
           </div>
         )}
         <div className="mb-2">
-          {currentSessionTarget && currentSessionTarget.kind === "client_device" ? (
+          {targetLookupFailed ? (
+            <div
+              role="alert"
+              className="flex items-center justify-between rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+            >
+              <span>Failed to resolve session target.</span>
+              <button
+                type="button"
+                className="rounded bg-destructive/20 px-2 py-1 font-medium hover:bg-destructive/30 transition-colors cursor-pointer text-xs"
+                onClick={() => {
+                  void (async () => {
+                    try {
+                      const newSession = await getSessionService().createSession({ kind: "server" });
+                      useConnectionStore.getState().setSessionId(newSession.id);
+                      useChatStore.getState().clearMessages();
+                    } catch (err) {
+                      console.error("[ChatPanel] Failed to create server session:", err);
+                    }
+                  })();
+                }}
+              >
+                New Server Session
+              </button>
+            </div>
+          ) : currentSessionTarget && currentSessionTarget.kind === "client_device" ? (
             !targetReadiness.isReady ? (
               <div
                 role="alert"
@@ -1076,6 +1109,23 @@ export function ChatPanel() {
                 <span>
                   Target {targetReadiness.label} unavailable: {targetReadiness.reason ?? "device offline"}
                 </span>
+                <button
+                  type="button"
+                  className="rounded bg-destructive/20 px-2 py-1 font-medium hover:bg-destructive/30 transition-colors cursor-pointer text-xs"
+                  onClick={() => {
+                    void (async () => {
+                      try {
+                        const newSession = await getSessionService().createSession({ kind: "server" });
+                        useConnectionStore.getState().setSessionId(newSession.id);
+                        useChatStore.getState().clearMessages();
+                      } catch (err) {
+                        console.error("[ChatPanel] Failed to create server session:", err);
+                      }
+                    })();
+                  }}
+                >
+                  New Server Session
+                </button>
               </div>
             ) : null
           ) : (
