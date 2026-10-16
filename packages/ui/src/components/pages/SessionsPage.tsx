@@ -10,6 +10,8 @@ import { NativeScrollArea } from "../atoms/NativeScrollArea.js";
 import { Spinner } from "../atoms/Spinner.js";
 import { Badge } from "../atoms/Badge.js";
 import type { Session } from "@eigen-air-ui/shared/types";
+import type { ExecutionTargetInput } from "@eigen-air-ui/shared/types";
+import { ExecutionTargetSelector } from "../molecules/ExecutionTargetSelector.js";
 
 export function SessionsPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -18,7 +20,8 @@ export function SessionsPage() {
   const { sessionId, setSessionId } = useConnectionStore();
   const clearMessages = useChatStore((state) => state.clearMessages);
   const { navigate } = useBasePathNavigation();
-
+  const [targetInput, setTargetInput] = useState<ExecutionTargetInput>({ kind: "server" });
+  const [showTargetSelector, setShowTargetSelector] = useState(false);
   async function loadSessions() {
     setLoading(true);
     setError(null);
@@ -32,11 +35,11 @@ export function SessionsPage() {
     }
   }
 
-  async function handleCreate() {
+  async function handleCreate(target?: ExecutionTargetInput) {
     setLoading(true);
     setError(null);
     try {
-      const session = await getSessionService().createSession();
+      const session = await getSessionService().createSession(target ?? targetInput);
       setSessionId(session.id);
       clearMessages();
       navigate("/");
@@ -81,16 +84,35 @@ export function SessionsPage() {
 
   return (
     <div className="flex h-full flex-col gap-3 p-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-medium">Sessions</p>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => void loadSessions()} disabled={loading}>
-            Refresh
-          </Button>
-          <Button size="sm" onClick={() => void handleCreate()} disabled={loading}>
-            New
-          </Button>
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium">Sessions</p>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => void loadSessions()} disabled={loading}>
+              Refresh
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowTargetSelector((prev) => !prev)}
+              disabled={loading}
+            >
+              Target Options
+            </Button>
+            <Button size="sm" onClick={() => void handleCreate()} disabled={loading}>
+              New
+            </Button>
+          </div>
         </div>
+        {showTargetSelector && (
+          <div className="rounded-md border border-border/70 bg-muted/20 p-3">
+            <ExecutionTargetSelector
+              value={targetInput}
+              onChange={setTargetInput}
+              disabled={loading}
+            />
+          </div>
+        )}
       </div>
 
       {error && <p className="text-xs text-destructive">{error}</p>}
@@ -116,6 +138,11 @@ export function SessionsPage() {
                 <p className="font-mono text-xs text-muted-foreground truncate">{s.id}</p>
                 <p className="text-xs text-muted-foreground">
                   {s.channel} · {s.status} · {new Date(s.updated_at * 1000).toLocaleString()}
+                  {s.execution_target && (
+                    <span className="ml-2 font-medium text-foreground">
+                      [{s.execution_target.kind === "client_device" ? `Device: ${s.execution_target.device_id.slice(0, 8)}` : "Server"}]
+                    </span>
+                  )}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2 sm:ml-2">

@@ -17,6 +17,8 @@ export {
   setToolApprovalService,
   setRunService,
   setArtifactService,
+  setInferenceService,
+  setLocalCompanionService,
   getChatService,
   getMemoryService,
   getToolService,
@@ -28,6 +30,9 @@ export {
   getToolApprovalService,
   getRunService,
   getArtifactService,
+  getInferenceService,
+  getLocalCompanionService,
+  hasLocalCompanion,
   registerReinitFn,
   reinitServices,
   hasReinitFn,
@@ -53,6 +58,8 @@ export type {
   IUserQuestionService,
   IToolApprovalService,
   IArtifactAdapter,
+  IInferenceService,
+  ILocalCompanionService,
   StreamEventCallback,
   MemoryServiceOptions,
 } from "./adapters/factory/ServiceFactory.js";
@@ -96,6 +103,7 @@ export { HttpConfigAdapter } from "./adapters/http/HttpConfigAdapter.js";
 export { HttpVaultKnowledgeAdapter } from "./adapters/http/HttpVaultKnowledgeAdapter.js";
 export { HttpUserQuestionAdapter, UserQuestionHttpError } from "./adapters/http/HttpUserQuestionAdapter.js";
 export { HttpToolApprovalAdapter, ToolApprovalHttpError } from "./adapters/http/HttpToolApprovalAdapter.js";
+export { HttpInferenceAdapter, InferenceHttpError } from "./adapters/http/HttpInferenceAdapter.js";
 export { ToolApprovalController } from "./components/organisms/toolApprovalController.js";
 
 export { initServicesForDaemonUrl, normalizeDaemonUrl } from "./adapters/factory/init-services.js";

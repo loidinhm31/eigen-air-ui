@@ -18,6 +18,8 @@ import type { IVaultKnowledgeService } from "./interfaces/IVaultKnowledgeService
 import type { IUserQuestionService } from "./interfaces/IUserQuestionService.js";
 import type { IToolApprovalService } from "./interfaces/IToolApprovalService.js";
 import type { IArtifactAdapter } from "./interfaces/IArtifactAdapter.js";
+import type { IInferenceService } from "./interfaces/IInferenceService.js";
+import type { ILocalCompanionService } from "./interfaces/ILocalCompanionService.js";
 import type { HttpRunAdapter } from "../http/HttpRunAdapter.js";
 import type { RunAccessContext } from "../http/HttpRunAdapter.js";
 import { getStoredAuthToken } from "./tokenStorage.js";
@@ -33,6 +35,8 @@ let userQuestionService: IUserQuestionService | null = null;
 let toolApprovalService: IToolApprovalService | null = null;
 let artifactService: IArtifactAdapter | null = null;
 let runService: HttpRunAdapter | null = null;
+let inferenceService: IInferenceService | null = null;
+let localCompanionService: ILocalCompanionService | null = null;
 let serviceAccessContext: RunAccessContext = {
   authToken: typeof window !== "undefined" ? getStoredAuthToken() : undefined,
 };
@@ -154,6 +158,12 @@ export function setArtifactService(s: IArtifactAdapter) {
 export function setRunService(s: HttpRunAdapter) {
   runService = s;
 }
+export function setInferenceService(s: IInferenceService) {
+  inferenceService = s;
+}
+export function setLocalCompanionService(s: ILocalCompanionService | null) {
+  localCompanionService = s;
+}
 
 export function getChatService(): IChatService {
   if (!chatService) throw new Error("IChatService not initialized");
@@ -202,6 +212,16 @@ export function getRunService(): HttpRunAdapter {
   if (!runService) throw new Error("HttpRunAdapter not initialized");
   return runService;
 }
+export function getInferenceService(): IInferenceService {
+  if (!inferenceService) throw new Error("IInferenceService not initialized");
+  return inferenceService;
+}
+export function getLocalCompanionService(): ILocalCompanionService | null {
+  return localCompanionService;
+}
+export function hasLocalCompanion(): boolean {
+  return localCompanionService !== null && localCompanionService.isAvailable();
+}
 
 export type {
   IChatService,
@@ -223,5 +243,7 @@ export type {
   IUserQuestionService,
   IToolApprovalService,
   IArtifactAdapter,
+  IInferenceService,
+  ILocalCompanionService,
 };
 export type { StreamEventCallback } from "./interfaces/IChatService.js";

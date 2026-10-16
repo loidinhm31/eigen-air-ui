@@ -17,6 +17,12 @@ import type {
 } from "./user-question.js";
 import type { ToolApprovalUpdatedEvent } from "./tool-approval.js";
 import type { ProviderReadinessSnapshot } from "./readiness.js";
+import type {
+  ExecutionTarget,
+  ExecutionTargetInput,
+  InferenceOperationProgressEvent,
+  RunInferenceProgressEvent,
+} from "./inference.js";
 
 // --- Frame types ---
 
@@ -129,6 +135,16 @@ export type ImageArtifactCommittedWsEvent = CorrelatedWsEvent<
 > & { session_id: string; run_id: string };
 /** Discriminated on `event`. */
 export type ImageHintWsEvent = ImageJobUpdatedWsEvent | ImageArtifactCommittedWsEvent;
+export type InferenceOperationUpdatedWsEvent = CorrelatedWsEvent<
+  "inference.operation.updated",
+  InferenceOperationProgressEvent
+>;
+
+export type RunInferenceProgressWsEvent = CorrelatedWsEvent<
+  "run.inference.progress",
+  RunInferenceProgressEvent
+>;
+
 
 export type WsEvent =
   | CorrelatedWsEvent<"run.started", RunStartedPayload>
@@ -145,6 +161,8 @@ export type WsEvent =
   | UserQuestionUpdatedEvent
   | ToolApprovalUpdatedEvent
   | ImageHintWsEvent
+  | InferenceOperationUpdatedWsEvent
+  | RunInferenceProgressWsEvent
   | CorrelatedWsEvent<"error", WsErrorPayload>;
 
 export type WsFrame = WsReq | WsRes | WsEvent;
@@ -219,6 +237,10 @@ export interface SessionsListResponse {
   sessions: Session[];
 }
 
+export interface SessionsCreateParams {
+  execution_target?: ExecutionTargetInput;
+}
+
 export interface SessionsCreateResponse {
   id: string;
   channel: string;
@@ -226,6 +248,7 @@ export interface SessionsCreateResponse {
   title?: string | null;
   started_at: number;
   updated_at: number;
+  execution_target?: ExecutionTarget;
 }
 
 export interface SessionsDeleteResponse {

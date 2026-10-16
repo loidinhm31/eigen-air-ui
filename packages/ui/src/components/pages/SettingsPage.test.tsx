@@ -17,6 +17,14 @@ vi.mock("../../adapters/factory/ServiceFactory.js", () => ({
   }),
   reinitServices: vi.fn(),
   setServiceAccessContext: vi.fn(),
+  registerAccessInvalidationListener: () => () => undefined,
+  getServiceAccessContext: () => ({ accessRevision: 1 }),
+  getInferenceService: () => ({
+    listServerModels: vi.fn().mockResolvedValue([]),
+    listServerRoots: vi.fn().mockResolvedValue([]),
+    listDevices: vi.fn().mockResolvedValue([]),
+  }),
+  getLocalCompanionService: () => null,
 }));
 
 beforeEach(() => {

@@ -18,6 +18,8 @@ import type {
   ChatSendResponse,
   ConnectResponse,
   DebugRequest,
+  ExecutionTargetInput,
+  SessionsCreateParams,
   SessionsCreateResponse,
   SessionsDeleteParams,
   SessionsDeleteResponse,
@@ -263,7 +265,7 @@ export class WsChatAdapter implements IChatService, ISessionService {
     const selected = sessionId
       ? sessions.find((candidate) => candidate.id === sessionId)
       : undefined;
-    const activeSession = selected ?? (await this.createSession(fence));
+    const activeSession = selected ?? (await this.createSession(undefined, fence));
     this.assertReconnectFence(fence);
     setSessionId(activeSession.id);
     return {
@@ -370,10 +372,23 @@ export class WsChatAdapter implements IChatService, ISessionService {
     return res.data!.sessions;
   }
 
-  async createSession(fence?: WsReconnectFence): Promise<SessionsCreateResponse> {
-    const res = await this.client.send<object, SessionsCreateResponse>(
+  async createSession(
+    targetOrFence?: ExecutionTargetInput | WsReconnectFence,
+    maybeFence?: WsReconnectFence
+  ): Promise<SessionsCreateResponse> {
+    const target: ExecutionTargetInput | undefined =
+      targetOrFence && typeof targetOrFence === "object" && "kind" in targetOrFence
+        ? (targetOrFence as ExecutionTargetInput)
+        : undefined;
+    const fence: WsReconnectFence | undefined =
+      targetOrFence && typeof targetOrFence === "object" && !("kind" in targetOrFence)
+        ? (targetOrFence as WsReconnectFence)
+        : maybeFence;
+
+    const params: SessionsCreateParams = target ? { execution_target: target } : {};
+    const res = await this.client.send<SessionsCreateParams, SessionsCreateResponse>(
       WS_METHODS.SESSIONS_CREATE,
-      {},
+      params,
       fence
     );
     if (!res.ok) throw new Error(res.error?.message ?? "sessions.create failed");

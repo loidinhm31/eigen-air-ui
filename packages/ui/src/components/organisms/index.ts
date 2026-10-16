@@ -8,3 +8,7 @@ export { UserQuestionCard } from "./UserQuestionCard.js";
 export { EpisodeBrowser } from "./EpisodeBrowser.js";
 export { RunInspector } from "./RunInspector.js";
 export { PendingToolApprovalRegion } from "./PendingToolApprovalRegion.js";
+export { InferenceSettings } from "./InferenceSettings.js";
+export { OperationProgressCard } from "./OperationProgressCard.js";
+export { ServerModelsView } from "./ServerModelsView.js";
+export { CompanionDeviceView } from "./CompanionDeviceView.js";

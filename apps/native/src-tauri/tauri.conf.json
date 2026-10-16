@@ -21,7 +21,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; connect-src 'self' http: https: ws: wss:; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: blob: http: https:;"
     }
   },
   "bundle": {
@@ -36,6 +36,7 @@
     ]
   },
   "plugins": {
-    "opener": {}
+    "opener": {},
+    "dialog": {}
   }
 }

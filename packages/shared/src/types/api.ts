@@ -1,6 +1,7 @@
 // --- Chat ---
 
 import type { TaskProgressSnapshotDto } from "./task-progress.js";
+import type { ExecutionTarget } from "./inference.js";
 
 export type MessageRole = "user" | "assistant" | "system" | "tool";
 
@@ -92,6 +93,7 @@ export interface Session {
   started_at: number;
   updated_at: number;
   message_count?: number;
+  execution_target?: ExecutionTarget;
 }
 
 // --- Memory ---

@@ -56,3 +56,7 @@ export {
   type DirectImageTemplateActionProps,
 } from "./DirectImageTemplateAction.js";
 export { RunImageOutcomesPanel, type RunImageOutcomesPanelProps } from "./RunImageOutcomesPanel.js";
+export {
+  ExecutionTargetSelector,
+  type ExecutionTargetSelectorProps,
+} from "./ExecutionTargetSelector.js";

@@ -14,3 +14,5 @@ export * from "./task-outcome-decoder.js";
 export * from "./tool-selection-decoder.js";
 export * from "./artifact.js";
 export * from "./artifact-decoder.js";
+export * from "./inference.js";
+export * from "./inference-decoder.js";

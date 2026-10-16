@@ -6,6 +6,7 @@ export { useRunInspectorStore } from "./runInspectorStore.js";
 export { useUserQuestionStore, pendingQuestionSnapshot } from "./userQuestionStore.js";
 export { useToolApprovalStore, pendingApprovalSnapshot } from "./toolApprovalStore.js";
 export { useChatDebugStore } from "./chat-debug-store.js";
+export { useInferenceStore, type TargetReadiness } from "./inferenceStore.js";
 export {
   ARTIFACT_CACHE_MAX_CONCURRENT_LOADS,
   ARTIFACT_CACHE_MAX_ENTRIES,

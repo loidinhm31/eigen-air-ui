@@ -30,10 +30,12 @@ import { useImageHistorySync } from "../../stores/use-image-history.js";
 import { useUserQuestionStore } from "../../stores/userQuestionStore.js";
 import { useToolApprovalStore } from "../../stores/toolApprovalStore.js";
 import { useReadinessStore } from "../../stores/readinessStore.js";
+import { useInferenceStore } from "../../stores/inferenceStore.js";
 import { ModelReadinessBanner } from "../molecules/ModelReadinessBanner.js";
 import { buildDebugTrace, copyDebugTrace } from "@eigen-air-ui/shared/utils";
 import { useBasePathNavigation } from "../../embed/base-path-navigation.js";
 import type {
+  ExecutionTarget,
   ChatDebugData,
   Skill,
   ToolCallPayload,
@@ -93,10 +95,76 @@ export function ChatPanel() {
   const readinessError = useReadinessStore((state) => state.error);
   const canInfer = useReadinessStore((state) => state.canInfer);
   const retryReadiness = useReadinessStore((state) => state.retry);
+  const [currentSessionTarget, setCurrentSessionTarget] = useState<ExecutionTarget | undefined>(undefined);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadCurrentSessionTarget() {
+      if (!sessionId) {
+        setCurrentSessionTarget(undefined);
+        return;
+      }
+      try {
+        const sessions = await getSessionService().listSessions();
+        if (cancelled) return;
+        const current = sessions.find((s) => s.id === sessionId);
+        setCurrentSessionTarget(current?.execution_target);
+      } catch {
+        // preserve current target
+      }
+    }
+    void loadCurrentSessionTarget();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
+
+  const devices = useInferenceStore((state) => state.devices);
+  const targetReadiness = React.useMemo(() => {
+    if (!currentSessionTarget || currentSessionTarget.kind === "server") {
+      const isReady = readinessPhase === "ready" || readinessPhase === "degraded_cpu";
+      return {
+        canInfer: canInfer && isReady,
+        isReady,
+        phase: isReady ? ("ready" as const) : readinessPhase === "failed" ? ("failed" as const) : ("loading" as const),
+        label: "Server",
+        reason: readinessError ?? undefined,
+      };
+    }
+    const dev = devices.find((d) => d.device_id === currentSessionTarget.device_id);
+    if (!dev) {
+      return {
+        canInfer: false,
+        isReady: false,
+        phase: "offline" as const,
+        label: `Device ${currentSessionTarget.device_id.slice(0, 8)}`,
+        reason: "Device not found for current owner",
+      };
+    }
+    if (dev.status !== "active") {
+      return {
+        canInfer: false,
+        isReady: false,
+        phase: "failed" as const,
+        label: dev.display_label || `Device ${currentSessionTarget.device_id.slice(0, 8)}`,
+        reason: `Device is ${dev.status}`,
+      };
+    }
+    return {
+      canInfer: true,
+      isReady: true,
+      phase: "ready" as const,
+      label: dev.display_label || `Device ${currentSessionTarget.device_id.slice(0, 8)}`,
+    };
+  }, [currentSessionTarget, devices, canInfer, readinessPhase, readinessError]);
 
   const isConnected = connectionStatus === "connected";
-  const readinessBlocksComposer =
-    !isConnected || !canInfer || (readinessPhase !== "ready" && readinessPhase !== "degraded_cpu");
+  const targetBlocksComposer =
+    currentSessionTarget && currentSessionTarget.kind === "client_device"
+      ? !targetReadiness.canInfer || !targetReadiness.isReady
+      : !canInfer || (readinessPhase !== "ready" && readinessPhase !== "degraded_cpu");
+
+  const readinessBlocksComposer = !isConnected || targetBlocksComposer;
   const composerBlocked =
     !isConnected || questionBlocksComposer || approvalBlocksComposer || readinessBlocksComposer;
   const composerPlaceholder =
@@ -104,11 +172,17 @@ export function ChatPanel() {
       ? "Connecting to eigen-air..."
       : connectionStatus === "disconnected"
       ? "Connect to eigen-air to start..."
-      : readinessPhase === "failed"
-      ? "Model unavailable"
-      : readinessBlocksComposer
+      : targetBlocksComposer && targetReadiness.phase === "failed"
+      ? (targetReadiness.reason ?? "Model unavailable")
+      : targetBlocksComposer
       ? "Model is loading..."
       : "Message eigen-air...";
+  const runProgressMap = useInferenceStore((state) => state.runProgress);
+  const activeProgress = React.useMemo(() => {
+    return Object.values(runProgressMap).find(
+      (p) => p.session_id === sessionId && (p.status === "active" || p.status === "pending")
+    );
+  }, [runProgressMap, sessionId]);
   const setSessionId = useConnectionStore((state) => state.setSessionId);
   const showPromptDebug = useDebugSettingsStore((state) => state.showPromptDebug);
   const showReasoningDebug = useDebugSettingsStore((state) => state.showReasoningDebug);
@@ -591,6 +665,10 @@ export function ChatPanel() {
                 event.payload.message ?? "The selected skill is unavailable. Selection has been cleared."
               );
             }
+          } else if (event.event === "run.inference.progress") {
+            useInferenceStore.getState().applyRunProgressEvent(event.payload);
+          } else if (event.event === "inference.operation.updated") {
+            useInferenceStore.getState().applyOperationEvent(event.payload);
           }
         },
         {
@@ -963,13 +1041,51 @@ export function ChatPanel() {
       </ScrollArea>
 
       <div className="border-border border-t p-3">
+        {isStreaming && activeProgress && (
+          <div
+            role="status"
+            className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded border border-border/70 bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground"
+          >
+            <div className="flex items-center gap-2">
+              <span className="font-semibold uppercase tracking-wider text-foreground text-[10px]">
+                {activeProgress.stage.replace("_", " ")}
+              </span>
+              {activeProgress.counters.generated_tokens !== undefined && (
+                <span>{activeProgress.counters.generated_tokens} tokens</span>
+              )}
+              {activeProgress.counters.tokens_per_second !== undefined && (
+                <span>({activeProgress.counters.tokens_per_second.toFixed(1)} t/s)</span>
+              )}
+              {activeProgress.counters.reused_prompt_tokens !== undefined && (
+                <span>reused: {activeProgress.counters.reused_prompt_tokens}</span>
+              )}
+              {activeProgress.counters.evaluated_prompt_tokens !== undefined && (
+                <span>prompt: {activeProgress.counters.evaluated_prompt_tokens}</span>
+              )}
+            </div>
+            <span>{Math.round(activeProgress.elapsed_ms / 1000)}s</span>
+          </div>
+        )}
         <div className="mb-2">
-          <ModelReadinessBanner
-            phase={readinessPhase}
-            snapshot={readinessSnapshot}
-            error={readinessError}
-            onRetry={retryReadiness}
-          />
+          {currentSessionTarget && currentSessionTarget.kind === "client_device" ? (
+            !targetReadiness.isReady ? (
+              <div
+                role="alert"
+                className="flex items-center justify-between rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+              >
+                <span>
+                  Target {targetReadiness.label} unavailable: {targetReadiness.reason ?? "device offline"}
+                </span>
+              </div>
+            ) : null
+          ) : (
+            <ModelReadinessBanner
+              phase={readinessPhase}
+              snapshot={readinessSnapshot}
+              error={readinessError}
+              onRetry={retryReadiness}
+            />
+          )}
         </div>
         {staleSkillWarning && (
           <div

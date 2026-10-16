@@ -8,6 +8,7 @@ import { HttpToolApprovalAdapter } from "../http/HttpToolApprovalAdapter.js";
 import { HttpArtifactAdapter } from "../http/HttpArtifactAdapter.js";
 import { HttpRunAdapter } from "../http/HttpRunAdapter.js";
 import { WsChatAdapter } from "../ws/WsChatAdapter.js";
+import { HttpInferenceAdapter } from "../http/HttpInferenceAdapter.js";
 import {
   setChatService,
   setConfigService,
@@ -20,6 +21,7 @@ import {
   setToolApprovalService,
   setArtifactService,
   setRunService,
+  setInferenceService,
   getServiceAccessContext,
 } from "./ServiceFactory.js";
 
@@ -76,4 +78,5 @@ export function initServicesForDaemonUrl(daemonUrl: string): void {
   setToolApprovalService(new HttpToolApprovalAdapter(httpUrl, access));
   setRunService(new HttpRunAdapter(httpUrl, access));
   setArtifactService(new HttpArtifactAdapter(httpUrl, access));
+  setInferenceService(new HttpInferenceAdapter(httpUrl, access));
 }

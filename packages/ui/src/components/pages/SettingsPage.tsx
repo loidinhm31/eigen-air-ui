@@ -2,6 +2,7 @@ import * as React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../atoms/Card.js";
 import { ConnectionStatus } from "../organisms/ConnectionStatus.js";
 import { useDebugSettingsStore } from "../../stores/debugSettingsStore.js";
+import { InferenceSettings } from "../organisms/InferenceSettings.js";
 
 export interface SettingsPageProps {
   managedAccess?: boolean;
@@ -18,6 +19,9 @@ export function SettingsPage({ managedAccess = false }: SettingsPageProps = {}) 
       <div className="mx-auto flex max-w-lg flex-col gap-4 py-4">
         <h1 className="px-4 pb-1 text-base font-semibold">Settings</h1>
         <ConnectionStatus managedAccess={managedAccess} />
+        <div className="px-4">
+          <InferenceSettings />
+        </div>
         <div className="px-4">
           <Card>
             <CardHeader>
