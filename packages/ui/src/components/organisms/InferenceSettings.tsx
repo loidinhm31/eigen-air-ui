@@ -40,11 +40,17 @@ export function InferenceSettings() {
   useEffect(() => {
     void fetchAll();
   }, [fetchAll]);
-
   const activeOperations = Object.values(operations).filter(
     (op) => op.status === "active" || op.status === "pending"
   );
 
+  useEffect(() => {
+    if (activeOperations.length === 0) return;
+    const interval = setInterval(() => {
+      void fetchAll();
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [activeOperations.length, fetchAll]);
   return (
     <div className="space-y-4">
       {activeOperations.length > 0 && (

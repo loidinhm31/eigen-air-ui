@@ -50,6 +50,7 @@ export function CompanionDeviceView({
   const [cleanupOutcome, setCleanupOutcome] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [selectedStorageDeviceId, setSelectedStorageDeviceId] = useState<string | null>(null);
+  const [showPairingForm, setShowPairingForm] = useState(false);
   const isLocalSupported = hasLocalCompanion() || status !== null;
   const isRunning = status && status.status !== "stopped";
   const daemonUrl = useConnectionStore((s) => s.url);
@@ -206,22 +207,28 @@ export function CompanionDeviceView({
             </div>
           )}
         </div>
-      ) : (
-        <div className="space-y-4">
-          <CompanionInstallCard />
-          <CompanionPairingApproval serverHost={serverHost} accountLabel={accountLabel} />
-        </div>
-      )}
+      ) : null}
 
       <div className="space-y-3">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Paired Companion Devices
-        </h3>
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Paired Companion Devices
+          </h3>
+          {!isLocalSupported && devices.length > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              onClick={() => setShowPairingForm(!showPairingForm)}
+            >
+              {showPairingForm ? "Hide Pairing Setup" : "+ Pair Another Companion"}
+            </Button>
+          )}
+        </div>
 
         {devices.length === 0 && (
           <p className="text-xs text-muted-foreground">No companion devices paired to this account.</p>
         )}
-
         <div className="grid gap-2">
           {devices.map((d) => (
             <div
@@ -330,6 +337,13 @@ export function CompanionDeviceView({
           ))}
         </div>
       </div>
+
+      {!isLocalSupported && (devices.length === 0 || showPairingForm) && (
+        <div className="space-y-4 pt-2 border-t border-border/50">
+          <CompanionInstallCard />
+          <CompanionPairingApproval serverHost={serverHost} accountLabel={accountLabel} />
+        </div>
+      )}
     </div>
   );
 }

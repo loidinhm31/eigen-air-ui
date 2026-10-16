@@ -87,9 +87,23 @@ export function CompanionInstallCard({
           </div>
         </div>
 
+        {/* 1-Command Direct Connection */}
+        <div className="space-y-2 rounded-md border border-primary/30 bg-primary/5 p-3">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-foreground">1-Command Launch (Fastest)</span>
+            <Badge variant="default" className="text-[10px]">No Codes Needed</Badge>
+          </div>
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            Auto-enroll and connect your companion in a single terminal command using your server bearer token:
+          </p>
+          <div className="rounded bg-muted/80 p-2 font-mono text-[11px] select-all overflow-x-auto text-foreground">
+            cargo run -p eigen-air-companion --bin eigen-air-companion -- --token &lt;SERVER_TOKEN&gt;
+          </div>
+        </div>
+
         {/* Step-by-Step Instructions */}
         <div className="space-y-2 rounded-md border border-border/50 bg-background/40 p-3">
-          <div className="font-semibold text-foreground">Setup Instructions</div>
+          <div className="font-semibold text-foreground">Interactive 4-Step Pairing (Alternative)</div>
           <ol className="space-y-2 text-muted-foreground">
             <li className="flex items-start gap-2">
               <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-primary/20 text-[10px] font-bold text-primary">1</span>
