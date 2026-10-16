@@ -8,6 +8,10 @@
     "build": "tsc --noEmit && vite build",
     "tauri": "tauri",
     "lint": "eslint src/",
+    "package:desktop": "tauri build",
+    "package:windows": "tauri build --config src-tauri/tauri.windows.conf.json",
+    "package:macos": "tauri build --config src-tauri/tauri.macos.conf.json",
+    "package:linux": "tauri build --config src-tauri/tauri.linux.conf.json",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {

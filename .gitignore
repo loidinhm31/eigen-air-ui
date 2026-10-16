@@ -4,6 +4,7 @@ dist
 target
 apps/native/src-tauri/target
 apps/native/src-tauri/Cargo.lock
+apps/native/src-tauri/binaries
 .env
 .env.*
 coverage
