@@ -84,6 +84,11 @@ pub fn get_companion_socket_path() -> PathBuf {
             .join(".eigen-air")
             .join("companion")
             .join("companion.sock")
+    } else if let Some(user_profile) = std::env::var_os("USERPROFILE") {
+        PathBuf::from(user_profile)
+            .join(".eigen-air")
+            .join("companion")
+            .join("companion.sock")
     } else {
         PathBuf::from(".eigen-air-companion").join("companion.sock")
     }
@@ -204,62 +209,112 @@ fn compute_file_sha256(path: &std::path::Path) -> Result<String, String> {
 }
 
 fn verify_binary_integrity(app: &tauri::AppHandle, bin_path: &std::path::Path) -> Result<(), String> {
-    let mut manifest_candidates = vec![
-        bin_path.parent().map(|p| p.join("manifest.json")),
-        bin_path.parent().and_then(|p| p.parent()).map(|p| p.join("manifest.json")),
-        bin_path.parent().and_then(|p| p.parent()).map(|p| p.join("binaries").join("manifest.json")),
-    ];
+    // SECURITY NOTE (TOCTOU Boundary):
+    // There is an inherent time-of-check-to-time-of-use window between computing the file checksum
+    // and invoking `Command::spawn(bin_path)`. On desktop platforms without sealed memory / OS code
+    // signing enforcement, binary integrity verification mitigates static tampering and packaging errors.
 
+    // In release mode, manifest candidates are strictly constrained to trusted application resource directories.
+    let mut manifest_candidates = Vec::new();
     if let Ok(res_dir) = app.path().resource_dir() {
-        manifest_candidates.push(Some(res_dir.join("manifest.json")));
-        manifest_candidates.push(Some(res_dir.join("binaries").join("manifest.json")));
+        manifest_candidates.push(res_dir.join("manifest.json"));
+        manifest_candidates.push(res_dir.join("binaries").join("manifest.json"));
+    }
+
+    // In debug builds only, allow local developer fallback beside binary
+    #[cfg(debug_assertions)]
+    {
+        if let Some(parent) = bin_path.parent() {
+            manifest_candidates.push(parent.join("manifest.json"));
+            if let Some(grandparent) = parent.parent() {
+                manifest_candidates.push(grandparent.join("manifest.json"));
+                manifest_candidates.push(grandparent.join("binaries").join("manifest.json"));
+            }
+        }
     }
 
     let mut manifest_found = false;
-    for candidate in manifest_candidates.into_iter().flatten() {
+    for candidate in manifest_candidates {
         if candidate.is_file() {
             manifest_found = true;
             let manifest_str = std::fs::read_to_string(&candidate)
                 .map_err(|e| format!("Failed to read manifest at {}: {e}", candidate.display()))?;
             let manifest_json: serde_json::Value = serde_json::from_str(&manifest_str)
                 .map_err(|e| format!("Failed to parse manifest at {}: {e}", candidate.display()))?;
-            let mut matched_entry = false;
-            if let Some(files) = manifest_json.get("files").and_then(|f| f.as_array()) {
-                let bin_name = bin_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                for file_entry in files {
-                    let rel = file_entry.get("relative_path").and_then(|r| r.as_str()).unwrap_or("");
-                    let is_match = rel == bin_name
-                        || rel == format!("bin/{bin_name}")
-                        || rel.ends_with(&format!("/{bin_name}"));
-                    if is_match {
-                        matched_entry = true;
-                        if let Some(exp_size) = file_entry.get("size_bytes").and_then(|s| s.as_u64()) {
-                            let meta = std::fs::metadata(bin_path)
-                                .map_err(|e| format!("Failed to read metadata for {}: {e}", bin_path.display()))?;
-                            if meta.len() != exp_size {
-                                return Err(format!(
-                                    "Companion binary size mismatch: expected {exp_size}, actual {}",
-                                    meta.len()
-                                ));
-                            }
-                        }
-                        if let Some(exp_hash) = file_entry.get("sha256").and_then(|s| s.as_str()) {
-                            let actual_hash = compute_file_sha256(bin_path)?;
-                            if !actual_hash.eq_ignore_ascii_case(exp_hash) {
-                                return Err(format!(
-                                    "Companion binary checksum mismatch: expected {exp_hash}, actual {actual_hash}"
-                                ));
-                            }
-                        }
-                    }
+
+            let files = manifest_json
+                .get("files")
+                .and_then(|f| f.as_array())
+                .ok_or_else(|| format!("Manifest at '{}' missing 'files' array", candidate.display()))?;
+
+            let bin_name = bin_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .ok_or_else(|| format!("Invalid binary path: {}", bin_path.display()))?;
+
+            let mut matching_entries = Vec::new();
+            for file_entry in files {
+                let rel = file_entry.get("relative_path").and_then(|r| r.as_str()).unwrap_or("");
+                if rel == bin_name
+                    || rel == format!("bin/{bin_name}")
+                    || rel == format!("binaries/{bin_name}")
+                {
+                    matching_entries.push(file_entry);
                 }
             }
-            if !matched_entry {
+
+            if matching_entries.len() > 1 {
                 return Err(format!(
-                    "Companion binary '{}' not declared in bundle manifest.json",
-                    bin_path.display()
+                    "Ambiguous manifest match: found {} entries for binary '{bin_name}' in {}",
+                    matching_entries.len(),
+                    candidate.display()
                 ));
             }
+
+            let file_entry = matching_entries.into_iter().next().ok_or_else(|| {
+                format!(
+                    "Companion binary '{bin_name}' not declared in bundle manifest at '{}'",
+                    candidate.display()
+                )
+            })?;
+
+            // Enforce explicit, positive size_bytes check (fail-closed if missing or zero)
+            let exp_size = file_entry
+                .get("size_bytes")
+                .and_then(|s| s.as_u64())
+                .filter(|&s| s > 0)
+                .ok_or_else(|| {
+                    format!("Manifest entry for '{bin_name}' missing or invalid 'size_bytes' (must be > 0)")
+                })?;
+
+            let meta = std::fs::metadata(bin_path)
+                .map_err(|e| format!("Failed to read metadata for {}: {e}", bin_path.display()))?;
+            if meta.len() != exp_size {
+                return Err(format!(
+                    "Companion binary size mismatch for '{bin_name}': expected {exp_size} bytes, actual {} bytes",
+                    meta.len()
+                ));
+            }
+
+            // Enforce explicit, valid 64-hex sha256 checksum (fail-closed if missing or invalid format)
+            let exp_hash = file_entry
+                .get("sha256")
+                .and_then(|s| s.as_str())
+                .ok_or_else(|| format!("Manifest entry for '{bin_name}' missing 'sha256' checksum"))?;
+
+            if exp_hash.len() != 64 || !exp_hash.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Err(format!(
+                    "Manifest entry for '{bin_name}' has invalid sha256 format (expected 64 hex chars, got '{exp_hash}')"
+                ));
+            }
+
+            let actual_hash = compute_file_sha256(bin_path)?;
+            if !actual_hash.eq_ignore_ascii_case(exp_hash) {
+                return Err(format!(
+                    "Companion binary checksum mismatch for '{bin_name}': expected {exp_hash}, actual {actual_hash}"
+                ));
+            }
+
             break;
         }
     }

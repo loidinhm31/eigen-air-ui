@@ -25,12 +25,34 @@ KeepData:
 
 PurgeCredentials:
     ; Explicit unpair path:
-    ; Remove paired client credentials and enrollment session caches, but preserve all bulk model weights.
-    DetailPrint "Removing paired client credentials and enrollment tokens..."
+    ; First attempt: Invoke authoritative companion unpair command while binary is available.
+    ; This ensures OS-credential backends, invalidation tombstones, and enrollment caches are cleaned authoritatively.
+    DetailPrint "Executing authoritative companion unpair..."
+    IfFileExists "$INSTDIR\eigen-air-companion.exe" RunCompanionUnpair TrySidecarUnpair
+RunCompanionUnpair:
+    ExecWait '"$INSTDIR\eigen-air-companion.exe" unpair --delete-caches' $0
+    IntCmp $0 0 UnpairSuccess RunFallback RunFallback
+TrySidecarUnpair:
+    IfFileExists "$INSTDIR\bin\eigen-air-companion.exe" RunBinCompanionUnpair RunFallback
+RunBinCompanionUnpair:
+    ExecWait '"$INSTDIR\bin\eigen-air-companion.exe" unpair --delete-caches' $0
+    IntCmp $0 0 UnpairSuccess RunFallback RunFallback
+UnpairSuccess:
+    DetailPrint "Authoritative companion unpair completed successfully (exit code 0)."
+    Goto PostUnpairCommand
+RunFallback:
+    DetailPrint "Companion binary not runnable or returned non-zero code ($0). Running cleanup fallback..."
+    Goto PostUnpairCommand
+PostUnpairCommand:
+    ; Fallback file cleanup for credential stores and caches matching runtime data directories
+    ; (covers $PROFILE\.eigen-air\companion, $APPDATA\eigen-air\companion, and $LOCALAPPDATA\eigen-air\companion)
+    DetailPrint "Cleaning paired client credentials and enrollment tokens..."
+    RMDir /r "$PROFILE\.eigen-air\companion\credentials"
     RMDir /r "$APPDATA\eigen-air\companion\credentials"
-    DetailPrint "Removing local session KV caches for unpairing enrollment..."
+    DetailPrint "Cleaning local session KV caches for unpairing enrollment..."
+    RMDir /r "$PROFILE\.eigen-air\companion\cache"
     RMDir /r "$LOCALAPPDATA\eigen-air\companion\cache"
-    DetailPrint "Preserved all registered model weights ($LOCALAPPDATA\eigen-air\companion\models) and external storage roots."
+    DetailPrint "Preserved all registered model weights and external storage roots."
 EndUninstallPolicy:
 !macroend
 
