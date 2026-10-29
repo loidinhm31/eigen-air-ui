@@ -75,11 +75,22 @@ export function decodeInboundWsEvent(frame: WsEvent): WsEvent | undefined {
       return undefined;
     }
   }
+  if (
+    frame.event === "inference.host.updated" ||
+    frame.event === "inference.binding.updated" ||
+    frame.event === "inference.pool.updated" ||
+    frame.event === "inference.recovery.updated"
+  ) {
+    return frame;
+  }
   if (frame.event === "inference.operation.updated") {
     try {
       const decodedPayload = decodeInferenceOperationProgressEvent(frame.payload);
       return { ...frame, payload: decodedPayload };
     } catch {
+      if (frame.payload && typeof frame.payload === "object" && "operation_id" in frame.payload) {
+        return frame;
+      }
       return undefined;
     }
   }

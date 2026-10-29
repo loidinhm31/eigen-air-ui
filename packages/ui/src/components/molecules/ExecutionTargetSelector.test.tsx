@@ -63,4 +63,73 @@ describe("ExecutionTargetSelector", () => {
       kind: "server",
     });
   });
+
+  it("renders pool targets and selects logical pool", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+
+    useInferenceStore.setState({
+      pools: {
+        default: {
+          pool_id: "default",
+          ready_hosts: 2,
+          busy_hosts: 0,
+          offline_hosts: 0,
+          qualified_models: ["gemma-4-e4b-it-qat-ud-q4_k_xl", "qwen-3.8-27b-ud-q4_k_xl"],
+        },
+      },
+      devices: [],
+    });
+
+    render(<ExecutionTargetSelector onChange={onChange} />);
+
+    expect(screen.getByText("Pool: default")).toBeTruthy();
+    expect(screen.getByText("2 Ready")).toBeTruthy();
+
+    await user.click(screen.getByText("Pool: default"));
+    expect(onChange).toHaveBeenCalledWith({
+      kind: "pool",
+      pool_id: "default",
+      model_artifact_id: "gemma-4-e4b-it-qat-ud-q4_k_xl",
+    });
+  });
+
+  it("renders model options when pool target is selected", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+
+    useInferenceStore.setState({
+      pools: {
+        default: {
+          pool_id: "default",
+          ready_hosts: 2,
+          busy_hosts: 0,
+          offline_hosts: 0,
+          qualified_models: ["gemma-4-e4b-it-qat-ud-q4_k_xl", "qwen-3.8-27b-ud-q4_k_xl"],
+        },
+      },
+      devices: [],
+    });
+
+    render(
+      <ExecutionTargetSelector
+        value={{
+          kind: "pool",
+          pool_id: "default",
+          model_artifact_id: "gemma-4-e4b-it-qat-ud-q4_k_xl",
+        }}
+        onChange={onChange}
+      />
+    );
+
+    expect(screen.getByText("Pool Model:")).toBeTruthy();
+    const qwenBtn = screen.getByRole("button", { name: "qwen-3.8-27b-ud-q4_k_xl" });
+    await user.click(qwenBtn);
+
+    expect(onChange).toHaveBeenCalledWith({
+      kind: "pool",
+      pool_id: "default",
+      model_artifact_id: "qwen-3.8-27b-ud-q4_k_xl",
+    });
+  });
 });

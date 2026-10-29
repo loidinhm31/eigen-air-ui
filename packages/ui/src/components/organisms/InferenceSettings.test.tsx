@@ -122,4 +122,32 @@ describe("InferenceSettings", () => {
     expect(screen.getByRole("button", { name: "Revoke" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Retire" })).toBeTruthy();
   });
+
+  it("renders and switches to Hosts, Pools, and Recommendations tabs", async () => {
+    const user = userEvent.setup();
+    useInferenceStore.setState({
+      hosts: {},
+      pools: {},
+      credentialRecoveries: {},
+      hostModels: {},
+      hostOperations: {},
+    });
+
+    render(<InferenceSettings />);
+
+    // Switch to Hosts tab
+    const hostsTab = screen.getByTestId("tab-hosts");
+    await user.click(hostsTab);
+    expect(screen.getByTestId("inference-hosts-view")).toBeTruthy();
+
+    // Switch to Pools tab
+    const poolsTab = screen.getByTestId("tab-pools");
+    await user.click(poolsTab);
+    expect(screen.getByTestId("inference-pools-view")).toBeTruthy();
+
+    // Switch to Recommendations tab
+    const modelsTab = screen.getByTestId("tab-models");
+    await user.click(modelsTab);
+    expect(screen.getByTestId("host-models-view")).toBeTruthy();
+  });
 });

@@ -138,9 +138,14 @@ export function SessionsPage() {
                 <p className="font-mono text-xs text-muted-foreground truncate">{s.id}</p>
                 <p className="text-xs text-muted-foreground">
                   {s.channel} · {s.status} · {new Date(s.updated_at * 1000).toLocaleString()}
-                  {s.execution_target && (
+                  {(s.inference_target ?? s.execution_target) && (
                     <span className="ml-2 font-medium text-foreground">
-                      [{s.execution_target.kind === "client_device" ? `Device: ${s.execution_target.device_id.slice(0, 8)}` : "Server"}]
+                      {(() => {
+                        const t = s.inference_target ?? s.execution_target;
+                        if (t?.kind === "pool") return `[Pool: ${t.pool_id} · ${t.model_artifact_id}]`;
+                        if (t?.kind === "client_device") return `[Legacy Device: ${t.device_id.slice(0, 8)} (Migration Required)]`;
+                        return "[Server]";
+                      })()}
                     </span>
                   )}
                 </p>

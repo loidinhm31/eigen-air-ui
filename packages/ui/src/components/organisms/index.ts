@@ -12,3 +12,6 @@ export { InferenceSettings } from "./InferenceSettings.js";
 export { OperationProgressCard } from "./OperationProgressCard.js";
 export { ServerModelsView } from "./ServerModelsView.js";
 export { CompanionDeviceView } from "./CompanionDeviceView.js";
+export { InferenceHostsView, type InferenceHostsViewProps } from "./InferenceHostsView.js";
+export { InferencePoolsView, type InferencePoolsViewProps } from "./InferencePoolsView.js";
+export { HostModelsView, type HostModelsViewProps } from "./HostModelsView.js";

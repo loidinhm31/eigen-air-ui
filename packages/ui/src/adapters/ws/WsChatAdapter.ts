@@ -37,6 +37,7 @@ import {
 } from "@eigen-air-ui/shared/types";
 import { WS_METHODS } from "@eigen-air-ui/shared/constants";
 import { useConnectionStore } from "../../stores/connectionStore.js";
+import { useInferenceStore } from "../../stores/inferenceStore.js";
 
 type WsAccessProvider = () => { authToken?: string };
 
@@ -130,6 +131,24 @@ export class WsChatAdapter implements IChatService, ISessionService {
       if (event.event === "task_progress.updated") {
         this.taskProgressSubscribers.forEach((callback) => callback(event as TaskProgressWsEvent));
       }
+      if (event.event === "inference.host.updated") {
+        useInferenceStore.getState().applyHostUpdatedEvent(event.payload);
+      }
+      if (event.event === "inference.binding.updated") {
+        useInferenceStore.getState().applyBindingUpdatedEvent(event.payload);
+      }
+      if (event.event === "inference.pool.updated") {
+        useInferenceStore.getState().applyPoolUpdatedEvent(event.payload);
+      }
+      if (event.event === "inference.recovery.updated") {
+        useInferenceStore.getState().applyRecoveryUpdatedEvent(event.payload);
+      }
+      if (event.event === "inference.operation.updated") {
+        useInferenceStore.getState().applyOperationEvent(event.payload);
+      }
+      if (event.event === "run.inference.progress") {
+        useInferenceStore.getState().applyRunProgressEvent(event.payload);
+      }
       this.forwardRunCorrelation(event);
     });
     this.client.onInvalidImageHint(() => this.notifyImageHint({ invalid: true }));
@@ -148,6 +167,9 @@ export class WsChatAdapter implements IChatService, ISessionService {
         this.assertReconnectFence(fence);
         useConnectionStore.getState().setStatus("connected", connection.version);
         this.reconnectSubscribers.forEach((callback) => callback());
+        // Reconcile gap snapshot after reconnect
+        useInferenceStore.getState().fetchHosts();
+        useInferenceStore.getState().fetchPools();
       } catch {
         throw new Error("re-authentication failed");
       }

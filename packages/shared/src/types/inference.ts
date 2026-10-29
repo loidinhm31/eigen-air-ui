@@ -8,6 +8,13 @@ export type ExecutionTarget =
       device_id: string;
       model_artifact_id: string;
       binding_revision: number;
+    }
+  | {
+      kind: "pool";
+      pool_id: string;
+      model_artifact_id: string;
+      model_digest: string;
+      host_id?: string;
     };
 
 export type ExecutionTargetInput =
@@ -19,6 +26,13 @@ export type ExecutionTargetInput =
       kind: "client_device";
       device_id: string;
       model_artifact_id: string;
+    }
+  | {
+      kind: "pool";
+      pool_id: string;
+      model_artifact_id: string;
+      model_digest?: string;
+      host_id?: string;
     };
 
 export type OperationStage =
@@ -42,8 +56,12 @@ export type StageStatus =
 
 export interface StageCounters {
   unit?: string;
+  unit_name?: string;
+  completed?: number;
   completed_units?: number;
+  total?: number;
   total_units?: number;
+  rate_per_second?: number;
   bytes_per_second?: number;
   estimated_remaining_seconds?: number;
   reused_prompt_tokens?: number;
@@ -288,3 +306,321 @@ export type LocalControlResponse =
   | { response: "unpaired"; cleanup_state: string; credentials_wiped: boolean; tombstone_created: boolean }
   | { response: "stopping"; keep_running_on_exit: boolean }
   | { response: "error"; code: string; message: string };
+
+// --- Phase 12 Managed Gateway & Host Types ---
+
+export type PoolBindingState = "unbound" | "bound" | "draining";
+
+export interface PoolRecord {
+  pool_id: string;
+  name: string;
+  description: string;
+  revision: number;
+  created_at_ms: number;
+}
+
+export interface PoolBinding {
+  host_id: string;
+  pool_id: string;
+  revision: number;
+  state: PoolBindingState;
+  changed_at_ms: number;
+}
+
+export interface PoolBindingMutation {
+  pool_id: string;
+  expected_revision?: number;
+  mutation_id: string;
+}
+
+export interface PoolSummary {
+  pool_id: string;
+  ready_hosts: number;
+  busy_hosts: number;
+  offline_hosts: number;
+  qualified_models: string[];
+}
+
+export interface HostRecord {
+  host_id: string;
+  installation_id: string;
+  label: string;
+  platform: string;
+  agent_version: string;
+  lifecycle_revision: number;
+  desired_binding?: string | null;
+  last_seen_at_ms: number;
+}
+
+export interface HostRecoveryStatus {
+  desired_revision: number;
+  reconciled_revision: number;
+  auto_load_model: boolean;
+  auto_prepare_kv: boolean;
+  model_ready: boolean;
+  cache_ready: boolean;
+  model_action: string;
+  cache_action: string;
+}
+
+export interface HostView extends HostRecord {
+  is_connected: boolean;
+  lease_valid: boolean;
+  current_binding?: PoolBinding | null;
+  recovery: HostRecoveryStatus;
+  applied_binding_revision: number;
+}
+
+export interface WorkerLoadProfile {
+  context_tokens: number;
+  batch_tokens: number;
+  ubatch_tokens: number;
+  threads: number;
+  gpu_layers: number;
+  device_index?: number | null;
+  kv_placement: string;
+  type_k: string;
+  type_v: string;
+  flash_attention: boolean;
+  swa_full?: boolean;
+  n_rs_seq?: number;
+}
+
+export interface ExactModelDescriptor {
+  artifact_id: string;
+  verified_model_sha256: string;
+  settings_digest: string;
+  profile: WorkerLoadProfile;
+}
+
+export interface AppSourceRef {
+  tenant_id: string;
+  user_id: string;
+  workspace_id: string;
+  session_id: string;
+  scope_hash: string;
+  session_hash: string;
+  prompt_profile_id: string;
+  source_revision: string;
+  prefix_digest: string;
+  preparation_fingerprint: string;
+}
+
+export interface HostRecoveryPreferences {
+  host_id: string;
+  expected_revision: number;
+  reconciled_revision: number;
+  auto_load_model: boolean;
+  auto_prepare_kv: boolean;
+  last_selected_model?: ExactModelDescriptor | null;
+  auto_prepare_source?: AppSourceRef | null;
+}
+
+export interface ClientUpdateRecoveryPreferences {
+  expected_revision: number;
+  auto_load_model?: boolean;
+  auto_prepare_kv?: boolean;
+  auto_prepare_source?: AppSourceRef | null;
+}
+
+export type FitVerdictKind =
+  | "fits_gpu"
+  | "fits_partial_offload"
+  | "cpu_only"
+  | "does_not_fit"
+  | "unknown";
+
+export interface FitVerdictObject {
+  verdict: FitVerdictKind;
+  reason: string;
+  estimated_host_bytes?: number | null;
+  estimated_device_bytes?: number | null;
+}
+
+export type FitVerdict =
+  | FitVerdictKind
+  | "fits"
+  | "fits_with_warning"
+  | FitVerdictObject;
+
+export type TupleQualificationStatus = "qualified" | "unqualified" | "blocked" | "degraded" | "unknown";
+
+export type PerfSource =
+  | { type: "receipt_exact_tuple"; receipt_id: string }
+  | { type: "observed_turns"; n: number; p50: boolean }
+  | { type: "none" }
+  | string;
+
+export interface ModelPerfSummary {
+  prefill_tps?: number | null;
+  decode_tps?: number | null;
+  prefill_tokens_per_second?: number | null;
+  decode_tokens_per_second?: number | null;
+  source: PerfSource;
+  measured_at_ms?: number | null;
+  is_stale?: boolean;
+}
+
+export interface RecommendationRisk {
+  code: string;
+  message: string;
+  severity: "info" | "warning" | "critical";
+}
+
+export interface SuggestedProfile {
+  rung_name?: string;
+  backend: string;
+  profile?: WorkerLoadProfile;
+  profile_hash?: string;
+  device_label?: string | null;
+  device_index?: number | null;
+  device_fingerprint?: string;
+  context_tokens?: number;
+  gpu_layers?: number;
+  kv_placement?: string;
+  flash_attention?: boolean;
+}
+
+export interface HostModelRecommendation {
+  host_id: string;
+  artifact_id: string;
+  fit: FitVerdict;
+  suggested_profile?: SuggestedProfile | null;
+  qualification: TupleQualificationStatus;
+  perf: ModelPerfSummary;
+  risks: RecommendationRisk[];
+  rank?: number | null;
+  selectable: boolean;
+  disabled_reason?: string | null;
+}
+
+export type CacheReadinessStatus =
+  | "absent"
+  | "partial"
+  | "ready"
+  | "invalid"
+  | "unsupported"
+  | "pending_purge";
+
+export interface HostCacheStatus {
+  host_id: string;
+  scope_key: string;
+  session_hash?: string | null;
+  status: CacheReadinessStatus;
+  committed_tokens?: number | null;
+  total_tokens?: number | null;
+  last_committed_generation_id?: string | null;
+  invalidation_revision: number;
+  reason?: string | null;
+}
+
+export type CredentialRecoveryStatus =
+  | "pending_approval"
+  | "approved"
+  | "delivered"
+  | "acknowledged"
+  | "denied"
+  | "expired"
+  | "revoked";
+
+export interface OperatorRecoveryView {
+  request_id: string;
+  deployment_id: string;
+  installation_id: string;
+  host_id: string;
+  public_key_fingerprint: string;
+  requested_credential_generation: number;
+  expiry_ms: number;
+  status: CredentialRecoveryStatus;
+  approval_revision: number;
+  created_at_ms: number;
+  approved_at_ms?: number | null;
+  delivered_at_ms?: number | null;
+  acknowledged_at_ms?: number | null;
+}
+
+export interface ApproveRecoveryRequest {
+  expected_generation?: number;
+  expected_revision?: number;
+}
+
+export interface CreateInstallationRequest {
+  platform: "ubuntu_x86_64" | "fedora_x86_64" | "windows_x86_64" | string;
+  label: string;
+}
+
+export interface InstallationDescriptor {
+  installation_id: string;
+  platform: string;
+  label: string;
+  script_url: string;
+  created_at_ms: number;
+}
+
+export interface InstallationStatus {
+  installation_id: string;
+  platform: string;
+  label: string;
+  registered_hosts: string[];
+  connected_hosts: string[];
+  bound_hosts: string[];
+  created_at_ms: number;
+}
+
+export type OperationKind =
+  | "download"
+  | "load"
+  | "unload"
+  | "prepare_kv"
+  | "purge"
+  | "relocate";
+
+export type OperationState =
+  | "queued"
+  | "running"
+  | "cancelling"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "indeterminate";
+
+export interface HostOperationRequest {
+  kind: OperationKind;
+  artifact_id?: string;
+  mutation_id?: string;
+  expected_sha256?: string;
+  profile?: WorkerLoadProfile;
+  license_accepted?: boolean;
+  source_root_id?: string;
+  source_relative_path?: string;
+  target_root_id?: string;
+  scope_key?: string;
+  session_hash?: string;
+  invalidation_revision?: number;
+  intent_revision?: number;
+  source_ref?: AppSourceRef;
+}
+
+export interface SanitizedOperationError {
+  code: string;
+  message?: string;
+  sanitized_message?: string;
+}
+export interface OperationSnapshot {
+  operation_id: string;
+  host_id: string;
+  artifact_id: string;
+  kind: OperationKind;
+  state: OperationState;
+  stage?: OperationStage | string;
+  revision: number;
+  counters: StageCounters;
+  stage_counters?: StageCounters | null;
+  created_at_ms?: number;
+  started_at_ms?: number;
+  updated_at_ms?: number;
+  completed_at_ms?: number | null;
+  error_code?: string | null;
+  error_message?: string | null;
+  sanitized_error?: SanitizedOperationError | null;
+}

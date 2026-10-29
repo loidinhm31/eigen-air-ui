@@ -121,7 +121,7 @@ export function ChatPanel() {
         if (cancelled) return;
         const current = sessions.find((s) => s.id === sessionId);
         setCurrentSessionTarget(
-          current?.execution_target ?? { kind: "server", provider_id: "default" }
+          current?.inference_target ?? current?.execution_target ?? { kind: "server", provider_id: "default" }
         );
         setTargetLookupFailed(false);
       } catch {
@@ -168,7 +168,7 @@ export function ChatPanel() {
   const targetBlocksComposer =
     isResolvingTarget ||
     targetLookupFailed ||
-    (currentSessionTarget && currentSessionTarget.kind === "client_device"
+    (currentSessionTarget && (currentSessionTarget.kind === "client_device" || currentSessionTarget.kind === "pool")
       ? !targetReadiness.canInfer || !targetReadiness.isReady
       : !canInfer || (readinessPhase !== "ready" && readinessPhase !== "degraded_cpu"));
 
@@ -672,12 +672,6 @@ export function ChatPanel() {
                 event.payload.message ?? "The selected skill is unavailable. Selection has been cleared."
               );
             }
-          } else if (event.event === "run.inference.progress") {
-            const currentAccessKey = useInferenceStore.getState().accessKey;
-            useInferenceStore.getState().applyRunProgressEvent(event.payload, currentAccessKey);
-          } else if (event.event === "inference.operation.updated") {
-            const currentAccessKey = useInferenceStore.getState().accessKey;
-            useInferenceStore.getState().applyOperationEvent(event.payload, currentAccessKey);
           }
         },
         {
@@ -1100,34 +1094,58 @@ export function ChatPanel() {
                 New Server Session
               </button>
             </div>
-          ) : currentSessionTarget && currentSessionTarget.kind === "client_device" ? (
-            !targetReadiness.isReady ? (
-              <div
-                role="alert"
-                className="flex items-center justify-between rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+          ) : currentSessionTarget && currentSessionTarget.kind === "client_device" && !targetReadiness.isReady ? (
+            <div
+              role="alert"
+              className="flex items-center justify-between rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+            >
+              <span>
+                Target {targetReadiness.label} unavailable: {targetReadiness.reason ?? "device offline"}
+              </span>
+              <button
+                type="button"
+                className="rounded bg-destructive/20 px-2 py-1 font-medium hover:bg-destructive/30 transition-colors cursor-pointer text-xs"
+                onClick={() => {
+                  void (async () => {
+                    try {
+                      const newSession = await getSessionService().createSession({ kind: "server" });
+                      useConnectionStore.getState().setSessionId(newSession.id);
+                      useChatStore.getState().clearMessages();
+                    } catch (err) {
+                      console.error("[ChatPanel] Failed to create server session:", err);
+                    }
+                  })();
+                }}
               >
-                <span>
-                  Target {targetReadiness.label} unavailable: {targetReadiness.reason ?? "device offline"}
-                </span>
-                <button
-                  type="button"
-                  className="rounded bg-destructive/20 px-2 py-1 font-medium hover:bg-destructive/30 transition-colors cursor-pointer text-xs"
-                  onClick={() => {
-                    void (async () => {
-                      try {
-                        const newSession = await getSessionService().createSession({ kind: "server" });
-                        useConnectionStore.getState().setSessionId(newSession.id);
-                        useChatStore.getState().clearMessages();
-                      } catch (err) {
-                        console.error("[ChatPanel] Failed to create server session:", err);
-                      }
-                    })();
-                  }}
-                >
-                  New Server Session
-                </button>
-              </div>
-            ) : null
+                New Server Session
+              </button>
+            </div>
+          ) : currentSessionTarget && currentSessionTarget.kind === "pool" && !targetReadiness.isReady ? (
+            <div
+              role="alert"
+              className="flex items-center justify-between rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+            >
+              <span>
+                Target Pool &quot;{currentSessionTarget.pool_id}&quot; unavailable: {targetReadiness.reason ?? "no ready hosts"}
+              </span>
+              <button
+                type="button"
+                className="rounded bg-destructive/20 px-2 py-1 font-medium hover:bg-destructive/30 transition-colors cursor-pointer text-xs"
+                onClick={() => {
+                  void (async () => {
+                    try {
+                      const newSession = await getSessionService().createSession({ kind: "server" });
+                      useConnectionStore.getState().setSessionId(newSession.id);
+                      useChatStore.getState().clearMessages();
+                    } catch (err) {
+                      console.error("[ChatPanel] Failed to create server session:", err);
+                    }
+                  })();
+                }}
+              >
+                New Server Session
+              </button>
+            </div>
           ) : (
             <ModelReadinessBanner
               phase={readinessPhase}

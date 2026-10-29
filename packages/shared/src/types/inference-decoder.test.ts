@@ -4,8 +4,19 @@ import {
   decodeCanonicalOperationSnapshot,
   decodeCatalogArtifact,
   decodeExecutionTarget,
+  decodeExecutionTargetInput,
+  decodeHostCacheStatus,
+  decodeHostModelRecommendation,
+  decodeHostRecord,
+  decodeHostRecoveryPreferences,
+  decodeHostView,
   decodeInferenceOperationProgressEvent,
+  decodeInstallationDescriptor,
+  decodeInstallationStatus,
   decodeModelInventoryItem,
+  decodeOperatorRecoveryView,
+  decodePoolBinding,
+  decodePoolSummary,
   decodePublicDeviceSummary,
   decodeRunInferenceProgressEvent,
   decodeStageCounters,
@@ -341,6 +352,158 @@ describe("inference-decoder", () => {
       expect(() => decodeStorageSelectionResponse({ request_id: "r1", device_id: "d1", kind: "unknown_kind", status: "approved", expires_at_ms: 100 })).toThrow();
       expect(() => decodeStorageSelectionResponse({ request_id: "r1", device_id: "d1", kind: "model_root", status: "invalid_status", expires_at_ms: 100 })).toThrow();
       expect(() => decodeStorageSelectionResponse({ request_id: "r1", device_id: "d1", kind: "model_root", status: "approved", expires_at_ms: -1 })).toThrow();
+    });
+  });
+
+  describe("decodeExecutionTarget for pool", () => {
+    it("decodes pool execution target with digest", () => {
+      const target = decodeExecutionTarget({
+        kind: "pool",
+        pool_id: "default",
+        model_artifact_id: "gemma-4-e4b-it-qat-ud-q4_k_xl",
+        model_digest: "sha256:abc123",
+        host_id: "host-1",
+      });
+      expect(target).toEqual({
+        kind: "pool",
+        pool_id: "default",
+        model_artifact_id: "gemma-4-e4b-it-qat-ud-q4_k_xl",
+        model_digest: "sha256:abc123",
+        host_id: "host-1",
+      });
+    });
+
+    it("decodes pool execution target input", () => {
+      const input = decodeExecutionTargetInput({
+        kind: "pool",
+        pool_id: "default",
+        model_artifact_id: "gemma-4-e4b-it-qat-ud-q4_k_xl",
+      });
+      expect(input).toEqual({
+        kind: "pool",
+        pool_id: "default",
+        model_artifact_id: "gemma-4-e4b-it-qat-ud-q4_k_xl",
+        model_digest: undefined,
+        host_id: undefined,
+      });
+    });
+  });
+
+  describe("Phase 12 entity decoders", () => {
+    it("decodes PoolBinding", () => {
+      const binding = decodePoolBinding({
+        host_id: "h1",
+        pool_id: "default",
+        revision: 2,
+        state: "bound",
+        changed_at_ms: 1700000000,
+      });
+      expect(binding.host_id).toBe("h1");
+      expect(binding.pool_id).toBe("default");
+      expect(binding.revision).toBe(2);
+      expect(binding.state).toBe("bound");
+    });
+
+    it("decodes PoolSummary", () => {
+      const summary = decodePoolSummary({
+        pool_id: "default",
+        ready_hosts: 2,
+        busy_hosts: 1,
+        offline_hosts: 0,
+        qualified_models: ["gemma-4-e4b-it-qat-ud-q4_k_xl"],
+      });
+      expect(summary.pool_id).toBe("default");
+      expect(summary.ready_hosts).toBe(2);
+      expect(summary.qualified_models).toContain("gemma-4-e4b-it-qat-ud-q4_k_xl");
+    });
+
+    it("decodes HostView", () => {
+      const view = decodeHostView({
+        host_id: "h1",
+        installation_id: "inst-1",
+        label: "My Host",
+        platform: "ubuntu_x86_64",
+        agent_version: "0.2.0",
+        lifecycle_revision: 5,
+        is_connected: true,
+        lease_valid: true,
+        applied_binding_revision: 3,
+        recovery: {
+          desired_revision: 1,
+          reconciled_revision: 1,
+          auto_load_model: false,
+          auto_prepare_kv: true,
+          model_ready: true,
+          cache_ready: false,
+          model_action: "none",
+          cache_action: "preparing",
+        },
+      });
+      expect(view.host_id).toBe("h1");
+      expect(view.is_connected).toBe(true);
+      expect(view.recovery.auto_prepare_kv).toBe(true);
+    });
+
+    it("decodes HostRecoveryPreferences", () => {
+      const prefs = decodeHostRecoveryPreferences({
+        host_id: "h1",
+        expected_revision: 2,
+        reconciled_revision: 2,
+        auto_load_model: false,
+        auto_prepare_kv: false,
+      });
+      expect(prefs.auto_load_model).toBe(false);
+      expect(prefs.auto_prepare_kv).toBe(false);
+    });
+
+    it("decodes HostModelRecommendation", () => {
+      const rec = decodeHostModelRecommendation({
+        host_id: "h1",
+        artifact_id: "gemma-4-e4b-it-qat-ud-q4_k_xl",
+        fit: "fits",
+        qualification: "qualified",
+        perf: {
+          prefill_tokens_per_second: 617,
+          decode_tokens_per_second: 42,
+          source: "qualification_receipt",
+        },
+        risks: [],
+        rank: 1,
+        selectable: true,
+      });
+      expect(rec.fit).toBe("fits");
+      expect(rec.selectable).toBe(true);
+      expect(rec.perf.source).toBe("qualification_receipt");
+    });
+
+    it("decodes HostCacheStatus", () => {
+      const cache = decodeHostCacheStatus({
+        host_id: "h1",
+        scope_key: "scope-abc",
+        status: "ready",
+        committed_tokens: 2048,
+        total_tokens: 2048,
+        invalidation_revision: 1,
+      });
+      expect(cache.status).toBe("ready");
+      expect(cache.committed_tokens).toBe(2048);
+    });
+
+    it("decodes OperatorRecoveryView", () => {
+      const opView = decodeOperatorRecoveryView({
+        request_id: "rec-1",
+        deployment_id: "dep-1",
+        installation_id: "inst-1",
+        host_id: "h1",
+        public_key_fingerprint: "sha256:fp",
+        requested_credential_generation: 2,
+        expiry_ms: 170000600000,
+        status: "pending_approval",
+        approval_revision: 1,
+        created_at_ms: 170000000000,
+      });
+      expect(opView.status).toBe("pending_approval");
+      expect(opView.public_key_fingerprint).toBe("sha256:fp");
     });
   });
 });

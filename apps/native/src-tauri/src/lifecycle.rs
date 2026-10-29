@@ -5,7 +5,7 @@ use tauri::{
     AppHandle, Manager,
 };
 
-use crate::companion_bridge::companion_stop;
+
 
 #[derive(Debug, Serialize)]
 pub struct AutostartStatus {
@@ -24,26 +24,17 @@ pub fn set_autostart(enabled: bool) -> AutostartStatus {
 }
 
 #[tauri::command]
-pub async fn exit_app(app: AppHandle, keep_companion: bool) -> Result<(), String> {
-    if !keep_companion {
-        let _ = companion_stop(false).await;
-    }
+pub async fn exit_app(app: AppHandle, _keep_companion: bool) -> Result<(), String> {
+    // Managed OS services persist after UI closes; never stop background OS service on app exit.
     app.exit(0);
     Ok(())
 }
 
 pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let show = MenuItem::with_id(app, "show", "Open eigen-air", true, None::<&str>)?;
-    let quit_keep = MenuItem::with_id(
-        app,
-        "quit_keep",
-        "Quit (Keep Companion Running)",
-        true,
-        None::<&str>,
-    )?;
-    let quit_all = MenuItem::with_id(app, "quit_all", "Quit (Stop Companion)", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit eigen-air", true, None::<&str>)?;
 
-    let menu = Menu::with_items(app, &[&show, &quit_keep, &quit_all])?;
+    let menu = Menu::with_items(app, &[&show, &quit])?;
 
     let _tray = TrayIconBuilder::new()
         .menu(&menu)
@@ -55,15 +46,8 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                     let _ = window.set_focus();
                 }
             }
-            "quit_keep" => {
+            "quit" => {
                 app.exit(0);
-            }
-            "quit_all" => {
-                let app_handle = app.clone();
-                tauri::async_runtime::spawn(async move {
-                    let _ = companion_stop(false).await;
-                    app_handle.exit(0);
-                });
             }
             _ => {}
         })

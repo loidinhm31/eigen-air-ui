@@ -1,11 +1,32 @@
 import { create } from "zustand";
 import type {
+  ApproveRecoveryRequest,
   CanonicalOperationSnapshot,
+  ClientUpdateRecoveryPreferences,
   ConfiguredStorageRoot,
+  CreateInstallationRequest,
   ExecutionTarget,
+  HostCacheStatus,
+  HostModelRecommendation,
+  HostOperationRequest,
+  HostRecoveryPreferences,
+  HostView,
+  InferenceBindingUpdatedPayload,
+  InferenceHostUpdatedPayload,
   InferenceOperationProgressEvent,
+  InferenceOperationUpdatedPayload,
+  InferencePoolUpdatedPayload,
+  InferenceRecoveryUpdatedPayload,
+  InstallationDescriptor,
+  InstallationStatus,
   LocalCompanionStatus,
   ModelInventoryItem,
+  OperationSnapshot,
+  OperatorRecoveryView,
+  PoolBinding,
+  PoolBindingMutation,
+  PoolBindingState,
+  PoolSummary,
   PublicDeviceSummary,
   RunInferenceProgressEvent,
   StorageRootDescriptor,
@@ -45,8 +66,52 @@ export interface InferenceStoreState {
   operations: Record<string, CanonicalOperationSnapshot>;
   runProgress: Record<string, RunInferenceProgressEvent>;
 
+  // --- Phase 12 Normalized State ---
+  hosts: Record<string, HostView>;
+  pools: Record<string, PoolSummary>;
+  hostModels: Record<string, HostModelRecommendation[]>;
+  hostPreferences: Record<string, HostRecoveryPreferences>;
+  hostCaches: Record<string, HostCacheStatus[]>;
+  hostOperations: Record<string, OperationSnapshot[]>;
+  credentialRecoveries: Record<string, OperatorRecoveryView>;
+  installations: Record<string, InstallationStatus>;
+  activeInstallationId: string | null;
+  persistedMutations: Record<string, { mutationId: string; hostId: string; kind: string; artifactId?: string }>;
+
+  loadingHosts: boolean;
+  hostsError: string | null;
+  loadingPools: boolean;
+  poolsError: string | null;
+  loadingRecoveries: boolean;
+  recoveriesError: string | null;
+
   accessKey: string;
 
+  fetchHosts: () => Promise<void>;
+  fetchPools: () => Promise<void>;
+  fetchHostModels: (hostId: string) => Promise<void>;
+  fetchHostPreferences: (hostId: string) => Promise<void>;
+  fetchHostCaches: (hostId: string) => Promise<void>;
+  fetchHostOperations: (hostId: string) => Promise<void>;
+  fetchCredentialRecoveries: () => Promise<void>;
+  createInstallation: (req: CreateInstallationRequest) => Promise<InstallationDescriptor>;
+  fetchInstallation: (installationId: string) => Promise<InstallationStatus | null>;
+  setActiveInstallationId: (id: string | null) => void;
+  mutateBinding: (hostId: string, poolId: string, expectedRevision?: number) => Promise<PoolBinding>;
+  unbindHost: (hostId: string, expectedRevision?: number) => Promise<void>;
+  saveRecoveryPreferences: (hostId: string, prefs: ClientUpdateRecoveryPreferences) => Promise<HostRecoveryPreferences>;
+  dispatchModelOperation: (hostId: string, artifactId: string, req: HostOperationRequest) => Promise<string>;
+  cancelOperation: (operationId: string) => Promise<void>;
+  pollActiveOperation: (operationId: string) => Promise<void>;
+  purgeHostCache: (hostId: string, payload?: { session_id?: string; mutation_id?: string }) => Promise<void>;
+  approveCredentialRecovery: (requestId: string, body?: ApproveRecoveryRequest) => Promise<void>;
+  denyCredentialRecovery: (requestId: string, expectedRevision?: number) => Promise<void>;
+
+  applyHostUpdatedEvent: (payload: InferenceHostUpdatedPayload) => void;
+  applyBindingUpdatedEvent: (payload: InferenceBindingUpdatedPayload) => void;
+  applyPoolUpdatedEvent: (payload: InferencePoolUpdatedPayload) => void;
+  applyRecoveryUpdatedEvent: (payload: InferenceRecoveryUpdatedPayload) => void;
+  applyOperationEvent: (event: InferenceOperationUpdatedPayload, contextKey?: string) => void;
   fetchServerModels: () => Promise<void>;
   fetchServerRoots: () => Promise<void>;
   fetchDevices: () => Promise<void>;
@@ -73,7 +138,6 @@ export interface InferenceStoreState {
   unpairDeviceCompanion: (deviceId?: string, deleteCaches?: boolean) => Promise<{ cleanup_state: string; credentials_wiped: boolean } | null>;
 
   applyOperationSnapshot: (snapshot: CanonicalOperationSnapshot, contextKey?: string) => void;
-  applyOperationEvent: (event: InferenceOperationProgressEvent, contextKey?: string) => void;
   applyRunProgressEvent: (event: RunInferenceProgressEvent, contextKey?: string) => void;
   clearRunProgress: (sessionId: string, runId?: string) => void;
 
@@ -106,9 +170,26 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
     companionRoots: [],
     loadingCompanion: false,
     companionError: null,
-
     operations: {},
     runProgress: {},
+
+    hosts: {},
+    pools: {},
+    hostModels: {},
+    hostPreferences: {},
+    hostCaches: {},
+    hostOperations: {},
+    credentialRecoveries: {},
+    installations: {},
+    activeInstallationId: typeof window !== "undefined" ? window.sessionStorage?.getItem("eigen-air:active-installation-id") ?? null : null,
+    persistedMutations: {},
+
+    loadingHosts: false,
+    hostsError: null,
+    loadingPools: false,
+    poolsError: null,
+    loadingRecoveries: false,
+    recoveriesError: null,
 
     accessKey: computeAccessKey(),
 
@@ -128,6 +209,22 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
         companionError: null,
         operations: {},
         runProgress: {},
+        hosts: {},
+        pools: {},
+        hostModels: {},
+        hostPreferences: {},
+        hostCaches: {},
+        hostOperations: {},
+        credentialRecoveries: {},
+        installations: {},
+        activeInstallationId: null,
+        persistedMutations: {},
+        loadingHosts: false,
+        hostsError: null,
+        loadingPools: false,
+        poolsError: null,
+        loadingRecoveries: false,
+        recoveriesError: null,
         accessKey: computeAccessKey(),
       });
     },
@@ -212,7 +309,431 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
         get().fetchServerRoots(),
         get().fetchDevices(),
         get().fetchCompanionStatus(),
+        get().fetchHosts(),
+        get().fetchPools(),
+        get().fetchCredentialRecoveries(),
       ]);
+    },
+
+    // --- Phase 12 Gateway Actions ---
+
+    fetchHosts: async () => {
+      const startKey = get().accessKey;
+      set({ loadingHosts: true, hostsError: null });
+      try {
+        const list = await getInferenceService().listHosts();
+        if (get().accessKey !== startKey) return;
+        const map: Record<string, HostView> = { ...get().hosts };
+        for (const h of list) {
+          const existing = map[h.host_id];
+          if (!existing) {
+            map[h.host_id] = h;
+          } else {
+            const keepBinding = existing.applied_binding_revision > h.applied_binding_revision;
+            const keepRecovery =
+              existing.recovery &&
+              h.recovery &&
+              existing.recovery.reconciled_revision > h.recovery.reconciled_revision;
+            map[h.host_id] = {
+              ...h,
+              current_binding: keepBinding ? existing.current_binding : h.current_binding,
+              applied_binding_revision: keepBinding
+                ? existing.applied_binding_revision
+                : h.applied_binding_revision,
+              recovery: keepRecovery ? existing.recovery : h.recovery,
+              lifecycle_revision: Math.max(existing.lifecycle_revision, h.lifecycle_revision),
+            };
+          }
+        }
+        set({ hosts: map, loadingHosts: false });
+      } catch (e: unknown) {
+        if (get().accessKey !== startKey) return;
+        const msg = e instanceof Error ? e.message : "Failed to fetch hosts";
+        set({ hostsError: msg, loadingHosts: false });
+      }
+    },
+
+    fetchPools: async () => {
+      const startKey = get().accessKey;
+      set({ loadingPools: true, poolsError: null });
+      try {
+        const list = await getInferenceService().listPools();
+        if (get().accessKey !== startKey) return;
+        const map: Record<string, PoolSummary> = {};
+        for (const p of list) {
+          map[p.pool_id] = p;
+        }
+        set({ pools: map, loadingPools: false });
+      } catch (e: unknown) {
+        if (get().accessKey !== startKey) return;
+        const msg = e instanceof Error ? e.message : "Failed to fetch pools";
+        set({ poolsError: msg, loadingPools: false });
+      }
+    },
+
+    fetchHostModels: async (hostId: string) => {
+      const startKey = get().accessKey;
+      try {
+        const recs = await getInferenceService().listHostModels(hostId);
+        if (get().accessKey !== startKey) return;
+        set((state) => ({
+          hostModels: {
+            ...state.hostModels,
+            [hostId]: recs,
+          },
+        }));
+      } catch {
+        // ignore background fetch failure
+      }
+    },
+
+    fetchHostPreferences: async (hostId: string) => {
+      const startKey = get().accessKey;
+      try {
+        const prefs = await getInferenceService().getRecoveryPreferences(hostId);
+        if (get().accessKey !== startKey) return;
+        set((state) => ({
+          hostPreferences: {
+            ...state.hostPreferences,
+            [hostId]: prefs,
+          },
+        }));
+      } catch {
+        // ignore background fetch failure
+      }
+    },
+
+    fetchHostCaches: async (hostId: string) => {
+      const startKey = get().accessKey;
+      try {
+        const caches = await getInferenceService().getHostCacheStatus(hostId);
+        if (get().accessKey !== startKey) return;
+        set((state) => ({
+          hostCaches: {
+            ...state.hostCaches,
+            [hostId]: caches,
+          },
+        }));
+      } catch {
+        // ignore background fetch failure
+      }
+    },
+
+    fetchHostOperations: async (hostId: string) => {
+      const startKey = get().accessKey;
+      try {
+        const ops = await getInferenceService().listHostOperations(hostId);
+        if (get().accessKey !== startKey) return;
+        const currentOps = { ...get().operations };
+        for (const op of ops) {
+          const existing = currentOps[op.operation_id];
+          if (!existing || op.revision >= existing.revision) {
+            currentOps[op.operation_id] = op as unknown as CanonicalOperationSnapshot;
+          }
+        }
+        set((state) => ({
+          operations: currentOps,
+          hostOperations: {
+            ...state.hostOperations,
+            [hostId]: ops,
+          },
+        }));
+      } catch {
+        // ignore background fetch failure
+      }
+    },
+
+    pollActiveOperation: async (operationId: string) => {
+      const startKey = get().accessKey;
+      try {
+        const op = await getInferenceService().getOperation(operationId);
+        if (get().accessKey !== startKey) return;
+        const existing = get().operations[op.operation_id];
+        if (!existing || op.revision >= existing.revision) {
+          set((state) => ({
+            operations: {
+              ...state.operations,
+              [op.operation_id]: op as unknown as CanonicalOperationSnapshot,
+            },
+          }));
+        }
+      } catch {
+        // ignore targeted poll failure
+      }
+    },
+
+    fetchCredentialRecoveries: async () => {
+      const startKey = get().accessKey;
+      set({ loadingRecoveries: true, recoveriesError: null });
+      try {
+        const list = await getInferenceService().listCredentialRecoveries();
+        if (get().accessKey !== startKey) return;
+        const map: Record<string, OperatorRecoveryView> = {};
+        for (const r of list) {
+          map[r.request_id] = r;
+        }
+        set({ credentialRecoveries: map, loadingRecoveries: false });
+      } catch (e: unknown) {
+        if (get().accessKey !== startKey) return;
+        const msg = e instanceof Error ? e.message : "Failed to fetch recoveries";
+        set({ recoveriesError: msg, loadingRecoveries: false });
+      }
+    },
+
+    createInstallation: async (req: CreateInstallationRequest) => {
+      const startKey = get().accessKey;
+      const desc = await getInferenceService().createInstallation(req);
+      if (get().accessKey !== startKey) return desc;
+      get().setActiveInstallationId(desc.installation_id);
+      return desc;
+    },
+
+    fetchInstallation: async (installationId: string) => {
+      const startKey = get().accessKey;
+      try {
+        const status = await getInferenceService().getInstallation(installationId);
+        if (get().accessKey !== startKey) return null;
+        set((state) => ({
+          installations: {
+            ...state.installations,
+            [installationId]: status,
+          },
+        }));
+        return status;
+      } catch {
+        return null;
+      }
+    },
+
+    setActiveInstallationId: (id: string | null) => {
+      if (typeof window !== "undefined" && window.sessionStorage) {
+        if (id) {
+          window.sessionStorage.setItem("eigen-air:active-installation-id", id);
+        } else {
+          window.sessionStorage.removeItem("eigen-air:active-installation-id");
+        }
+      }
+      set({ activeInstallationId: id });
+    },
+
+    mutateBinding: async (hostId: string, poolId: string, expectedRevision?: number) => {
+      const mutationId = `${Date.now()}-${crypto.randomUUID()}`;
+      const binding = await getInferenceService().mutateBinding(hostId, {
+        pool_id: poolId,
+        expected_revision: expectedRevision,
+        mutation_id: mutationId,
+      });
+      // Refresh host and pool state
+      await Promise.allSettled([get().fetchHosts(), get().fetchPools()]);
+      return binding;
+    },
+
+    unbindHost: async (hostId: string, expectedRevision?: number) => {
+      await getInferenceService().unbindHost(hostId, expectedRevision);
+      await Promise.allSettled([get().fetchHosts(), get().fetchPools()]);
+    },
+
+    saveRecoveryPreferences: async (hostId: string, prefs: ClientUpdateRecoveryPreferences) => {
+      const startKey = get().accessKey;
+      const saved = await getInferenceService().saveRecoveryPreferences(hostId, prefs);
+      if (get().accessKey !== startKey) return saved;
+      set((state) => ({
+        hostPreferences: {
+          ...state.hostPreferences,
+          [hostId]: saved,
+        },
+      }));
+      await get().fetchHosts();
+      return saved;
+    },
+
+    dispatchModelOperation: async (
+      hostId: string,
+      artifactId: string,
+      req: HostOperationRequest
+    ) => {
+      const mutationId = req.mutation_id || `${Date.now()}-${crypto.randomUUID()}`;
+      const persisted = {
+        mutationId,
+        hostId,
+        kind: req.kind,
+        artifactId,
+      };
+      set((state) => ({
+        persistedMutations: {
+          ...state.persistedMutations,
+          [mutationId]: persisted,
+        },
+      }));
+      if (typeof window !== "undefined" && window.sessionStorage) {
+        try {
+          const raw = window.sessionStorage.getItem("eigen-air:persisted-mutations");
+          const map = raw ? JSON.parse(raw) : {};
+          map[mutationId] = persisted;
+          window.sessionStorage.setItem("eigen-air:persisted-mutations", JSON.stringify(map));
+        } catch {
+          // ignore quota error
+        }
+      }
+
+      const opReq: HostOperationRequest = {
+        ...req,
+        mutation_id: mutationId,
+      };
+      const res = await getInferenceService().dispatchModelOperation(hostId, artifactId, opReq);
+      if (res.operation_id) {
+        void get().pollActiveOperation(res.operation_id);
+      }
+      await Promise.allSettled([
+        get().fetchHostOperations(hostId),
+        get().fetchHostModels(hostId),
+      ]);
+      return res.operation_id;
+    },
+
+    cancelOperation: async (operationId: string) => {
+      await getInferenceService().cancelOperation(operationId);
+      await get().fetchHosts();
+    },
+
+    purgeHostCache: async (
+      hostId: string,
+      payload?: { session_id?: string; mutation_id?: string }
+    ) => {
+      const sessionId = payload?.session_id?.trim();
+      if (!sessionId) {
+        throw new Error("Explicit session_id is required for host cache purge");
+      }
+      await getInferenceService().purgeHostCache(hostId, {
+        session_id: sessionId,
+        mutation_id: payload?.mutation_id,
+      });
+      await Promise.allSettled([
+        get().fetchHostCaches(hostId),
+        get().fetchHostModels(hostId),
+      ]);
+    },
+
+    approveCredentialRecovery: async (
+      requestId: string,
+      body: ApproveRecoveryRequest = {}
+    ) => {
+      const startKey = get().accessKey;
+      const updated = await getInferenceService().approveCredentialRecovery(requestId, body);
+      if (get().accessKey !== startKey) return;
+      set((state) => ({
+        credentialRecoveries: {
+          ...state.credentialRecoveries,
+          [requestId]: updated,
+        },
+      }));
+      await get().fetchCredentialRecoveries();
+    },
+
+    denyCredentialRecovery: async (requestId: string, expectedRevision?: number) => {
+      const startKey = get().accessKey;
+      const updated = await getInferenceService().denyCredentialRecovery(requestId, expectedRevision);
+      if (get().accessKey !== startKey) return;
+      set((state) => ({
+        credentialRecoveries: {
+          ...state.credentialRecoveries,
+          [requestId]: updated,
+        },
+      }));
+      await get().fetchCredentialRecoveries();
+    },
+
+    applyHostUpdatedEvent: (payload: InferenceHostUpdatedPayload) => {
+      set((state) => {
+        const existing = state.hosts[payload.host_id];
+        if (!existing) return state;
+        if (typeof payload.revision === "number" && existing.lifecycle_revision > payload.revision) {
+          return state;
+        }
+        return {
+          hosts: {
+            ...state.hosts,
+            [payload.host_id]: {
+              ...existing,
+              is_connected: typeof payload.is_connected === "boolean" ? payload.is_connected : existing.is_connected,
+              lease_valid: typeof payload.lease_valid === "boolean" ? payload.lease_valid : existing.lease_valid,
+              recovery: payload.recovery ?? existing.recovery,
+              lifecycle_revision: typeof payload.revision === "number" ? payload.revision : existing.lifecycle_revision,
+            },
+          },
+        };
+      });
+    },
+
+    applyBindingUpdatedEvent: (payload: InferenceBindingUpdatedPayload) => {
+      set((state) => {
+        const existing = state.hosts[payload.host_id];
+        if (!existing) return state;
+        if (existing.applied_binding_revision > payload.revision) {
+          return state;
+        }
+        const nextState: PoolBindingState =
+          payload.state === "unbound" || payload.state === "bound" || payload.state === "draining"
+            ? payload.state
+            : "bound";
+        return {
+          hosts: {
+            ...state.hosts,
+            [payload.host_id]: {
+              ...existing,
+              applied_binding_revision: payload.revision,
+              current_binding: {
+                host_id: payload.host_id,
+                pool_id: payload.pool_id,
+                revision: payload.revision,
+                state: nextState,
+                changed_at_ms: Date.now(),
+              },
+            },
+          },
+        };
+      });
+      get().fetchPools();
+    },
+
+    applyPoolUpdatedEvent: (payload: InferencePoolUpdatedPayload) => {
+      set((state) => {
+        const existing = state.pools[payload.pool_id];
+        if (!existing) return state;
+        return {
+          pools: {
+            ...state.pools,
+            [payload.pool_id]: {
+              ...existing,
+              ready_hosts: typeof payload.ready_hosts === "number" ? payload.ready_hosts : existing.ready_hosts,
+              busy_hosts: typeof payload.busy_hosts === "number" ? payload.busy_hosts : existing.busy_hosts,
+              offline_hosts: typeof payload.offline_hosts === "number" ? payload.offline_hosts : existing.offline_hosts,
+            },
+          },
+        };
+      });
+    },
+
+    applyRecoveryUpdatedEvent: (payload: InferenceRecoveryUpdatedPayload) => {
+      set((state) => {
+        const existing = state.credentialRecoveries[payload.request_id];
+        if (!existing) return state;
+        const rawPayload = payload as { revision?: number };
+        const incomingRev = payload.approval_revision ?? rawPayload.revision;
+        if (typeof incomingRev === "number" && existing.approval_revision > incomingRev) {
+          return state;
+        }
+        return {
+          credentialRecoveries: {
+            ...state.credentialRecoveries,
+            [payload.request_id]: {
+              ...existing,
+              status: payload.status as OperatorRecoveryView["status"],
+              approval_revision: typeof incomingRev === "number" ? incomingRev : existing.approval_revision,
+            },
+          },
+        };
+      });
     },
 
     selectServerRoot: async (rootId: string) => {
@@ -348,9 +869,30 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
       }));
     },
 
-    applyOperationEvent: (event: InferenceOperationProgressEvent, contextKey?: string) => {
+    applyOperationEvent: (event: InferenceOperationUpdatedPayload, contextKey?: string) => {
       const currentKey = get().accessKey;
       if (contextKey && contextKey !== currentKey) return;
+
+      if (!("stage" in event)) {
+        const existing = get().operations[event.operation_id];
+        if (existing && typeof event.revision === "number" && existing.revision > event.revision) {
+          return;
+        }
+        if (existing) {
+          set((state) => ({
+            operations: {
+              ...state.operations,
+              [event.operation_id]: {
+                ...existing,
+                status: (event.state as CanonicalOperationSnapshot["status"]) || existing.status,
+                revision: typeof event.revision === "number" ? event.revision : existing.revision,
+                updated_at_ms: Date.now(),
+              },
+            },
+          }));
+        }
+        return;
+      }
 
       const existing = get().operations[event.operation_id];
       if (existing && existing.revision > event.revision) {
@@ -421,6 +963,18 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
           phase: isReady ? "ready" : readiness.phase === "failed" ? "failed" : "loading",
           label: "Server",
           reason: readiness.error ?? undefined,
+        };
+      }
+
+      if (target.kind === "pool") {
+        const pool = get().pools[target.pool_id];
+        const isReady = Boolean(pool && pool.ready_hosts > 0);
+        return {
+          canInfer: isReady,
+          isReady,
+          phase: isReady ? "ready" : "offline",
+          label: pool ? `Pool: ${pool.pool_id}` : `Pool ${target.pool_id}`,
+          reason: isReady ? undefined : "No ready hosts in pool",
         };
       }
 

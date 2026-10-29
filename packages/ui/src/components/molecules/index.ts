@@ -77,3 +77,7 @@ export {
   StorageSelectionRequest,
   type StorageSelectionRequestProps,
 } from "./StorageSelectionRequest.js";
+export {
+  HostBindingControls,
+  type HostBindingControlsProps,
+} from "./HostBindingControls.js";

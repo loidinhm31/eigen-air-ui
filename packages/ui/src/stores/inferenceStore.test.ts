@@ -212,5 +212,194 @@ describe("inferenceStore", () => {
       expect(missingReadiness.isReady).toBe(false);
       expect(missingReadiness.phase).toBe("offline");
     });
+
+    it("evaluates pool target readiness correctly", () => {
+      useInferenceStore.setState({
+        pools: {
+          ready_pool: {
+            pool_id: "ready_pool",
+            ready_hosts: 2,
+            busy_hosts: 0,
+            offline_hosts: 0,
+            qualified_models: ["gemma-4"],
+          },
+          empty_pool: {
+            pool_id: "empty_pool",
+            ready_hosts: 0,
+            busy_hosts: 1,
+            offline_hosts: 1,
+            qualified_models: [],
+          },
+        },
+      });
+
+      const ready = useInferenceStore.getState().getTargetReadiness({
+        kind: "pool",
+        pool_id: "ready_pool",
+        model_artifact_id: "gemma-4",
+        model_digest: "sha256:abc",
+      });
+      expect(ready.canInfer).toBe(true);
+      expect(ready.isReady).toBe(true);
+      expect(ready.phase).toBe("ready");
+      expect(ready.label).toBe("Pool: ready_pool");
+
+      const empty = useInferenceStore.getState().getTargetReadiness({
+        kind: "pool",
+        pool_id: "empty_pool",
+        model_artifact_id: "gemma-4",
+        model_digest: "sha256:abc",
+      });
+      expect(empty.canInfer).toBe(false);
+      expect(empty.isReady).toBe(false);
+      expect(empty.phase).toBe("offline");
+      expect(empty.reason).toBe("No ready hosts in pool");
+    });
+  });
+
+  describe("Phase 12 store event handlers", () => {
+    it("applyHostUpdatedEvent updates host and respects monotonic revision", () => {
+      useInferenceStore.setState({
+        hosts: {
+          h1: {
+            host_id: "h1",
+            installation_id: "i1",
+            label: "Host 1",
+            platform: "ubuntu_x86_64",
+            agent_version: "0.2.0",
+            lifecycle_revision: 5,
+            last_seen_at_ms: 1000,
+            is_connected: true,
+            lease_valid: true,
+            applied_binding_revision: 2,
+            recovery: {
+              desired_revision: 1,
+              reconciled_revision: 1,
+              auto_load_model: false,
+              auto_prepare_kv: false,
+              model_ready: false,
+              cache_ready: false,
+              model_action: "none",
+              cache_action: "none",
+            },
+          },
+        },
+      });
+
+      // Stale event (revision 4 < 5)
+      useInferenceStore.getState().applyHostUpdatedEvent({
+        host_id: "h1",
+        revision: 4,
+        is_connected: false,
+      });
+      expect(useInferenceStore.getState().hosts.h1.is_connected).toBe(true);
+
+      // Newer event (revision 6 > 5)
+      useInferenceStore.getState().applyHostUpdatedEvent({
+        host_id: "h1",
+        revision: 6,
+        is_connected: false,
+      });
+      expect(useInferenceStore.getState().hosts.h1.is_connected).toBe(false);
+      expect(useInferenceStore.getState().hosts.h1.lifecycle_revision).toBe(6);
+    });
+
+    it("applyBindingUpdatedEvent updates binding revision", () => {
+      useInferenceStore.setState({
+        hosts: {
+          h1: {
+            host_id: "h1",
+            installation_id: "i1",
+            label: "Host 1",
+            platform: "ubuntu_x86_64",
+            agent_version: "0.2.0",
+            lifecycle_revision: 1,
+            last_seen_at_ms: 1000,
+            is_connected: true,
+            lease_valid: true,
+            applied_binding_revision: 3,
+            recovery: {
+              desired_revision: 1,
+              reconciled_revision: 1,
+              auto_load_model: false,
+              auto_prepare_kv: false,
+              model_ready: false,
+              cache_ready: false,
+              model_action: "none",
+              cache_action: "none",
+            },
+          },
+        },
+      });
+
+      // Stale binding (revision 2 < 3)
+      useInferenceStore.getState().applyBindingUpdatedEvent({
+        host_id: "h1",
+        pool_id: "default",
+        revision: 2,
+        state: "bound",
+      });
+      expect(useInferenceStore.getState().hosts.h1.applied_binding_revision).toBe(3);
+
+      // Newer binding (revision 4 > 3)
+      useInferenceStore.getState().applyBindingUpdatedEvent({
+        host_id: "h1",
+        pool_id: "default",
+        revision: 4,
+        state: "bound",
+      });
+      expect(useInferenceStore.getState().hosts.h1.applied_binding_revision).toBe(4);
+      expect(useInferenceStore.getState().hosts.h1.current_binding?.pool_id).toBe("default");
+    });
+
+    it("applyPoolUpdatedEvent updates pool metrics", () => {
+      useInferenceStore.setState({
+        pools: {
+          p1: {
+            pool_id: "p1",
+            ready_hosts: 1,
+            busy_hosts: 0,
+            offline_hosts: 0,
+            qualified_models: [],
+          },
+        },
+      });
+
+      useInferenceStore.getState().applyPoolUpdatedEvent({
+        pool_id: "p1",
+        ready_hosts: 3,
+        busy_hosts: 2,
+      });
+      expect(useInferenceStore.getState().pools.p1.ready_hosts).toBe(3);
+      expect(useInferenceStore.getState().pools.p1.busy_hosts).toBe(2);
+    });
+
+    it("applyRecoveryUpdatedEvent updates credential recovery status", () => {
+      useInferenceStore.setState({
+        credentialRecoveries: {
+          req_1: {
+            request_id: "req_1",
+            deployment_id: "dep",
+            installation_id: "inst",
+            host_id: "h1",
+            public_key_fingerprint: "fp",
+            requested_credential_generation: 1,
+            expiry_ms: 10000,
+            status: "pending_approval",
+            approval_revision: 1,
+            created_at_ms: 1000,
+          },
+        },
+      });
+
+      useInferenceStore.getState().applyRecoveryUpdatedEvent({
+        request_id: "req_1",
+        host_id: "h1",
+        status: "approved",
+        approval_revision: 2,
+      });
+      expect(useInferenceStore.getState().credentialRecoveries.req_1.status).toBe("approved");
+      expect(useInferenceStore.getState().credentialRecoveries.req_1.approval_revision).toBe(2);
+    });
   });
 });

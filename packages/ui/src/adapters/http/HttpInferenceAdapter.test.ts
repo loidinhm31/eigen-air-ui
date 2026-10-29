@@ -171,4 +171,209 @@ describe("HttpInferenceAdapter", () => {
     expect(fetchMock.mock.calls[0][0]).toBe("http://daemon:18790/v1/inference/devices/device-1/retire");
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ archive_warning: true });
   });
+
+  describe("Phase 12 Gateway & Host APIs", () => {
+    it("downloads prefilled script via existing authenticated adapter with byte bounding", async () => {
+      const scriptContent = "#!/bin/bash\necho install";
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(scriptContent));
+          controller.close();
+        },
+      });
+      const fetchMock = vi.fn().mockResolvedValue({
+        status: 200,
+        ok: true,
+        headers: new Headers({
+          "Content-Type": "text/x-shellscript",
+          "Content-Disposition": 'attachment; filename="eigen-air-install.sh"',
+        }),
+        body: stream,
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const adapter = new HttpInferenceAdapter("http://daemon:18790", () => ({
+        authToken: "secret-token",
+        accessRevision: 1,
+      }));
+
+      const res = await adapter.downloadInstallationScript("inst-123", 1024 * 1024);
+      expect(res.filename).toBe("eigen-air-install.sh");
+      expect(res.sizeBytes).toBe(scriptContent.length);
+      expect(res.blob.type).toBe("text/x-shellscript");
+      expect(fetchMock.mock.calls[0][0]).toBe(
+        "http://daemon:18790/v1/inference/installations/inst-123/script"
+      );
+    });
+
+    it("credential rotation during script body prevents download", async () => {
+      let rev = 1;
+      let count = 0;
+      const stream = new ReadableStream({
+        pull(controller) {
+          if (count === 0) {
+            count++;
+            controller.enqueue(new TextEncoder().encode("part1"));
+          } else if (count === 1) {
+            count++;
+            rev = 2; // credential rotates mid-stream
+            controller.enqueue(new TextEncoder().encode("part2"));
+          } else {
+            controller.close();
+          }
+        },
+      });
+      const fetchMock = vi.fn().mockResolvedValue({
+        status: 200,
+        ok: true,
+        headers: new Headers({
+          "Content-Type": "text/plain",
+        }),
+        body: stream,
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const adapter = new HttpInferenceAdapter("http://daemon:18790", () => ({
+        authToken: "secret-token",
+        accessRevision: rev,
+      }));
+
+      await expect(adapter.downloadInstallationScript("inst-123")).rejects.toThrow(
+        /rotation/i
+      );
+    });
+
+    it("rejects oversized script download during stream", async () => {
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new Uint8Array(200));
+          controller.close();
+        },
+      });
+      const fetchMock = vi.fn().mockResolvedValue({
+        status: 200,
+        ok: true,
+        headers: new Headers({ "Content-Type": "text/plain" }),
+        body: stream,
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const adapter = new HttpInferenceAdapter("http://daemon:18790");
+      await expect(adapter.downloadInstallationScript("inst-1", 100)).rejects.toThrow(
+        /limit of 100 bytes/i
+      );
+    });
+
+    it("listHosts() queries /v1/inference/hosts and decodes host views", async () => {
+      const mockHosts = [
+        {
+          host_id: "host-1",
+          installation_id: "inst-1",
+          label: "Primary Host",
+          platform: "fedora_x86_64",
+          agent_version: "0.2.0",
+          lifecycle_revision: 3,
+          is_connected: true,
+          lease_valid: true,
+          applied_binding_revision: 1,
+          recovery: {
+            desired_revision: 1,
+            reconciled_revision: 1,
+            auto_load_model: false,
+            auto_prepare_kv: false,
+            model_ready: false,
+            cache_ready: false,
+            model_action: "none",
+            cache_action: "none",
+          },
+        },
+      ];
+      const fetchMock = vi.fn().mockResolvedValue({
+        status: 200,
+        ok: true,
+        json: async () => mockHosts,
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const adapter = new HttpInferenceAdapter("http://daemon:18790");
+      const res = await adapter.listHosts();
+      expect(res).toHaveLength(1);
+      expect(res[0].host_id).toBe("host-1");
+      expect(res[0].is_connected).toBe(true);
+      expect(fetchMock.mock.calls[0][0]).toBe("http://daemon:18790/v1/inference/hosts");
+    });
+
+    it("mutateBinding() sends PUT to /v1/inference/hosts/:id/binding", async () => {
+      const mockBinding = {
+        host_id: "h1",
+        pool_id: "default",
+        revision: 4,
+        state: "bound",
+        changed_at_ms: 1000,
+      };
+      const fetchMock = vi.fn().mockResolvedValue({
+        status: 200,
+        ok: true,
+        json: async () => mockBinding,
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const adapter = new HttpInferenceAdapter("http://daemon:18790");
+      const res = await adapter.mutateBinding("h1", {
+        pool_id: "default",
+        mutation_id: "mut-1",
+        expected_revision: 3,
+      });
+      expect(res.state).toBe("bound");
+      expect(res.revision).toBe(4);
+      expect(fetchMock.mock.calls[0][0]).toBe("http://daemon:18790/v1/inference/hosts/h1/binding");
+      expect(fetchMock.mock.calls[0][1].method).toBe("PUT");
+    });
+
+    it("unbindHost() sends DELETE with If-Match header", async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        status: 200,
+        ok: true,
+        json: async () => ({ status: "draining", revision: 5 }),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const adapter = new HttpInferenceAdapter("http://daemon:18790");
+      const res = await adapter.unbindHost("h1", 4);
+      expect(res.status).toBe("draining");
+      expect(res.revision).toBe(5);
+      const headers = fetchMock.mock.calls[0][1].headers as Headers;
+      expect(headers.get("If-Match")).toBe('"4"');
+      expect(headers.get("x-mutation-id")).toBeDefined();
+      expect(fetchMock.mock.calls[0][0]).toContain("mutation_id=");
+    });
+
+    it("credential recovery approve and deny endpoints", async () => {
+      const mockView = {
+        request_id: "r1",
+        deployment_id: "dep",
+        installation_id: "inst",
+        host_id: "h1",
+        public_key_fingerprint: "fp",
+        requested_credential_generation: 2,
+        expiry_ms: 5000,
+        status: "approved",
+        approval_revision: 1,
+        created_at_ms: 1000,
+      };
+      const fetchMock = vi.fn().mockResolvedValue({
+        status: 200,
+        ok: true,
+        json: async () => mockView,
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const adapter = new HttpInferenceAdapter("http://daemon:18790");
+      const appRes = await adapter.approveCredentialRecovery("r1", { expected_generation: 2 });
+      expect(appRes.status).toBe("approved");
+      expect(fetchMock.mock.calls[0][0]).toBe(
+        "http://daemon:18790/v1/inference/credential-recoveries/r1/approve"
+      );
+    });
+  });
 });

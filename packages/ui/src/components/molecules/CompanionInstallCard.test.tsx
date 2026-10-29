@@ -1,75 +1,125 @@
 // @vitest-environment jsdom
 import * as React from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CompanionInstallCard } from "./CompanionInstallCard.js";
+import { useInferenceStore } from "../../stores/inferenceStore.js";
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
+});
+
+beforeEach(() => {
+  useInferenceStore.getState().invalidateAccess();
 });
 
 describe("CompanionInstallCard", () => {
-  it("renders browser execution boundary and model weight exclusion note", () => {
+  it("renders browser execution boundary and qualified platforms", () => {
     render(<CompanionInstallCard />);
 
     expect(
       screen.getByText(/browser does not execute native model weights or in-browser WebGPU/i)
     ).toBeDefined();
+
+    expect(screen.getByText("Linux (Ubuntu / Fedora)")).toBeDefined();
+    expect(screen.getByText("Windows")).toBeDefined();
+    expect(screen.getAllByText("Unqualified").length).toBe(4);
+  });
+
+  it("displays single token-free execution command", () => {
+    render(<CompanionInstallCard />);
+
+    // By default Ubuntu is selected, showing bash command
+    const code = screen.getByText(/bash "\.\/install-eigen-air\.sh"/i);
+    expect(code).toBeDefined();
+    // The command itself contains NO tokens, hosts, or passwords
+    expect(code.textContent).not.toMatch(/token|bearer|http/i);
+  });
+
+  it("switches to PowerShell command when Windows platform selected", async () => {
+    const user = userEvent.setup();
+    render(<CompanionInstallCard />);
+
+    const windowsBtn = screen.getByRole("button", { name: /Windows/i });
+    await user.click(windowsBtn);
+
     expect(
-      screen.getByText(/excludes model weights/i)
+      screen.getByText(/powershell -ExecutionPolicy Bypass -File "\.\\install-eigen-air\.ps1"/i)
     ).toBeDefined();
   });
 
-  it("renders all 4 supported platforms without fabricated links", () => {
+  it("renders tab closure isolation and prototype security notice", () => {
     render(<CompanionInstallCard />);
-
-    expect(screen.getAllByText("macOS").length).toBe(2);
-    expect(screen.getByText(/Apple Silicon/i)).toBeDefined();
-    expect(screen.getByText(/Intel/i)).toBeDefined();
-    expect(screen.getByText("Linux")).toBeDefined();
-    expect(screen.getAllByText(/x86_64/i).length).toBe(2);
-    expect(screen.getByText("Windows")).toBeDefined();
-    // Default renders "Available Soon" without fabricating links
-    const badges = screen.getAllByText("Available Soon");
-    expect(badges.length).toBe(4);
-  });
-
-  it("renders verified download link when downloadUrls provided", () => {
-    const downloadUrls = {
-      "macos-arm64": "https://downloads.example.com/companion-mac-arm64.tar.gz",
-    };
-
-    render(<CompanionInstallCard downloadUrls={downloadUrls} />);
-
-    const link = screen.getByRole("link", { name: /download/i });
-    expect(link.getAttribute("href")).toBe("https://downloads.example.com/companion-mac-arm64.tar.gz");
-    expect(link.getAttribute("download")).toBe("");
-  });
-
-  it("triggers onDownload callback when download button clicked", async () => {
-    const user = userEvent.setup();
-    const onDownload = vi.fn();
-
-    render(<CompanionInstallCard onDownload={onDownload} />);
-
-    const buttons = screen.getAllByRole("button", { name: /download/i });
-    expect(buttons.length).toBe(4);
-
-    await user.click(buttons[0]);
-    expect(onDownload).toHaveBeenCalledWith("macos-arm64");
-  });
-
-  it("renders 4-step setup instructions and tab closure isolation explanation", () => {
-    render(<CompanionInstallCard />);
-
-    expect(screen.getByText(/Download & Run:/i)).toBeDefined();
-    expect(screen.getByText(/Choose Storage:/i)).toBeDefined();
-    expect(screen.getByText(/Copy Pairing Code:/i)).toBeDefined();
-    expect(screen.getByText(/Approve in Browser:/i)).toBeDefined();
 
     expect(
       screen.getByText(/Closing or refreshing this browser tab does not terminate the running companion/i)
     ).toBeDefined();
+    expect(
+      screen.getByText(/Security Notice:/i)
+    ).toBeDefined();
+  });
+
+  it("resumes and renders correlated connected host", () => {
+    useInferenceStore.setState({
+      activeInstallationId: "inst-999",
+      hosts: {
+        h1: {
+          host_id: "h1",
+          installation_id: "inst-999",
+          label: "Remote 780M Host",
+          platform: "ubuntu_x86_64",
+          agent_version: "0.2.0",
+          lifecycle_revision: 1,
+          last_seen_at_ms: 1000,
+          is_connected: true,
+          lease_valid: true,
+          applied_binding_revision: 0,
+          current_binding: null,
+          recovery: {
+            desired_revision: 1,
+            reconciled_revision: 1,
+            auto_load_model: false,
+            auto_prepare_kv: false,
+            model_ready: false,
+            cache_ready: false,
+            model_action: "none",
+            cache_action: "none",
+          },
+        },
+        other_host: {
+          host_id: "other_host",
+          installation_id: "inst-other",
+          label: "Unrelated Host",
+          platform: "fedora_x86_64",
+          agent_version: "0.2.0",
+          lifecycle_revision: 1,
+          last_seen_at_ms: 1000,
+          is_connected: true,
+          lease_valid: true,
+          applied_binding_revision: 0,
+          current_binding: null,
+          recovery: {
+            desired_revision: 1,
+            reconciled_revision: 1,
+            auto_load_model: false,
+            auto_prepare_kv: false,
+            model_ready: false,
+            cache_ready: false,
+            model_action: "none",
+            cache_action: "none",
+          },
+        },
+      },
+    });
+
+    render(<CompanionInstallCard />);
+
+    // Shows matching correlated host
+    expect(screen.getByText("Remote 780M Host")).toBeDefined();
+    expect(screen.getByText("Connected (Unbound)")).toBeDefined();
+    // Does NOT show unrelated host
+    expect(screen.queryByText("Unrelated Host")).toBeNull();
   });
 });

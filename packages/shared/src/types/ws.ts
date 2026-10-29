@@ -20,6 +20,7 @@ import type { ProviderReadinessSnapshot } from "./readiness.js";
 import type {
   ExecutionTarget,
   ExecutionTargetInput,
+  HostRecoveryStatus,
   InferenceOperationProgressEvent,
   RunInferenceProgressEvent,
 } from "./inference.js";
@@ -135,9 +136,68 @@ export type ImageArtifactCommittedWsEvent = CorrelatedWsEvent<
 > & { session_id: string; run_id: string };
 /** Discriminated on `event`. */
 export type ImageHintWsEvent = ImageJobUpdatedWsEvent | ImageArtifactCommittedWsEvent;
+export interface InferenceHostUpdatedPayload {
+  host_id: string;
+  revision?: number;
+  is_connected?: boolean;
+  lease_valid?: boolean;
+  recovery?: HostRecoveryStatus;
+}
+
+export interface InferenceBindingUpdatedPayload {
+  host_id: string;
+  pool_id: string;
+  revision: number;
+  state: string;
+}
+
+export interface InferencePoolUpdatedPayload {
+  pool_id: string;
+  revision?: number;
+  ready_hosts?: number;
+  busy_hosts?: number;
+  offline_hosts?: number;
+}
+
+export interface InferenceRecoveryUpdatedPayload {
+  request_id: string;
+  host_id: string;
+  status: string;
+  approval_revision?: number;
+}
+
+export type InferenceOperationUpdatedPayload =
+  | InferenceOperationProgressEvent
+  | {
+      operation_id: string;
+      host_id?: string;
+      state?: string;
+      revision?: number;
+    };
+
+export type InferenceHostUpdatedWsEvent = CorrelatedWsEvent<
+  "inference.host.updated",
+  InferenceHostUpdatedPayload
+>;
+
+export type InferenceBindingUpdatedWsEvent = CorrelatedWsEvent<
+  "inference.binding.updated",
+  InferenceBindingUpdatedPayload
+>;
+
+export type InferencePoolUpdatedWsEvent = CorrelatedWsEvent<
+  "inference.pool.updated",
+  InferencePoolUpdatedPayload
+>;
+
+export type InferenceRecoveryUpdatedWsEvent = CorrelatedWsEvent<
+  "inference.recovery.updated",
+  InferenceRecoveryUpdatedPayload
+>;
+
 export type InferenceOperationUpdatedWsEvent = CorrelatedWsEvent<
   "inference.operation.updated",
-  InferenceOperationProgressEvent
+  InferenceOperationUpdatedPayload
 >;
 
 export type RunInferenceProgressWsEvent = CorrelatedWsEvent<
@@ -161,6 +221,10 @@ export type WsEvent =
   | UserQuestionUpdatedEvent
   | ToolApprovalUpdatedEvent
   | ImageHintWsEvent
+  | InferenceHostUpdatedWsEvent
+  | InferenceBindingUpdatedWsEvent
+  | InferencePoolUpdatedWsEvent
+  | InferenceRecoveryUpdatedWsEvent
   | InferenceOperationUpdatedWsEvent
   | RunInferenceProgressWsEvent
   | CorrelatedWsEvent<"error", WsErrorPayload>;
@@ -239,6 +303,7 @@ export interface SessionsListResponse {
 
 export interface SessionsCreateParams {
   execution_target?: ExecutionTargetInput;
+  inference_target?: ExecutionTargetInput;
 }
 
 export interface SessionsCreateResponse {
@@ -249,6 +314,7 @@ export interface SessionsCreateResponse {
   started_at: number;
   updated_at: number;
   execution_target?: ExecutionTarget;
+  inference_target?: ExecutionTarget;
 }
 
 export interface SessionsDeleteResponse {

@@ -94,6 +94,7 @@ export interface Session {
   updated_at: number;
   message_count?: number;
   execution_target?: ExecutionTarget;
+  inference_target?: ExecutionTarget;
 }
 
 // --- Memory ---
