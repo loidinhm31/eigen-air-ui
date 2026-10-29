@@ -533,4 +533,35 @@ describe("WsChatAdapter image hints", () => {
     expect(hints).toEqual([jobHint, artifactHint]);
     wsHarness.harness.reset();
   });
+
+  it("sends canonical inference_target alongside execution_target in sessions.create", async () => {
+    const adapter = new WsChatAdapter("ws://daemon");
+    wsHarness.harness.nextResponse = {
+      ok: true,
+      data: {
+        id: "sess-created-1",
+        channel: "ws",
+        status: "active",
+        started_at: 1000,
+        updated_at: 1000,
+        inference_target: { kind: "server", provider_id: "default" },
+        execution_target: { kind: "server", provider_id: "default" },
+      },
+    };
+
+    const target = { kind: "server" as const, provider_id: "default" };
+    const res = await adapter.createSession(target);
+
+    expect(res.id).toBe("sess-created-1");
+    expect(wsHarness.harness.sent).toHaveLength(1);
+    expect(wsHarness.harness.sent[0]).toEqual({
+      method: "sessions.create",
+      params: {
+        inference_target: target,
+        execution_target: target,
+      },
+      fence: undefined,
+    });
+    wsHarness.harness.reset();
+  });
 });

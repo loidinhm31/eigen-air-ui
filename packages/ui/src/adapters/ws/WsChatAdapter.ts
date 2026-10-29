@@ -407,7 +407,9 @@ export class WsChatAdapter implements IChatService, ISessionService {
         ? (targetOrFence as WsReconnectFence)
         : maybeFence;
 
-    const params: SessionsCreateParams = target ? { execution_target: target } : {};
+    const params: SessionsCreateParams = target
+      ? { inference_target: target, execution_target: target }
+      : {};
     const res = await this.client.send<SessionsCreateParams, SessionsCreateResponse>(
       WS_METHODS.SESSIONS_CREATE,
       params,

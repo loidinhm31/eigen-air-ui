@@ -98,15 +98,15 @@ function areCapabilitiesEqual(
 /** Ephemeral host access; never persisted or included in question state. */
 export function setServiceAccessContext(context: RunAccessContext | undefined): void {
   const next = context ? { ...context } : {};
-  if (
+  const changed =
     serviceAccessContext.authToken !== next.authToken ||
     serviceAccessContext.identityKey !== next.identityKey ||
-    !areCapabilitiesEqual(serviceAccessContext.capabilities, next.capabilities)
-  ) {
+    !areCapabilitiesEqual(serviceAccessContext.capabilities, next.capabilities);
+  serviceAccessContext = next;
+  if (changed) {
     serviceAccessRevision += 1;
     notifyAccessInvalidated(serviceAccessRevision);
   }
-  serviceAccessContext = next;
 }
 
 export function getServiceAccessContext(): RunAccessContext {

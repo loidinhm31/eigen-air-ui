@@ -76,7 +76,7 @@ export interface InferenceStoreState {
   credentialRecoveries: Record<string, OperatorRecoveryView>;
   installations: Record<string, InstallationStatus>;
   activeInstallationId: string | null;
-  persistedMutations: Record<string, { mutationId: string; hostId: string; kind: string; artifactId?: string }>;
+  persistedMutations: Record<string, PersistedMutation>;
 
   loadingHosts: boolean;
   hostsError: string | null;
@@ -89,7 +89,7 @@ export interface InferenceStoreState {
 
   fetchHosts: () => Promise<void>;
   fetchPools: () => Promise<void>;
-  fetchHostModels: (hostId: string) => Promise<void>;
+  fetchHostModels: (hostId: string) => Promise<HostModelRecommendation[]>;
   fetchHostPreferences: (hostId: string) => Promise<void>;
   fetchHostCaches: (hostId: string) => Promise<void>;
   fetchHostOperations: (hostId: string) => Promise<void>;
@@ -143,11 +143,142 @@ export interface InferenceStoreState {
 
   invalidateAccess: () => void;
   getTargetReadiness: (target?: ExecutionTarget) => TargetReadiness;
+  reconcilePersistedMutations: () => Promise<void>;
 }
 
 function computeAccessKey(): string {
   const ctx = getServiceAccessContext();
   return `${ctx.identityKey ?? ""}:${ctx.authToken ?? ""}:${ctx.accessRevision ?? 0}`;
+}
+
+export interface PersistedMutation {
+  mutationId: string;
+  hostId: string;
+  kind: string;
+  artifactId?: string;
+  operationId?: string;
+  status?: string;
+  timestamp: number;
+}
+
+function computePersistenceNamespace(): string {
+  const ctx = getServiceAccessContext();
+  if (ctx.identityKey) {
+    return `id:${ctx.identityKey}`;
+  }
+  return `rev:${ctx.accessRevision ?? 0}`;
+}
+
+function mergeHostPreferences(
+  existing: HostRecoveryPreferences | undefined,
+  incoming: HostRecoveryPreferences
+): HostRecoveryPreferences {
+  if (!existing) return incoming;
+
+  const keepDesired =
+    typeof existing.expected_revision === "number" &&
+    typeof incoming.expected_revision === "number" &&
+    existing.expected_revision > incoming.expected_revision;
+
+  const keepReconciled =
+    typeof existing.reconciled_revision === "number" &&
+    typeof incoming.reconciled_revision === "number" &&
+    existing.reconciled_revision > incoming.reconciled_revision;
+
+  return {
+    host_id: incoming.host_id,
+    expected_revision: keepDesired ? existing.expected_revision : incoming.expected_revision,
+    reconciled_revision: keepReconciled ? existing.reconciled_revision : incoming.reconciled_revision,
+    auto_load_model: keepDesired ? existing.auto_load_model : incoming.auto_load_model,
+    auto_prepare_kv: keepDesired ? existing.auto_prepare_kv : incoming.auto_prepare_kv,
+    last_selected_model: keepDesired ? existing.last_selected_model : incoming.last_selected_model,
+    auto_prepare_source: keepDesired ? existing.auto_prepare_source : incoming.auto_prepare_source,
+  };
+}
+
+function operationSnapshotToCanonical(op: OperationSnapshot): CanonicalOperationSnapshot {
+  let status: CanonicalOperationSnapshot["status"] = "active";
+  if (op.state === "completed" || op.state === "failed" || op.state === "cancelled") {
+    status = op.state;
+  } else if (op.state === "queued") {
+    status = "pending";
+  }
+  const stage = (op.stage as CanonicalOperationSnapshot["stage"]) || "load_weights";
+  return {
+    operation_id: op.operation_id,
+    artifact_id: op.artifact_id,
+    execution_target_kind: "server",
+    stage,
+    status,
+    revision: op.revision,
+    started_at_ms: op.started_at_ms || op.created_at_ms || Date.now(),
+    updated_at_ms: op.updated_at_ms || Date.now(),
+    completed_at_ms: op.completed_at_ms,
+    error_code: op.error_code,
+    error_message: op.error_message,
+    counters: op.counters || {},
+  };
+}
+
+const MAX_PERSISTED_MUTATIONS = 50;
+const MUTATION_STORAGE_KEY_PREFIX = "eigen-air:persisted-mutations:ns:";
+
+function cleanupLegacyMutationStorageKeys() {
+  if (typeof window === "undefined" || !window.sessionStorage) return;
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < window.sessionStorage.length; i++) {
+      const k = window.sessionStorage.key(i);
+      if (k && k.startsWith("eigen-air:persisted-mutations:") && !k.startsWith(MUTATION_STORAGE_KEY_PREFIX)) {
+        keysToRemove.push(k);
+      }
+    }
+    for (const k of keysToRemove) {
+      window.sessionStorage.removeItem(k);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function loadPersistedMutations(): Record<string, PersistedMutation> {
+  if (typeof window === "undefined" || !window.sessionStorage) return {};
+  cleanupLegacyMutationStorageKeys();
+  try {
+    const ns = computePersistenceNamespace();
+    const raw = window.sessionStorage.getItem(`${MUTATION_STORAGE_KEY_PREFIX}${ns}`);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return {};
+    const valid: Record<string, PersistedMutation> = {};
+    const entries = Object.entries(parsed).slice(-MAX_PERSISTED_MUTATIONS);
+    const now = Date.now();
+    const TTL_MS = 24 * 60 * 60 * 1000;
+    for (const [k, v] of entries) {
+      if (v && typeof v === "object" && "mutationId" in v && "hostId" in v && "kind" in v) {
+        const item = v as PersistedMutation;
+        if (typeof item.timestamp === "number" && now - item.timestamp < TTL_MS) {
+          valid[k] = item;
+        }
+      }
+    }
+    return valid;
+  } catch {
+    return {};
+  }
+}
+
+function savePersistedMutations(mutations: Record<string, unknown>) {
+  if (typeof window === "undefined" || !window.sessionStorage) return;
+  cleanupLegacyMutationStorageKeys();
+  try {
+    const ns = computePersistenceNamespace();
+    const entries = Object.entries(mutations).slice(-MAX_PERSISTED_MUTATIONS);
+    const map = Object.fromEntries(entries);
+    window.sessionStorage.setItem(`${MUTATION_STORAGE_KEY_PREFIX}${ns}`, JSON.stringify(map));
+  } catch {
+    // ignore quota error
+  }
 }
 
 export const useInferenceStore = create<InferenceStoreState>((set, get) => {
@@ -182,7 +313,7 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
     credentialRecoveries: {},
     installations: {},
     activeInstallationId: typeof window !== "undefined" ? window.sessionStorage?.getItem("eigen-air:active-installation-id") ?? null : null,
-    persistedMutations: {},
+    persistedMutations: loadPersistedMutations(),
 
     loadingHosts: false,
     hostsError: null,
@@ -218,7 +349,7 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
         credentialRecoveries: {},
         installations: {},
         activeInstallationId: null,
-        persistedMutations: {},
+        persistedMutations: loadPersistedMutations(),
         loadingHosts: false,
         hostsError: null,
         loadingPools: false,
@@ -313,6 +444,7 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
         get().fetchPools(),
         get().fetchCredentialRecoveries(),
       ]);
+      void get().reconcilePersistedMutations();
     },
 
     // --- Phase 12 Gateway Actions ---
@@ -329,6 +461,7 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
           if (!existing) {
             map[h.host_id] = h;
           } else {
+            const keepLifecycle = existing.lifecycle_revision > h.lifecycle_revision;
             const keepBinding = existing.applied_binding_revision > h.applied_binding_revision;
             const keepRecovery =
               existing.recovery &&
@@ -336,6 +469,8 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
               existing.recovery.reconciled_revision > h.recovery.reconciled_revision;
             map[h.host_id] = {
               ...h,
+              is_connected: keepLifecycle ? existing.is_connected : h.is_connected,
+              lease_valid: keepLifecycle ? existing.lease_valid : h.lease_valid,
               current_binding: keepBinding ? existing.current_binding : h.current_binding,
               applied_binding_revision: keepBinding
                 ? existing.applied_binding_revision
@@ -371,19 +506,20 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
       }
     },
 
-    fetchHostModels: async (hostId: string) => {
+    fetchHostModels: async (hostId: string): Promise<HostModelRecommendation[]> => {
       const startKey = get().accessKey;
       try {
         const recs = await getInferenceService().listHostModels(hostId);
-        if (get().accessKey !== startKey) return;
+        if (get().accessKey !== startKey) return [];
         set((state) => ({
           hostModels: {
             ...state.hostModels,
             [hostId]: recs,
           },
         }));
+        return recs;
       } catch {
-        // ignore background fetch failure
+        return [];
       }
     },
 
@@ -395,7 +531,7 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
         set((state) => ({
           hostPreferences: {
             ...state.hostPreferences,
-            [hostId]: prefs,
+            [hostId]: mergeHostPreferences(state.hostPreferences[hostId], prefs),
           },
         }));
       } catch {
@@ -450,12 +586,29 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
         if (get().accessKey !== startKey) return;
         const existing = get().operations[op.operation_id];
         if (!existing || op.revision >= existing.revision) {
-          set((state) => ({
-            operations: {
+          set((state) => {
+            const nextOps = {
               ...state.operations,
-              [op.operation_id]: op as unknown as CanonicalOperationSnapshot,
-            },
-          }));
+              [op.operation_id]: operationSnapshotToCanonical(op),
+            };
+            const isTerminal =
+              op.state === "completed" || op.state === "failed" || op.state === "cancelled";
+            if (isTerminal) {
+              let changed = false;
+              const nextMutations = { ...state.persistedMutations };
+              for (const [k, m] of Object.entries(nextMutations)) {
+                if (m.operationId === op.operation_id) {
+                  delete nextMutations[k];
+                  changed = true;
+                }
+              }
+              if (changed) {
+                savePersistedMutations(nextMutations);
+                return { operations: nextOps, persistedMutations: nextMutations };
+              }
+            }
+            return { operations: nextOps };
+          });
         }
       } catch {
         // ignore targeted poll failure
@@ -468,8 +621,23 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
       try {
         const list = await getInferenceService().listCredentialRecoveries();
         if (get().accessKey !== startKey) return;
+        const currentRecoveries = get().credentialRecoveries;
         const map: Record<string, OperatorRecoveryView> = {};
         for (const r of list) {
+          const existing = currentRecoveries[r.request_id];
+          if (existing) {
+            if (existing.requested_credential_generation > r.requested_credential_generation) {
+              map[r.request_id] = existing;
+              continue;
+            }
+            if (
+              existing.requested_credential_generation === r.requested_credential_generation &&
+              existing.approval_revision > r.approval_revision
+            ) {
+              map[r.request_id] = existing;
+              continue;
+            }
+          }
           map[r.request_id] = r;
         }
         set({ credentialRecoveries: map, loadingRecoveries: false });
@@ -540,7 +708,7 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
       set((state) => ({
         hostPreferences: {
           ...state.hostPreferences,
-          [hostId]: saved,
+          [hostId]: mergeHostPreferences(state.hostPreferences[hostId], saved),
         },
       }));
       await get().fetchHosts();
@@ -552,36 +720,45 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
       artifactId: string,
       req: HostOperationRequest
     ) => {
+      const startKey = get().accessKey;
       const mutationId = req.mutation_id || `${Date.now()}-${crypto.randomUUID()}`;
       const persisted = {
         mutationId,
         hostId,
         kind: req.kind,
         artifactId,
+        timestamp: Date.now(),
       };
-      set((state) => ({
-        persistedMutations: {
+      set((state) => {
+        const nextMutations = {
           ...state.persistedMutations,
           [mutationId]: persisted,
-        },
-      }));
-      if (typeof window !== "undefined" && window.sessionStorage) {
-        try {
-          const raw = window.sessionStorage.getItem("eigen-air:persisted-mutations");
-          const map = raw ? JSON.parse(raw) : {};
-          map[mutationId] = persisted;
-          window.sessionStorage.setItem("eigen-air:persisted-mutations", JSON.stringify(map));
-        } catch {
-          // ignore quota error
-        }
-      }
+        };
+        savePersistedMutations(nextMutations);
+        return { persistedMutations: nextMutations };
+      });
 
       const opReq: HostOperationRequest = {
         ...req,
         mutation_id: mutationId,
       };
       const res = await getInferenceService().dispatchModelOperation(hostId, artifactId, opReq);
+      if (get().accessKey !== startKey) {
+        return res.operation_id;
+      }
       if (res.operation_id) {
+        set((state) => {
+          const updated = {
+            ...state.persistedMutations,
+            [mutationId]: {
+              ...persisted,
+              operationId: res.operation_id,
+              status: "dispatched",
+            },
+          };
+          savePersistedMutations(updated);
+          return { persistedMutations: updated };
+        });
         void get().pollActiveOperation(res.operation_id);
       }
       await Promise.allSettled([
@@ -1037,6 +1214,73 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
         phase: "ready",
         label: device.display_label || `Device ${target.device_id.slice(0, 8)}`,
       };
+    },
+
+    reconcilePersistedMutations: async () => {
+      const startKey = get().accessKey;
+      const mutations = get().persistedMutations;
+      const now = Date.now();
+      const updated = { ...mutations };
+      let changed = false;
+
+      for (const [id, m] of Object.entries(mutations)) {
+        if (now - m.timestamp > 24 * 60 * 60 * 1000) {
+          delete updated[id];
+          changed = true;
+          continue;
+        }
+        if (m.status === "completed" || m.status === "failed" || m.status === "cancelled") {
+          delete updated[id];
+          changed = true;
+          continue;
+        }
+        if (m.operationId) {
+          void get().pollActiveOperation(m.operationId);
+        } else {
+          try {
+            const ops = await getInferenceService().listHostOperations(m.hostId);
+            if (get().accessKey !== startKey) return;
+            const matched = ops.find((op) => op.operation_id === m.mutationId);
+            if (matched) {
+              if (
+                matched.state === "completed" ||
+                matched.state === "failed" ||
+                matched.state === "cancelled"
+              ) {
+                delete updated[id];
+              } else {
+                updated[id] = {
+                  ...m,
+                  operationId: matched.operation_id,
+                  status: matched.state,
+                };
+                void get().pollActiveOperation(matched.operation_id);
+              }
+              changed = true;
+            }
+          } catch {
+            // retain within TTL
+          }
+        }
+      }
+
+      if (changed && get().accessKey === startKey) {
+        set((state) => {
+          const merged = { ...state.persistedMutations };
+          for (const [id, m] of Object.entries(updated)) {
+            if (merged[id]) {
+              merged[id] = { ...merged[id], ...m };
+            }
+          }
+          for (const id of Object.keys(mutations)) {
+            if (!updated[id] && merged[id]) {
+              delete merged[id];
+            }
+          }
+          savePersistedMutations(merged);
+          return { persistedMutations: merged };
+        });
+      }
     },
   };
 });

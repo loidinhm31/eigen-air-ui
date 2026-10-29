@@ -125,6 +125,42 @@ describe("HostModelsView", () => {
             disabled_reason: "Insufficient VRAM (requires 40GB)",
           },
         ],
+        "host-gpu-2": [
+          {
+            host_id: "host-gpu-2",
+            artifact_id: "gemma-2-9b-it",
+            fit: "fits",
+            suggested_profile: {
+              backend: "cuda",
+              device_label: "RTX 4090",
+              context_tokens: 8192,
+              gpu_layers: 33,
+              kv_placement: "vram",
+              flash_attention: true,
+              profile: {
+                context_tokens: 8192,
+                gpu_layers: 33,
+                batch_tokens: 512,
+                flash_attention: true,
+                ubatch_tokens: 512,
+                threads: 4,
+                kv_placement: "vram",
+                type_k: "f16",
+                type_v: "f16",
+              },
+            },
+            qualification: "qualified",
+            perf: {
+              prefill_tokens_per_second: 320.5,
+              decode_tokens_per_second: 54.2,
+              source: "qualification_receipt",
+            },
+            risks: [],
+            rank: 1,
+            selectable: true,
+            disabled_reason: null,
+          },
+        ],
       },
       hostOperations: {
         "host-gpu-1": [
@@ -218,9 +254,21 @@ describe("HostModelsView", () => {
     const executeMultiDeployBtn = screen.getByTestId("execute-multi-deploy-btn");
     await user.click(executeMultiDeployBtn);
 
-    // Check independent dispatch was called for selected host
-    expect(dispatchModelOperationMock).toHaveBeenCalledWith("host-gpu-2", "gemma-2-9b-it", { kind: "load" });
-
+    // Check independent dispatch was called for selected host with concrete profile
+    expect(dispatchModelOperationMock).toHaveBeenCalledWith("host-gpu-2", "gemma-2-9b-it", {
+      kind: "load",
+      profile: {
+        context_tokens: 8192,
+        gpu_layers: 33,
+        batch_tokens: 512,
+        flash_attention: true,
+        ubatch_tokens: 512,
+        threads: 4,
+        kv_placement: "vram",
+        type_k: "f16",
+        type_v: "f16",
+      },
+    });
     // Check outcome rendered
     const outcomeEl = screen.getByTestId("outcome-host-gpu-2");
     expect(outcomeEl.textContent).toContain("Operation dispatched");

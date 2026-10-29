@@ -35,6 +35,17 @@ export type ExecutionTargetInput =
       host_id?: string;
     };
 
+export const AUTHORITATIVE_CATALOG_DIGESTS: Record<string, string> = {
+  "gemma-4-e4b-it-qat-ud-q4_k_xl": "df0fd4ee07072c607c29a0a1cb4f98918426cca12f45a2776bdd6ee6d09a4de3",
+  "qwen-3.5-9b-ud-q4_k_xl": "6f5d30666c2d8ae16a306e616d95341dcf3cc46810df84d7e6f5a7d1e4c1b293",
+  "qwen-3.5-4b-ud-q4_k_xl": "b252c5610a42ca82d20fe2a12813e9d069eed89292907e26c783eeb0bc961bc7",
+  "qwen-3.8-27b-ud-q4_k_xl": "3f227079003add2511437e5b1e94812e363385225bf6a9b47b0054a72bc8b01e",
+  "gemma-4-e4b-it-qat-q4_0": "e8b6a059ba86947a44ace84d6e5679795bc41862c25c30513142588f0e9dba1d",
+};
+
+export function resolveAuthoritativeModelDigest(artifactId: string): string {
+  return AUTHORITATIVE_CATALOG_DIGESTS[artifactId] || "";
+}
 export type OperationStage =
   | "download"
   | "verify"
@@ -610,6 +621,7 @@ export interface OperationSnapshot {
   operation_id: string;
   host_id: string;
   artifact_id: string;
+  mutation_id?: string;
   kind: OperationKind;
   state: OperationState;
   stage?: OperationStage | string;

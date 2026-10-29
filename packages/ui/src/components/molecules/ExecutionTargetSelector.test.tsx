@@ -91,6 +91,7 @@ describe("ExecutionTargetSelector", () => {
       kind: "pool",
       pool_id: "default",
       model_artifact_id: "gemma-4-e4b-it-qat-ud-q4_k_xl",
+      model_digest: "df0fd4ee07072c607c29a0a1cb4f98918426cca12f45a2776bdd6ee6d09a4de3",
     });
   });
 
@@ -130,6 +131,7 @@ describe("ExecutionTargetSelector", () => {
       kind: "pool",
       pool_id: "default",
       model_artifact_id: "qwen-3.8-27b-ud-q4_k_xl",
+      model_digest: "3f227079003add2511437e5b1e94812e363385225bf6a9b47b0054a72bc8b01e",
     });
   });
 });

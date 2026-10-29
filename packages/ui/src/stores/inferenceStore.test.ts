@@ -1,11 +1,23 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   CanonicalOperationSnapshot,
   RunInferenceProgressEvent,
 } from "@eigen-air-ui/shared/types";
 import { useInferenceStore } from "./inferenceStore.js";
 import { useReadinessStore } from "./readinessStore.js";
+import { setInferenceService } from "../adapters/factory/ServiceFactory.js";
+import type { IInferenceService } from "../adapters/factory/interfaces/IInferenceService.js";
 
+const mockInferenceService = {
+  saveRecoveryPreferences: vi.fn(),
+  dispatchModelOperation: vi.fn(),
+  getOperation: vi.fn(),
+  fetchHosts: vi.fn(),
+  listHosts: vi.fn().mockResolvedValue([]),
+  listHostOperations: vi.fn().mockResolvedValue([]),
+  listHostModels: vi.fn().mockResolvedValue([]),
+} as unknown as IInferenceService;
+setInferenceService(mockInferenceService);
 describe("inferenceStore", () => {
   beforeEach(() => {
     useInferenceStore.getState().invalidateAccess();
@@ -400,6 +412,138 @@ describe("inferenceStore", () => {
       });
       expect(useInferenceStore.getState().credentialRecoveries.req_1.status).toBe("approved");
       expect(useInferenceStore.getState().credentialRecoveries.req_1.approval_revision).toBe(2);
+    });
+
+    it("guards hostPreferences against regressing revisions", async () => {
+      const initialPrefs = {
+        host_id: "h1",
+        auto_load_model: false,
+        auto_prepare_kv: false,
+        expected_revision: 5,
+        reconciled_revision: 5,
+      };
+      useInferenceStore.setState({
+        hostPreferences: {
+          h1: initialPrefs,
+        },
+      });
+
+      // Attempt to save an older revision (e.g. out of order response)
+      const stalePrefs = {
+        host_id: "h1",
+        auto_load_model: true,
+        auto_prepare_kv: true,
+        expected_revision: 3,
+        reconciled_revision: 3,
+      };
+      mockInferenceService.saveRecoveryPreferences = vi.fn().mockResolvedValue(stalePrefs);
+
+      await useInferenceStore.getState().saveRecoveryPreferences("h1", {
+        auto_load_model: true,
+        auto_prepare_kv: true,
+        expected_revision: 3,
+      });
+
+      // State must retain reconciled_revision 5
+      expect(useInferenceStore.getState().hostPreferences.h1.reconciled_revision).toBe(5);
+      expect(useInferenceStore.getState().hostPreferences.h1.auto_load_model).toBe(false);
+    });
+
+    it("records and bounds dispatched mutations in sessionStorage", async () => {
+      mockInferenceService.dispatchModelOperation = vi.fn().mockResolvedValue({
+        operation_id: "op-test-1",
+      });
+      mockInferenceService.getOperation = vi.fn().mockResolvedValue({
+        operation_id: "op-test-1",
+        artifact_id: "gemma-4",
+        execution_target_kind: "server",
+        stage: "load_weights",
+        status: "active",
+        revision: 1,
+        occurred_at_ms: Date.now(),
+        elapsed_ms: 100,
+      });
+
+      const opId = await useInferenceStore.getState().dispatchModelOperation("h1", "gemma-4", {
+        kind: "load",
+      });
+
+      expect(opId).toBe("op-test-1");
+      const mutations = useInferenceStore.getState().persistedMutations;
+      const entries = Object.values(mutations);
+      expect(entries.length).toBeGreaterThan(0);
+      expect(entries[entries.length - 1].artifactId).toBe("gemma-4");
+      expect(entries[entries.length - 1].hostId).toBe("h1");
+    });
+
+    it("merges independently advancing desired vs reconciled revisions", async () => {
+      useInferenceStore.setState({
+        hostPreferences: {
+          h1: {
+            host_id: "h1",
+            auto_load_model: true,
+            auto_prepare_kv: true,
+            expected_revision: 6,
+            reconciled_revision: 5,
+          },
+        },
+      });
+
+      // Stale desired revision 5 arrives with equal reconciled revision 5
+      mockInferenceService.getRecoveryPreferences = vi.fn().mockResolvedValue({
+        host_id: "h1",
+        auto_load_model: false,
+        auto_prepare_kv: false,
+        expected_revision: 5,
+        reconciled_revision: 5,
+      });
+
+      await useInferenceStore.getState().fetchHostPreferences("h1");
+
+      const pref = useInferenceStore.getState().hostPreferences.h1;
+      expect(pref.expected_revision).toBe(6);
+      expect(pref.auto_load_model).toBe(true);
+      expect(pref.reconciled_revision).toBe(5);
+    });
+
+    it("prunes terminal mutations and reconciles lost POST mutations", async () => {
+      useInferenceStore.setState({
+        persistedMutations: {
+          "mut-terminal": {
+            mutationId: "mut-terminal",
+            hostId: "h1",
+            kind: "load",
+            status: "completed",
+            timestamp: Date.now(),
+          },
+          "mut-lost-post": {
+            mutationId: "mut-lost-post",
+            hostId: "h1",
+            kind: "load",
+            timestamp: Date.now(),
+          },
+        },
+      });
+
+      mockInferenceService.listHostOperations = vi.fn().mockResolvedValue([
+        {
+          operation_id: "mut-lost-post",
+          state: "active",
+          stage: "load_weights",
+        },
+      ]);
+      mockInferenceService.getOperation = vi.fn().mockResolvedValue({
+        operation_id: "mut-lost-post",
+        state: "active",
+        revision: 1,
+      });
+
+      await useInferenceStore.getState().reconcilePersistedMutations();
+
+      const mutations = useInferenceStore.getState().persistedMutations;
+      expect(mutations["mut-terminal"]).toBeUndefined();
+      expect(mutations["mut-lost-post"]).toBeDefined();
+      expect(mutations["mut-lost-post"].operationId).toBe("mut-lost-post");
     });
   });
 });

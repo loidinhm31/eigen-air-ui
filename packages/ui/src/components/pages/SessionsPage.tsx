@@ -9,8 +9,8 @@ import { Button } from "../atoms/Button.js";
 import { NativeScrollArea } from "../atoms/NativeScrollArea.js";
 import { Spinner } from "../atoms/Spinner.js";
 import { Badge } from "../atoms/Badge.js";
-import type { Session } from "@eigen-air-ui/shared/types";
-import type { ExecutionTargetInput } from "@eigen-air-ui/shared/types";
+import type { Session, ExecutionTargetInput } from "@eigen-air-ui/shared/types";
+import { resolveAuthoritativeModelDigest } from "@eigen-air-ui/shared/types";
 import { ExecutionTargetSelector } from "../molecules/ExecutionTargetSelector.js";
 
 export function SessionsPage() {
@@ -39,7 +39,15 @@ export function SessionsPage() {
     setLoading(true);
     setError(null);
     try {
-      const session = await getSessionService().createSession(target ?? targetInput);
+      const effective = target ?? targetInput;
+      const finalTarget: ExecutionTargetInput | undefined =
+        effective?.kind === "pool" && !effective.model_digest
+          ? {
+              ...effective,
+              model_digest: resolveAuthoritativeModelDigest(effective.model_artifact_id),
+            }
+          : effective;
+      const session = await getSessionService().createSession(finalTarget);
       setSessionId(session.id);
       clearMessages();
       navigate("/");

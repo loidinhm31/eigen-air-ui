@@ -1,5 +1,6 @@
 import * as React from "react";
 import type { ExecutionTargetInput } from "@eigen-air-ui/shared/types";
+import { resolveAuthoritativeModelDigest } from "@eigen-air-ui/shared/types";
 import { useInferenceStore } from "../../stores/inferenceStore.js";
 import { Badge } from "../atoms/Badge.js";
 
@@ -59,14 +60,16 @@ export function ExecutionTargetSelector({
                   ? "border-primary bg-primary/10 text-primary"
                   : "border-border bg-card text-muted-foreground hover:bg-accent"
               } ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-              onClick={() =>
+              onClick={() => {
+                const modelId =
+                  isSelected && value?.kind === "pool" ? value.model_artifact_id : defaultModel;
                 onChange({
                   kind: "pool",
                   pool_id: p.pool_id,
-                  model_artifact_id:
-                    isSelected && value?.kind === "pool" ? value.model_artifact_id : defaultModel,
-                })
-              }
+                  model_artifact_id: modelId,
+                  model_digest: resolveAuthoritativeModelDigest(modelId),
+                });
+              }}
             >
               <span>Pool: {p.pool_id}</span>
               <Badge
@@ -133,6 +136,7 @@ export function ExecutionTargetSelector({
                 onChange({
                   ...value,
                   model_artifact_id: m,
+                  model_digest: resolveAuthoritativeModelDigest(m),
                 })
               }
             >

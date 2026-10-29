@@ -158,6 +158,7 @@ export function HostModelsView({ hostId: propHostId, onHostChange, className = "
           artifactId={multiDeployArtifactId}
           hosts={hosts}
           hostModels={hostModels}
+          onFetchHostModels={fetchHostModels}
           onDispatch={dispatchModelOperation}
           onClose={() => setMultiDeployArtifactId(null)}
         />

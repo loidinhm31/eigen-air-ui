@@ -17,6 +17,7 @@ export interface HostMultiDeployPanelProps {
   artifactId: string;
   hosts: Record<string, HostView>;
   hostModels?: Record<string, HostModelRecommendation[]>;
+  onFetchHostModels?: (hostId: string) => Promise<HostModelRecommendation[]>;
   onDispatch: (hostId: string, artifactId: string, req: HostOperationRequest) => Promise<string>;
   onClose: () => void;
 }
@@ -25,6 +26,7 @@ export function HostMultiDeployPanel({
   artifactId,
   hosts,
   hostModels,
+  onFetchHostModels,
   onDispatch,
   onClose,
 }: HostMultiDeployPanelProps) {
@@ -51,22 +53,37 @@ export function HostMultiDeployPanel({
         if (!host || !host.is_connected) {
           return { hostId: hId, status: "ineligible" as const, message: "Host offline or disconnected" };
         }
-        const rec = hostModels?.[hId]?.find((r) => r.artifact_id === artifactId);
-        if (rec && !rec.selectable) {
+        let recs = hostModels?.[hId];
+        if (!recs && onFetchHostModels) {
+          try {
+            recs = await onFetchHostModels(hId);
+          } catch {
+            // Pre-fetch failed
+          }
+        }
+        const rec = recs?.find((r) => r.artifact_id === artifactId);
+        if (!rec) {
           return {
             hostId: hId,
             status: "ineligible" as const,
-            message: rec.disabled_reason || "Model does not fit or is unqualified on host",
+            message: "Recommendations not loaded or artifact not evaluated on host",
           };
         }
-        const opId = await onDispatch(hId, artifactId, {
+        if (!rec.selectable || !rec.suggested_profile?.profile) {
+          return {
+            hostId: hId,
+            status: "ineligible" as const,
+            message: rec.disabled_reason || "Model does not fit or lacks concrete profile on host",
+          };
+        }
+        const opReq: HostOperationRequest = {
           kind: "load",
-          profile: rec?.suggested_profile?.profile,
-        });
+          profile: rec.suggested_profile.profile,
+        };
+        const opId = await onDispatch(hId, artifactId, opReq);
         return { hostId: hId, status: "dispatched" as const, operationId: opId, message: "Operation dispatched" };
       })
     );
-
     const mapped: DeployOutcome[] = results.map((res, index) => {
       const hId = selectedHostIds[index];
       if (res.status === "fulfilled") return res.value;
@@ -115,32 +132,47 @@ export function HostMultiDeployPanel({
             Select All Connected
           </button>
         </div>
-        {hostList.map((h) => (
-          <label
-            key={h.host_id}
-            className={`flex items-center justify-between p-2 rounded border cursor-pointer min-h-[44px] transition-colors ${
-              selectedHostIds.includes(h.host_id)
-                ? "border-primary/60 bg-primary/10"
-                : "border-border/60 bg-background/50 hover:bg-background/80"
-            }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <input
-                type="checkbox"
-                checked={selectedHostIds.includes(h.host_id)}
-                onChange={() => toggleHost(h.host_id)}
-                disabled={isDeploying}
-                className="h-4 w-4 rounded border-border text-primary focus:ring-primary cursor-pointer"
-                data-testid={`checkbox-host-${h.host_id}`}
-              />
-              <span className="font-medium text-foreground">{h.label || h.host_id}</span>
-              <span className="text-[10px] text-muted-foreground font-mono">{h.platform}</span>
-            </div>
-            <Badge variant={h.is_connected ? "success" : "outline"} className="text-[10px]">
-              {h.is_connected ? "Online" : "Offline"}
-            </Badge>
-          </label>
-        ))}
+        {hostList.map((h) => {
+          const rec = hostModels?.[h.host_id]?.find((r) => r.artifact_id === artifactId);
+          return (
+            <label
+              key={h.host_id}
+              className={`flex items-center justify-between p-2 rounded border cursor-pointer min-h-[44px] transition-colors ${
+                selectedHostIds.includes(h.host_id)
+                  ? "border-primary/60 bg-primary/10"
+                  : "border-border/60 bg-background/50 hover:bg-background/80"
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <input
+                  type="checkbox"
+                  checked={selectedHostIds.includes(h.host_id)}
+                  onChange={() => toggleHost(h.host_id)}
+                  disabled={isDeploying}
+                  className="h-4 w-4 rounded border-border text-primary focus:ring-primary cursor-pointer"
+                  data-testid={`checkbox-host-${h.host_id}`}
+                />
+                <span className="font-medium text-foreground">{h.label || h.host_id}</span>
+                <span className="text-[10px] text-muted-foreground font-mono">{h.platform}</span>
+                {rec && !rec.selectable && (
+                  <span className="text-[10px] text-destructive font-sans">
+                    ({rec.disabled_reason || "Ineligible"})
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5">
+                {rec && (
+                  <Badge variant={rec.selectable ? "success" : "outline"} className="text-[10px]">
+                    {rec.selectable ? "Fits & Qualified" : "Ineligible"}
+                  </Badge>
+                )}
+                <Badge variant={h.is_connected ? "success" : "outline"} className="text-[10px]">
+                  {h.is_connected ? "Online" : "Offline"}
+                </Badge>
+              </div>
+            </label>
+          );
+        })}
       </div>
 
       {/* Deploy Button */}
