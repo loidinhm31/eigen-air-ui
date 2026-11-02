@@ -33,20 +33,9 @@ export interface DownloadAttachmentResult {
 export interface IInferenceService {
   listServerModels(): Promise<ModelInventoryItem[]>;
   getServerModel(artifactId: string): Promise<ModelInventoryItem>;
-  downloadServerModel(artifactId: string): Promise<CanonicalOperationSnapshot>;
-  importServerModel(artifactId: string, sourcePath: string): Promise<CanonicalOperationSnapshot>;
-  deleteServerModel(artifactId: string): Promise<{ status: string; artifact_id: string }>;
-  loadServerModel(artifactId: string): Promise<CanonicalOperationSnapshot>;
-  unloadServerModel(artifactId: string): Promise<CanonicalOperationSnapshot>;
-  prepareServerModelCache(artifactId: string, prompt?: string): Promise<CanonicalOperationSnapshot>;
-  rebuildServerModelCache(artifactId: string, prompt?: string): Promise<CanonicalOperationSnapshot>;
-  purgeServerModelCache(artifactId: string): Promise<{ purged_count: number; artifact_id: string }>;
 
   listServerRoots(): Promise<StorageRootDescriptor[]>;
-  selectServerRoot(rootId: string, expectedRevision?: number): Promise<{ selected_root_id: string; revision: number }>;
 
-  getServerOperation(operationId: string): Promise<CanonicalOperationSnapshot>;
-  cancelServerOperation(operationId: string): Promise<CanonicalOperationSnapshot>;
 
   listDevices(): Promise<PublicDeviceSummary[]>;
   getDevice(deviceId: string): Promise<PublicDeviceSummary>;

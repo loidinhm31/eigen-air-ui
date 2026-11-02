@@ -77,6 +77,7 @@ import {
   projectRunCorrelation,
 } from "./WsChatAdapter.js";
 import { useConnectionStore } from "../../stores/connectionStore.js";
+import { useInferenceStore } from "../../stores/inferenceStore.js";
 
 
 
@@ -563,5 +564,98 @@ describe("WsChatAdapter image hints", () => {
       fence: undefined,
     });
     wsHarness.harness.reset();
+  });
+});
+
+describe("WsChatAdapter reconnect gap reconciliation", () => {
+  it("UI-08: on reconnect triggers authoritative gap reconciliation across hosts, pools, recoveries, installation, mutations, and active operations", async () => {
+    const originalState = useInferenceStore.getState();
+    const fetchHostsSpy = vi.fn().mockResolvedValue(undefined);
+    const fetchPoolsSpy = vi.fn().mockResolvedValue(undefined);
+    const fetchCredentialRecoveriesSpy = vi.fn().mockResolvedValue(undefined);
+    const fetchInstallationSpy = vi.fn().mockResolvedValue(null);
+    const reconcileMutationsSpy = vi.fn().mockResolvedValue(undefined);
+    const pollActiveOpSpy = vi.fn().mockResolvedValue(undefined);
+
+    useInferenceStore.setState({
+      fetchHosts: fetchHostsSpy,
+      fetchPools: fetchPoolsSpy,
+      fetchCredentialRecoveries: fetchCredentialRecoveriesSpy,
+      fetchInstallation: fetchInstallationSpy,
+      reconcilePersistedMutations: reconcileMutationsSpy,
+      pollActiveOperation: pollActiveOpSpy,
+      activeInstallationId: "inst-recon-1",
+      operations: {
+        "op-running-1": {
+          operation_id: "op-running-1",
+          host_id: "host-1",
+          artifact_id: "gemma-4",
+          execution_target_kind: "pool",
+          kind: "load",
+          state: "running",
+          stage: "load_context",
+          status: "active",
+          revision: 1,
+          started_at_ms: 1000,
+          updated_at_ms: 1000,
+          counters: {},
+        },
+        "op-completed-1": {
+          operation_id: "op-completed-1",
+          host_id: "host-1",
+          artifact_id: "gemma-4",
+          execution_target_kind: "pool",
+          kind: "load",
+          state: "completed",
+          stage: "load_context",
+          status: "completed",
+          revision: 2,
+          started_at_ms: 1000,
+          updated_at_ms: 2000,
+          counters: {},
+        },
+      },
+    });
+
+    try {
+      const adapter = new WsChatAdapter("ws://daemon");
+      useConnectionStore.getState().setSessionId("sess-recon");
+      wsHarness.harness.responses = [
+        {
+          ok: true,
+          data: {
+            version: "1.0",
+            session: { id: "sess-recon" },
+          },
+        },
+        {
+          ok: true,
+          data: {
+            sessions: [
+              {
+                id: "sess-recon",
+                channel: "ws",
+                status: "active",
+                started_at: 1000,
+                updated_at: 1000,
+              },
+            ],
+          },
+        },
+      ];
+      expect(wsHarness.harness.reconnectHandler).toBeDefined();
+      await wsHarness.harness.reconnectHandler!();
+
+      expect(fetchHostsSpy).toHaveBeenCalled();
+      expect(fetchPoolsSpy).toHaveBeenCalled();
+      expect(fetchCredentialRecoveriesSpy).toHaveBeenCalled();
+      expect(fetchInstallationSpy).toHaveBeenCalledWith("inst-recon-1");
+      expect(reconcileMutationsSpy).toHaveBeenCalled();
+      expect(pollActiveOpSpy).toHaveBeenCalledWith("op-running-1");
+      expect(pollActiveOpSpy).not.toHaveBeenCalledWith("op-completed-1");
+    } finally {
+      useInferenceStore.setState(originalState);
+      wsHarness.harness.reset();
+    }
   });
 });

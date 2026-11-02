@@ -25,6 +25,9 @@ const mockInferenceService = {
   listHosts: vi.fn().mockResolvedValue([]),
   listHostOperations: vi.fn().mockResolvedValue([]),
   listHostModels: vi.fn().mockResolvedValue([]),
+  listCredentialRecoveries: vi.fn().mockResolvedValue([]),
+  approveCredentialRecovery: vi.fn(),
+  denyCredentialRecovery: vi.fn(),
 } as unknown as IInferenceService;
 setInferenceService(mockInferenceService);
 describe("inferenceStore", () => {
@@ -456,6 +459,129 @@ describe("inferenceStore", () => {
       });
       expect(useInferenceStore.getState().credentialRecoveries.req_1.status).toBe("approved");
       expect(useInferenceStore.getState().credentialRecoveries.req_1.approval_revision).toBe(2);
+    });
+
+    it("UI-08: applyRecoveryUpdatedEvent for unknown recovery request triggers authoritative refetch", async () => {
+      const listSpy = vi.fn().mockResolvedValue([]);
+      mockInferenceService.listCredentialRecoveries = listSpy;
+      useInferenceStore.setState({
+        credentialRecoveries: {},
+      });
+
+      useInferenceStore.getState().applyRecoveryUpdatedEvent({
+        request_id: "req_unknown_1",
+        host_id: "h1",
+        status: "pending_approval",
+        approval_revision: 1,
+      });
+
+      expect(listSpy).toHaveBeenCalled();
+    });
+
+    it("UI-08: recovery monotonic comparison rejects older generation, older revision, and cannot revert terminal status", async () => {
+      const initialRecovery = {
+        request_id: "req_mono",
+        deployment_id: "dep",
+        installation_id: "inst",
+        host_id: "h1",
+        public_key_fingerprint: "fp",
+        requested_credential_generation: 3,
+        expiry_ms: 20000,
+        status: "approved" as const,
+        approval_revision: 5,
+        created_at_ms: 1000,
+      };
+
+      useInferenceStore.setState({
+        credentialRecoveries: {
+          req_mono: initialRecovery,
+        },
+      });
+
+      // Older generation 2 arrives in list -> must be rejected
+      mockInferenceService.listCredentialRecoveries = vi.fn().mockResolvedValue([
+        {
+          ...initialRecovery,
+          requested_credential_generation: 2,
+          approval_revision: 10,
+          status: "pending_approval",
+        },
+      ]);
+      await useInferenceStore.getState().fetchCredentialRecoveries();
+      expect(useInferenceStore.getState().credentialRecoveries.req_mono.requested_credential_generation).toBe(3);
+      expect(useInferenceStore.getState().credentialRecoveries.req_mono.approval_revision).toBe(5);
+
+      // Same generation but older revision 4 arrives in list -> rejected
+      mockInferenceService.listCredentialRecoveries = vi.fn().mockResolvedValue([
+        {
+          ...initialRecovery,
+          approval_revision: 4,
+          status: "pending_approval",
+        },
+      ]);
+      await useInferenceStore.getState().fetchCredentialRecoveries();
+      expect(useInferenceStore.getState().credentialRecoveries.req_mono.approval_revision).toBe(5);
+
+      // Same generation and revision but trying to revert terminal "approved" to "pending_approval" -> rejected
+      mockInferenceService.listCredentialRecoveries = vi.fn().mockResolvedValue([
+        {
+          ...initialRecovery,
+          approval_revision: 5,
+          status: "pending_approval",
+        },
+      ]);
+      await useInferenceStore.getState().fetchCredentialRecoveries();
+      expect(useInferenceStore.getState().credentialRecoveries.req_mono.status).toBe("approved");
+
+      // Newer generation 4 arrives -> accepted
+      mockInferenceService.listCredentialRecoveries = vi.fn().mockResolvedValue([
+        {
+          ...initialRecovery,
+          requested_credential_generation: 4,
+          approval_revision: 1,
+          status: "pending_approval",
+        },
+      ]);
+      await useInferenceStore.getState().fetchCredentialRecoveries();
+      expect(useInferenceStore.getState().credentialRecoveries.req_mono.requested_credential_generation).toBe(4);
+      expect(useInferenceStore.getState().credentialRecoveries.req_mono.approval_revision).toBe(1);
+    });
+
+    it("UI-08: approveCredentialRecovery and denyCredentialRecovery commit responses monotonically", async () => {
+      const currentRecovery = {
+        request_id: "req_action",
+        deployment_id: "dep",
+        installation_id: "inst",
+        host_id: "h1",
+        public_key_fingerprint: "fp",
+        requested_credential_generation: 2,
+        expiry_ms: 20000,
+        status: "denied" as const,
+        approval_revision: 4,
+        created_at_ms: 1000,
+      };
+
+      useInferenceStore.setState({
+        credentialRecoveries: {
+          req_action: currentRecovery,
+        },
+      });
+
+      // Delayed approve response arrives with older revision 3 -> must not overwrite newer denied at rev 4
+      mockInferenceService.approveCredentialRecovery = vi.fn().mockResolvedValue({
+        ...currentRecovery,
+        approval_revision: 3,
+        status: "approved",
+      });
+      mockInferenceService.listCredentialRecoveries = vi.fn().mockResolvedValue([currentRecovery]);
+
+      await useInferenceStore.getState().approveCredentialRecovery("req_action", {
+        expected_generation: 2,
+        expected_revision: 3,
+      });
+
+      expect(useInferenceStore.getState().credentialRecoveries.req_action.status).toBe("denied");
+      expect(useInferenceStore.getState().credentialRecoveries.req_action.approval_revision).toBe(4);
     });
 
     it("guards hostPreferences against regressing revisions", async () => {

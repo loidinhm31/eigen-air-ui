@@ -11,44 +11,13 @@ afterEach(() => {
 });
 
 describe("InferenceSettings", () => {
-  it("renders Server and Companion tabs, handles license acceptance, and displays operations", async () => {
+  it("renders default Hosts tab, handles operation cancellation via cancelOperation, and displays companion tab", async () => {
     const user = userEvent.setup();
-
-    const mockDownload = vi.fn().mockResolvedValue({
-      operation_id: "op-1",
-      artifact_id: "gemma-4",
-      execution_target_kind: "server",
-      stage: "download",
-      status: "active",
-      revision: 1,
-      started_at_ms: 100,
-      updated_at_ms: 200,
-      counters: { completed_units: 1000, total_units: 2000, bytes_per_second: 1024 * 1024 },
-    });
+    const mockCancel = vi.fn().mockResolvedValue(undefined);
 
     useInferenceStore.setState({
-      serverModels: [
-        {
-          artifact_id: "gemma-4",
-          family: "gemma",
-          display_name: "Gemma 4 IT",
-          quantization: "UD-Q4_K_XL",
-          installed: false,
-          is_loaded: false,
-          has_kv_cache: false,
-        },
-      ],
-      serverRoots: [
-        {
-          root_id: "root-1",
-          kind: "model_root",
-          display_label: "Default SSD",
-          total_bytes: 100_000_000_000,
-          available_bytes: 50_000_000_000,
-          is_removable: false,
-          is_read_only: false,
-        },
-      ],
+      hosts: {},
+      pools: {},
       devices: [
         {
           device_id: "dev-mac",
@@ -74,7 +43,7 @@ describe("InferenceSettings", () => {
         "op-active": {
           operation_id: "op-active",
           artifact_id: "qwen-3.8-27b",
-          execution_target_kind: "server",
+          execution_target_kind: "pool",
           stage: "download",
           status: "active",
           revision: 2,
@@ -88,7 +57,7 @@ describe("InferenceSettings", () => {
           },
         },
       },
-      downloadServerModel: mockDownload,
+      cancelOperation: mockCancel,
       fetchAll: vi.fn().mockResolvedValue(undefined),
     });
 
@@ -100,16 +69,13 @@ describe("InferenceSettings", () => {
     expect(screen.getByText(/50%/)).toBeTruthy();
     expect(screen.getByText(/25.0 MB\/s/)).toBeTruthy();
 
-    // Server tab: Gemma 4 is present with Download button
-    expect(screen.getByText("Gemma 4 IT")).toBeTruthy();
-    const downloadBtn = screen.getByRole("button", { name: "Download" });
-    await user.click(downloadBtn);
+    // Default tab is Hosts
+    expect(screen.getByTestId("inference-hosts-view")).toBeTruthy();
 
-    // License acceptance prompt appears
-    expect(screen.getByText(/Accept License Terms/)).toBeTruthy();
-    const acceptBtn = screen.getByRole("button", { name: "Accept & Download" });
-    await user.click(acceptBtn);
-    expect(mockDownload).toHaveBeenCalledWith("gemma-4");
+    // Cancel button calls cancelOperation
+    const cancelBtn = screen.getByRole("button", { name: "Cancel" });
+    await user.click(cancelBtn);
+    expect(mockCancel).toHaveBeenCalledWith("op-active");
 
     // Switch to Companion tab
     const companionTab = screen.getByRole("button", { name: "Companion" });

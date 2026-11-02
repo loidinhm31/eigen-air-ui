@@ -1,12 +1,17 @@
 import * as React from "react";
-import { useEffect, useState } from "react";
-import type { OperationState } from "@eigen-air-ui/shared/types";
+import { useEffect, useRef, useState } from "react";
+import type { AppSourceRef, OperationState } from "@eigen-air-ui/shared/types";
+import { resolveAuthoritativeModelDigest } from "@eigen-air-ui/shared/types";
 import { useInferenceStore } from "../../stores/inferenceStore.js";
 import { HostModelRecommendationCard } from "./host-model-recommendation-card.js";
 import { HostOperationProgressCard } from "./host-operation-progress-card.js";
 import { HostMultiDeployPanel } from "./host-multi-deploy-panel.js";
 import { HostModelsHeader } from "./host-models-header.js";
-import { AlertCircle } from "lucide-react";
+import { HostCachePurgeControl } from "./host-cache-purge-control.js";
+import { Button } from "../atoms/Button.js";
+import { Badge } from "../atoms/Badge.js";
+import { Spinner } from "../atoms/Spinner.js";
+import { AlertCircle, Check, Download, RotateCcw, Square, Zap } from "lucide-react";
 
 export interface HostModelsViewProps {
   hostId?: string;
@@ -25,8 +30,10 @@ export function HostModelsView({ hostId: propHostId, onHostChange, className = "
     fetchHostOperations,
     dispatchModelOperation,
     cancelOperation,
+    purgeHostCache,
+    persistedMutations,
+    retryPendingMutation,
   } = useInferenceStore();
-
   const hostList = Object.values(hosts);
   const defaultHostId = propHostId || (hostList.length > 0 ? hostList[0].host_id : "");
   const [selectedHostId, setSelectedHostId] = useState<string>(defaultHostId);
@@ -35,8 +42,15 @@ export function HostModelsView({ hostId: propHostId, onHostChange, className = "
   const [cancellingOpId, setCancellingOpId] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [licensePromptArtifact, setLicensePromptArtifact] = useState<string | null>(null);
+  const [retryingMutationId, setRetryingMutationId] = useState<string | null>(null);
 
   const effectiveHostId = propHostId || selectedHostId;
+  const effectiveHostIdRef = useRef(effectiveHostId);
+  useEffect(() => {
+    effectiveHostIdRef.current = effectiveHostId;
+  }, [effectiveHostId]);
+
 
   useEffect(() => {
     void fetchHosts();
@@ -112,13 +126,37 @@ export function HostModelsView({ hostId: propHostId, onHostChange, className = "
 
   const handleLoad = async (artifactId: string) => {
     if (!effectiveHostId) return;
+    const targetHostId = effectiveHostId;
     setBusyArtifactId(artifactId);
     setActionError(null);
     try {
-      const rec = recommendations.find((r) => r.artifact_id === artifactId);
-      await dispatchModelOperation(effectiveHostId, artifactId, {
+      let freshRecs: typeof recommendations;
+      try {
+        freshRecs = await fetchHostModels(targetHostId);
+      } catch {
+        setActionError("Failed to refresh recommendations for host; cannot authorize dispatch from stale cache");
+        return;
+      }
+      if (effectiveHostIdRef.current !== targetHostId) {
+        setActionError("Host selection changed during recommendation refresh; dispatch aborted");
+        return;
+      }
+      if (!Array.isArray(freshRecs) || freshRecs.length === 0) {
+        setActionError("Failed to refresh recommendations for host; cannot authorize dispatch from stale cache");
+        return;
+      }
+      const rec = freshRecs.find((r) => r.artifact_id === artifactId);
+      if (!rec) {
+        setActionError(`Model '${artifactId}' is no longer recommended on this host`);
+        return;
+      }
+      if (!rec.selectable || !rec.suggested_profile?.profile) {
+        setActionError(rec.disabled_reason || `Model '${artifactId}' does not fit or lacks a valid profile on this host`);
+        return;
+      }
+      await dispatchModelOperation(targetHostId, artifactId, {
         kind: "load",
-        profile: rec?.suggested_profile?.profile,
+        profile: rec.suggested_profile.profile,
       });
     } catch (err: unknown) {
       setActionError(err instanceof Error ? err.message : "Failed to dispatch load operation");
@@ -138,6 +176,84 @@ export function HostModelsView({ hostId: propHostId, onHostChange, className = "
       setCancellingOpId(null);
     }
   };
+  const handleDownload = async (artifactId: string, licenseAccepted = true) => {
+    if (!effectiveHostId) return;
+    const expectedSha = resolveAuthoritativeModelDigest(artifactId);
+    if (!expectedSha) {
+      setActionError(`Cannot download: No authoritative catalog digest registered for artifact '${artifactId}'`);
+      return;
+    }
+    setActionError(null);
+    try {
+      await dispatchModelOperation(effectiveHostId, artifactId, {
+        kind: "download",
+        expected_sha256: expectedSha,
+        license_accepted: licenseAccepted,
+      });
+      setLicensePromptArtifact(null);
+    } catch (err: unknown) {
+      setActionError(err instanceof Error ? err.message : "Failed to dispatch download operation");
+    } finally {
+      setBusyArtifactId(null);
+    }
+  };
+
+  const handleUnload = async (artifactId: string) => {
+    if (!effectiveHostId) return;
+    setBusyArtifactId(artifactId);
+    setActionError(null);
+    try {
+      await dispatchModelOperation(effectiveHostId, artifactId, {
+        kind: "unload",
+      });
+    } catch (err: unknown) {
+      setActionError(err instanceof Error ? err.message : "Failed to dispatch unload operation");
+    } finally {
+      setBusyArtifactId(null);
+    }
+  };
+
+  const handlePrepareCache = async (artifactId: string, sourceRef?: AppSourceRef, intentRevision?: number) => {
+    if (!effectiveHostId) return;
+    if (!sourceRef || typeof intentRevision !== "number" || intentRevision <= 0) {
+      setActionError("Cannot prepare KV cache: Scoped cache preparation requires an authorized app session source and positive intent revision.");
+      return;
+    }
+    setBusyArtifactId(artifactId);
+    setActionError(null);
+    try {
+      await dispatchModelOperation(effectiveHostId, artifactId, {
+        kind: "prepare_kv",
+        source_ref: sourceRef,
+        intent_revision: intentRevision,
+      });
+    } catch (err: unknown) {
+      setActionError(err instanceof Error ? err.message : "Failed to dispatch prepare_kv operation");
+    } finally {
+      setBusyArtifactId(null);
+    }
+  };
+
+  const handleRetry = async (mutationId: string) => {
+    setRetryingMutationId(mutationId);
+    setActionError(null);
+    try {
+      await retryPendingMutation(mutationId);
+    } catch (err: unknown) {
+      setActionError(err instanceof Error ? err.message : "Failed to retry operation");
+    } finally {
+      setRetryingMutationId(null);
+    }
+  };
+
+  const unresolvedMutations = effectiveHostId
+    ? Object.values(persistedMutations).filter(
+        (m) =>
+          m.hostId === effectiveHostId &&
+          (m.status === "ambiguous" || m.status === "unknown" || m.status === "failed") &&
+          Boolean(m.request)
+      )
+    : [];
 
   return (
     <div className={`space-y-6 ${className}`} data-testid="host-models-view">
@@ -153,6 +269,96 @@ export function HostModelsView({ hostId: propHostId, onHostChange, className = "
           }
         }}
       />
+      {effectiveHostId && (
+        <HostCachePurgeControl
+          hostId={effectiveHostId}
+          onPurge={purgeHostCache}
+          onError={setActionError}
+        />
+      )}
+
+      {licensePromptArtifact && (
+        <div
+          className="rounded-lg border border-primary/50 bg-primary/10 p-4 text-xs space-y-3"
+          data-testid="license-prompt-dialog"
+        >
+          <div className="flex items-center justify-between">
+            <h4 className="font-semibold text-foreground text-sm">Accept License Terms</h4>
+            <Badge variant="outline" className="font-mono text-[10px]">{licensePromptArtifact}</Badge>
+          </div>
+          <p className="text-muted-foreground">
+            This model requires accepting its license terms before download and execution. Do you accept the terms?
+          </p>
+          <div className="flex items-center gap-2 justify-end">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setLicensePromptArtifact(null)}
+              className="min-h-[44px] px-3"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="default"
+              size="sm"
+              disabled={busyArtifactId === licensePromptArtifact}
+              onClick={() => void handleDownload(licensePromptArtifact, true)}
+              className="min-h-[44px] px-4 font-semibold"
+              data-testid="accept-license-download-btn"
+            >
+              {busyArtifactId === licensePromptArtifact ? <Spinner size="sm" className="mr-1" /> : <Check className="mr-1 h-3.5 w-3.5" />}
+              Accept & Download
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {unresolvedMutations.length > 0 && (
+        <div className="space-y-2.5" data-testid="unresolved-mutations-region">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+            <RotateCcw className="h-3.5 w-3.5" />
+            Unresolved Operations ({unresolvedMutations.length})
+          </h3>
+          <div className="grid gap-2">
+            {unresolvedMutations.map((m) => (
+              <div
+                key={m.mutationId}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs"
+                data-testid={`unresolved-mutation-${m.mutationId}`}
+              >
+                <div className="flex flex-col gap-0.5 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-foreground truncate">{m.artifactId || m.kind}</span>
+                    <Badge variant="warning" className="text-[10px] uppercase font-mono">
+                      {m.status}
+                    </Badge>
+                    <Badge variant="outline" className="text-[10px] uppercase font-mono">
+                      {m.kind}
+                    </Badge>
+                  </div>
+                  <span className="font-mono text-[10px] text-muted-foreground truncate">
+                    ID: {m.mutationId}
+                  </span>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={retryingMutationId === m.mutationId}
+                  onClick={() => void handleRetry(m.mutationId)}
+                  className="min-h-[44px] px-3 text-xs"
+                  data-testid={`retry-mutation-${m.mutationId}`}
+                >
+                  {retryingMutationId === m.mutationId ? <Spinner size="sm" className="mr-1" /> : <RotateCcw className="mr-1 h-3.5 w-3.5" />}
+                  Retry
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {actionError && (
         <div
@@ -223,14 +429,53 @@ export function HostModelsView({ hostId: propHostId, onHostChange, className = "
               const isTop = rec.rank === 1 || (minRank !== null && rec.rank === minRank);
 
               return (
-                <HostModelRecommendationCard
-                  key={rec.artifact_id}
-                  recommendation={rec}
-                  isTopRanked={isTop}
-                  isLoading={busyArtifactId === rec.artifact_id}
-                  onLoad={handleLoad}
-                  onOpenMultiDeploy={(artId) => setMultiDeployArtifactId(artId)}
-                />
+                <div key={rec.artifact_id} className="space-y-2">
+                  <HostModelRecommendationCard
+                    recommendation={rec}
+                    isTopRanked={isTop}
+                    isLoading={busyArtifactId === rec.artifact_id}
+                    onLoad={handleLoad}
+                    onOpenMultiDeploy={(artId) => setMultiDeployArtifactId(artId)}
+                  />
+                  <div className="flex flex-wrap items-center justify-end gap-2 px-1">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={busyArtifactId === rec.artifact_id}
+                      onClick={() => setLicensePromptArtifact(rec.artifact_id)}
+                      className="min-h-[44px] px-3 text-xs"
+                      data-testid={`download-btn-${rec.artifact_id}`}
+                    >
+                      <Download className="mr-1.5 h-3.5 w-3.5" />
+                      Download
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={busyArtifactId === rec.artifact_id}
+                      onClick={() => void handlePrepareCache(rec.artifact_id)}
+                      className="min-h-[44px] px-3 text-xs"
+                      data-testid={`prepare-btn-${rec.artifact_id}`}
+                    >
+                      <Zap className="mr-1.5 h-3.5 w-3.5 text-amber-400" />
+                      Prepare KV
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={busyArtifactId === rec.artifact_id}
+                      onClick={() => void handleUnload(rec.artifact_id)}
+                      className="min-h-[44px] px-3 text-xs"
+                      data-testid={`unload-btn-${rec.artifact_id}`}
+                    >
+                      <Square className="mr-1.5 h-3.5 w-3.5" />
+                      Unload
+                    </Button>
+                  </div>
+                </div>
               );
             })}
           </div>

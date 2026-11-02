@@ -40,33 +40,32 @@ describe("HttpInferenceAdapter", () => {
     expect(fetchMock.mock.calls[0][0]).toBe("http://daemon:18790/v1/inference/server/models");
   });
 
-  it("downloadServerModel() posts artifact_id and returns canonical snapshot", async () => {
+  it("cancelOperation() posts to /v1/inference/operations/:id/cancel", async () => {
     const mockSnapshot = {
-      operation_id: "download-1",
-      artifact_id: "qwen-3.8-27b",
-      execution_target_kind: "server",
-      stage: "download",
-      status: "active",
-      revision: 1,
-      started_at_ms: 1000,
-      updated_at_ms: 1000,
+      operation_id: "op-cancel-1",
+      host_id: "host-1",
+      artifact_id: "gemma-4",
+      kind: "load",
+      state: "cancelling",
+      stage: "cancelling",
+      revision: 3,
       counters: { completed_units: 0, total_units: 1000 },
     };
 
     const fetchMock = vi.fn().mockResolvedValue({
-      status: 202,
+      status: 200,
       ok: true,
       json: async () => mockSnapshot,
     });
     vi.stubGlobal("fetch", fetchMock);
 
     const adapter = new HttpInferenceAdapter("http://daemon:18790");
-    const result = await adapter.downloadServerModel("qwen-3.8-27b");
+    const result = await adapter.cancelOperation("op-cancel-1");
 
-    expect(result.operation_id).toBe("download-1");
-    expect(result.stage).toBe("download");
-    expect(fetchMock.mock.calls[0][0]).toBe("http://daemon:18790/v1/inference/server/models/download");
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ artifact_id: "qwen-3.8-27b" });
+    expect(result?.operation_id).toBe("op-cancel-1");
+    expect(result?.state).toBe("cancelling");
+    expect(fetchMock.mock.calls[0][0]).toBe("http://daemon:18790/v1/inference/operations/op-cancel-1/cancel");
+    expect(fetchMock.mock.calls[0][1].method).toBe("POST");
   });
 
   it("throws InferenceHttpError with server error code and message", async () => {
@@ -81,7 +80,7 @@ describe("HttpInferenceAdapter", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const adapter = new HttpInferenceAdapter("http://daemon:18790");
-    await expect(adapter.deleteServerModel("gemma-4")).rejects.toThrow(InferenceHttpError);
+    await expect(adapter.cancelOperation("op-err-1")).rejects.toThrow(InferenceHttpError);
   });
 
   it("listDevices() queries /v1/inference/devices", async () => {

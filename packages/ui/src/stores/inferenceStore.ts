@@ -124,15 +124,6 @@ export interface InferenceStoreState {
   fetchCompanionStatus: () => Promise<void>;
   fetchAll: () => Promise<void>;
 
-  selectServerRoot: (rootId: string) => Promise<void>;
-  downloadServerModel: (artifactId: string) => Promise<CanonicalOperationSnapshot>;
-  deleteServerModel: (artifactId: string) => Promise<void>;
-  loadServerModel: (artifactId: string) => Promise<void>;
-  unloadServerModel: (artifactId: string) => Promise<void>;
-  prepareServerModelCache: (artifactId: string, prompt?: string) => Promise<CanonicalOperationSnapshot>;
-  purgeServerModelCache: (artifactId: string) => Promise<void>;
-
-  cancelServerOperation: (operationId: string) => Promise<void>;
 
   revokeDevice: (deviceId: string) => Promise<void>;
   retireDevice: (deviceId: string, archiveWarning?: boolean) => Promise<void>;
@@ -384,6 +375,31 @@ function mergeHostRecoveryStatus(
   };
 }
 
+function shouldAcceptRecoveryUpdate(
+  existing: OperatorRecoveryView | undefined,
+  incoming: OperatorRecoveryView
+): boolean {
+  if (!existing) return true;
+  if (existing.requested_credential_generation > incoming.requested_credential_generation) {
+    return false;
+  }
+  if (existing.requested_credential_generation < incoming.requested_credential_generation) {
+    return true;
+  }
+  const isExistingTerminal = existing.status !== "pending_approval";
+  const isIncomingTerminal = incoming.status !== "pending_approval";
+  if (isExistingTerminal && !isIncomingTerminal) {
+    return false;
+  }
+  if (existing.approval_revision > incoming.approval_revision) {
+    return false;
+  }
+  if (existing.approval_revision < incoming.approval_revision) {
+    return true;
+  }
+  return true;
+}
+
 function operationSnapshotToCanonical(op: OperationSnapshot): CanonicalOperationSnapshot {
   let status: CanonicalOperationSnapshot["status"] = "active";
   if (
@@ -534,6 +550,8 @@ function savePersistedMutations(mutations: Record<string, unknown>) {
 let lastFetchHostsStartedMs = 0;
 let activeReconciliationPromise: Promise<void> | null = null;
 let activeReconciliationScope: string | null = null;
+let lastFetchRecoveriesStartedMs = 0;
+let activeFetchRecoveriesPromise: Promise<void> | null = null;
 
 export const useInferenceStore = create<InferenceStoreState>((set, get) => {
   registerAccessInvalidationListener(() => {
@@ -933,36 +951,42 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
     },
 
     fetchCredentialRecoveries: async () => {
-      const startKey = get().accessKey;
-      set({ loadingRecoveries: true, recoveriesError: null });
-      try {
-        const list = await getInferenceService().listCredentialRecoveries();
-        if (get().accessKey !== startKey) return;
-        const currentRecoveries = get().credentialRecoveries;
-        const map: Record<string, OperatorRecoveryView> = {};
-        for (const r of list) {
-          const existing = currentRecoveries[r.request_id];
-          if (existing) {
-            if (existing.requested_credential_generation > r.requested_credential_generation) {
-              map[r.request_id] = existing;
-              continue;
-            }
-            if (
-              existing.requested_credential_generation === r.requested_credential_generation &&
-              existing.approval_revision > r.approval_revision
-            ) {
-              map[r.request_id] = existing;
-              continue;
-            }
-          }
-          map[r.request_id] = r;
-        }
-        set({ credentialRecoveries: map, loadingRecoveries: false });
-      } catch (e: unknown) {
-        if (get().accessKey !== startKey) return;
-        const msg = e instanceof Error ? e.message : "Failed to fetch recoveries";
-        set({ recoveriesError: msg, loadingRecoveries: false });
+      if (activeFetchRecoveriesPromise) {
+        return activeFetchRecoveriesPromise;
       }
+      const startKey = get().accessKey;
+      const requestStartedMs = Date.now();
+      lastFetchRecoveriesStartedMs = requestStartedMs;
+      set({ loadingRecoveries: true, recoveriesError: null });
+
+      activeFetchRecoveriesPromise = (async () => {
+        try {
+          const list = await getInferenceService().listCredentialRecoveries();
+          if (get().accessKey !== startKey || requestStartedMs < lastFetchRecoveriesStartedMs) {
+            return;
+          }
+          const currentRecoveries = get().credentialRecoveries;
+          const map: Record<string, OperatorRecoveryView> = { ...currentRecoveries };
+          for (const r of list) {
+            const existing = currentRecoveries[r.request_id];
+            if (existing && !shouldAcceptRecoveryUpdate(existing, r)) {
+              continue;
+            }
+            map[r.request_id] = r;
+          }
+          set({ credentialRecoveries: map, loadingRecoveries: false });
+        } catch (e: unknown) {
+          if (get().accessKey !== startKey || requestStartedMs < lastFetchRecoveriesStartedMs) {
+            return;
+          }
+          const msg = e instanceof Error ? e.message : "Failed to fetch recoveries";
+          set({ recoveriesError: msg, loadingRecoveries: false });
+        } finally {
+          activeFetchRecoveriesPromise = null;
+        }
+      })();
+
+      return activeFetchRecoveriesPromise;
     },
 
     createInstallation: async (req: CreateInstallationRequest) => {
@@ -1176,12 +1200,18 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
       const startKey = get().accessKey;
       const updated = await getInferenceService().approveCredentialRecovery(requestId, body);
       if (get().accessKey !== startKey) return;
-      set((state) => ({
-        credentialRecoveries: {
-          ...state.credentialRecoveries,
-          [requestId]: updated,
-        },
-      }));
+      set((state) => {
+        const existing = state.credentialRecoveries[requestId];
+        if (existing && !shouldAcceptRecoveryUpdate(existing, updated)) {
+          return state;
+        }
+        return {
+          credentialRecoveries: {
+            ...state.credentialRecoveries,
+            [requestId]: updated,
+          },
+        };
+      });
       await get().fetchCredentialRecoveries();
     },
 
@@ -1189,12 +1219,18 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
       const startKey = get().accessKey;
       const updated = await getInferenceService().denyCredentialRecovery(requestId, expectedRevision);
       if (get().accessKey !== startKey) return;
-      set((state) => ({
-        credentialRecoveries: {
-          ...state.credentialRecoveries,
-          [requestId]: updated,
-        },
-      }));
+      set((state) => {
+        const existing = state.credentialRecoveries[requestId];
+        if (existing && !shouldAcceptRecoveryUpdate(existing, updated)) {
+          return state;
+        }
+        return {
+          credentialRecoveries: {
+            ...state.credentialRecoveries,
+            [requestId]: updated,
+          },
+        };
+      });
       await get().fetchCredentialRecoveries();
     },
 
@@ -1292,10 +1328,24 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
     applyRecoveryUpdatedEvent: (payload: InferenceRecoveryUpdatedPayload) => {
       set((state) => {
         const existing = state.credentialRecoveries[payload.request_id];
-        if (!existing) return state;
+        if (!existing) {
+          void get().fetchCredentialRecoveries();
+          return state;
+        }
         const rawPayload = payload as { revision?: number };
         const incomingRev = payload.approval_revision ?? rawPayload.revision;
-        if (typeof incomingRev === "number" && existing.approval_revision > incomingRev) {
+        // Unorderable hints without revision/generation must NOT directly mutate state; trigger refetch
+        if (typeof incomingRev !== "number") {
+          void get().fetchCredentialRecoveries();
+          return state;
+        }
+        if (existing.approval_revision > incomingRev) {
+          return state;
+        }
+        const isExistingTerminal = existing.status !== "pending_approval";
+        const isIncomingTerminal = payload.status !== "pending_approval";
+        if (isExistingTerminal && !isIncomingTerminal) {
+          // Terminal status can NEVER be reverted by an event
           return state;
         }
         return {
@@ -1304,56 +1354,11 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
             [payload.request_id]: {
               ...existing,
               status: payload.status as OperatorRecoveryView["status"],
-              approval_revision: typeof incomingRev === "number" ? incomingRev : existing.approval_revision,
+              approval_revision: incomingRev,
             },
           },
         };
       });
-    },
-
-    selectServerRoot: async (rootId: string) => {
-      const res = await getInferenceService().selectServerRoot(rootId);
-      set({ selectedServerRootId: res.selected_root_id });
-      await get().fetchServerRoots();
-    },
-
-    downloadServerModel: async (artifactId: string) => {
-      const snapshot = await getInferenceService().downloadServerModel(artifactId);
-      get().applyOperationSnapshot(snapshot);
-      await get().fetchServerModels();
-      return snapshot;
-    },
-
-    deleteServerModel: async (artifactId: string) => {
-      await getInferenceService().deleteServerModel(artifactId);
-      await get().fetchServerModels();
-    },
-
-    loadServerModel: async (artifactId: string) => {
-      const snapshot = await getInferenceService().loadServerModel(artifactId);
-      get().applyOperationSnapshot(snapshot);
-      await get().fetchServerModels();
-    },
-
-    unloadServerModel: async (artifactId: string) => {
-      const snapshot = await getInferenceService().unloadServerModel(artifactId);
-      get().applyOperationSnapshot(snapshot);
-      await get().fetchServerModels();
-    },
-    prepareServerModelCache: async (artifactId: string, prompt?: string) => {
-      const snapshot = await getInferenceService().prepareServerModelCache(artifactId, prompt);
-      get().applyOperationSnapshot(snapshot);
-      return snapshot;
-    },
-
-    purgeServerModelCache: async (artifactId: string) => {
-      await getInferenceService().purgeServerModelCache(artifactId);
-      await get().fetchServerModels();
-    },
-
-    cancelServerOperation: async (operationId: string) => {
-      const snapshot = await getInferenceService().cancelServerOperation(operationId);
-      get().applyOperationSnapshot(snapshot);
     },
 
     revokeDevice: async (deviceId: string) => {

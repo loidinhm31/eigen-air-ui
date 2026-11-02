@@ -131,114 +131,11 @@ export class HttpInferenceAdapter implements IInferenceService {
     return decodeModelInventoryItem(raw);
   }
 
-  async downloadServerModel(artifactId: string): Promise<CanonicalOperationSnapshot> {
-    const raw = await this.request<unknown>("/v1/inference/server/models/download", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ artifact_id: artifactId }),
-    });
-    return decodeCanonicalOperationSnapshot(raw);
-  }
-
-  async importServerModel(artifactId: string, sourcePath: string): Promise<CanonicalOperationSnapshot> {
-    const raw = await this.request<unknown>("/v1/inference/server/models/import", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ artifact_id: artifactId, source_path: sourcePath }),
-    });
-    return decodeCanonicalOperationSnapshot(raw);
-  }
-
-  async deleteServerModel(artifactId: string): Promise<{ status: string; artifact_id: string }> {
-    return this.request<{ status: string; artifact_id: string }>(
-      `/v1/inference/server/models/${encodeURIComponent(artifactId)}`,
-      { method: "DELETE" }
-    );
-  }
-
-  async loadServerModel(artifactId: string): Promise<CanonicalOperationSnapshot> {
-    const raw = await this.request<unknown>(
-      `/v1/inference/server/models/${encodeURIComponent(artifactId)}/load`,
-      { method: "POST" }
-    );
-    return decodeCanonicalOperationSnapshot(raw);
-  }
-
-  async unloadServerModel(artifactId: string): Promise<CanonicalOperationSnapshot> {
-    const raw = await this.request<unknown>(
-      `/v1/inference/server/models/${encodeURIComponent(artifactId)}/unload`,
-      { method: "POST" }
-    );
-    return decodeCanonicalOperationSnapshot(raw);
-  }
-
-  async prepareServerModelCache(artifactId: string, prompt?: string): Promise<CanonicalOperationSnapshot> {
-    const raw = await this.request<unknown>(
-      `/v1/inference/server/models/${encodeURIComponent(artifactId)}/cache/prepare`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
-      }
-    );
-    return decodeCanonicalOperationSnapshot(raw);
-  }
-
-  async rebuildServerModelCache(artifactId: string, prompt?: string): Promise<CanonicalOperationSnapshot> {
-    const raw = await this.request<unknown>(
-      `/v1/inference/server/models/${encodeURIComponent(artifactId)}/cache/rebuild`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
-      }
-    );
-    return decodeCanonicalOperationSnapshot(raw);
-  }
-
-  async purgeServerModelCache(artifactId: string): Promise<{ purged_count: number; artifact_id: string }> {
-    return this.request<{ purged_count: number; artifact_id: string }>(
-      `/v1/inference/server/models/${encodeURIComponent(artifactId)}/cache`,
-      { method: "DELETE" }
-    );
-  }
 
   async listServerRoots(): Promise<StorageRootDescriptor[]> {
     const raw = await this.request<unknown[]>("/v1/inference/server/roots");
     if (!Array.isArray(raw)) return [];
     return raw.map(decodeStorageRootDescriptor);
-  }
-
-  async selectServerRoot(
-    rootId: string,
-    expectedRevision?: number
-  ): Promise<{ selected_root_id: string; revision: number }> {
-    return this.request<{ selected_root_id: string; revision: number }>(
-      "/v1/inference/server/roots/select",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          root_id: rootId,
-          expected_revision: expectedRevision,
-        }),
-      }
-    );
-  }
-
-  async getServerOperation(operationId: string): Promise<CanonicalOperationSnapshot> {
-    const raw = await this.request<unknown>(
-      `/v1/inference/server/operations/${encodeURIComponent(operationId)}`
-    );
-    return decodeCanonicalOperationSnapshot(raw);
-  }
-
-  async cancelServerOperation(operationId: string): Promise<CanonicalOperationSnapshot> {
-    const raw = await this.request<unknown>(
-      `/v1/inference/server/operations/${encodeURIComponent(operationId)}/cancel`,
-      { method: "POST" }
-    );
-    return decodeCanonicalOperationSnapshot(raw);
   }
 
   async listDevices(): Promise<PublicDeviceSummary[]> {

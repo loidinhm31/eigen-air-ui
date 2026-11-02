@@ -168,8 +168,25 @@ export class WsChatAdapter implements IChatService, ISessionService {
         useConnectionStore.getState().setStatus("connected", connection.version);
         this.reconnectSubscribers.forEach((callback) => callback());
         // Reconcile gap snapshot after reconnect
-        useInferenceStore.getState().fetchHosts();
-        useInferenceStore.getState().fetchPools();
+        const store = useInferenceStore.getState();
+        void store.fetchHosts();
+        void store.fetchPools();
+        void store.fetchCredentialRecoveries();
+        if (store.activeInstallationId) {
+          void store.fetchInstallation(store.activeInstallationId);
+        }
+        void store.reconcilePersistedMutations();
+        const activeOps = Object.values(store.operations).filter(
+          (op) =>
+            op.status === "active" ||
+            op.status === "pending" ||
+            op.state === "running" ||
+            op.state === "queued" ||
+            op.state === "cancelling"
+        );
+        for (const op of activeOps) {
+          void store.pollActiveOperation(op.operation_id);
+        }
       } catch {
         throw new Error("re-authentication failed");
       }

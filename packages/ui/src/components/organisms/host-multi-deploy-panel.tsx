@@ -53,15 +53,29 @@ export function HostMultiDeployPanel({
         if (!host || !host.is_connected) {
           return { hostId: hId, status: "ineligible" as const, message: "Host offline or disconnected" };
         }
-        let recs = hostModels?.[hId];
-        if (!recs && onFetchHostModels) {
+        let recs: HostModelRecommendation[] | undefined;
+        if (onFetchHostModels) {
           try {
-            recs = await onFetchHostModels(hId);
+            const fresh = await onFetchHostModels(hId);
+            recs = fresh !== undefined ? fresh : hostModels?.[hId];
           } catch {
-            // Pre-fetch failed
+            return {
+              hostId: hId,
+              status: "ineligible" as const,
+              message: "Failed to refresh recommendations for host; cannot authorize dispatch from stale cache",
+            };
           }
+        } else {
+          recs = hostModels?.[hId];
         }
-        const rec = recs?.find((r) => r.artifact_id === artifactId);
+        if (!recs || recs.length === 0) {
+          return {
+            hostId: hId,
+            status: "ineligible" as const,
+            message: "Recommendations not loaded or artifact not evaluated on host",
+          };
+        }
+        const rec = recs.find((r) => r.artifact_id === artifactId);
         if (!rec) {
           return {
             hostId: hId,

@@ -159,11 +159,14 @@ describe("InferenceHostsView", () => {
     // Verify cache purge confirmation and action
     const purgeBtn = screen.getByTestId("purge-cache-button");
     await user.click(purgeBtn);
-    expect(screen.getByText("Purge all cache?")).toBeTruthy();
+    expect(screen.getByText("Purge session cache:")).toBeTruthy();
+
+    const sessionInput = screen.getByTestId("purge-session-scope-input");
+    await user.type(sessionInput, "session-node-1");
 
     const confirmPurgeBtn = screen.getByTestId("confirm-purge-cache-button");
     await user.click(confirmPurgeBtn);
-    expect(purgeHostCacheMock).toHaveBeenCalledWith("host-node-1");
+    expect(purgeHostCacheMock).toHaveBeenCalledWith("host-node-1", { session_id: "session-node-1" });
 
     // Verify Operator Credential Recovery Section
     const recoverySec = screen.getByTestId("operator-credential-recovery-section");
