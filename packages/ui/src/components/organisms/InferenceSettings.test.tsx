@@ -150,4 +150,39 @@ describe("InferenceSettings", () => {
     await user.click(modelsTab);
     expect(screen.getByTestId("host-models-view")).toBeTruthy();
   });
+  it("UI-05: bounds polling interval only when active operations are present and cleans up on unmount", async () => {
+    vi.useFakeTimers();
+    const fetchAllSpy = vi.fn().mockResolvedValue(undefined);
+    useInferenceStore.setState({
+      fetchAll: fetchAllSpy,
+      operations: {
+        "op-active": {
+          operation_id: "op-active",
+          artifact_id: "gemma-4",
+          execution_target_kind: "server",
+          stage: "download",
+          status: "active",
+          revision: 1,
+          started_at_ms: 100,
+          updated_at_ms: 200,
+          counters: {},
+        },
+      },
+    });
+
+    const { unmount } = render(<InferenceSettings />);
+    // Initial fetchAll on mount
+    expect(fetchAllSpy).toHaveBeenCalledTimes(1);
+
+    // Fast-forward 1000ms: interval ticks once
+    vi.advanceTimersByTime(1000);
+    expect(fetchAllSpy).toHaveBeenCalledTimes(2);
+
+    // Unmount clears interval
+    unmount();
+    vi.advanceTimersByTime(2000);
+    expect(fetchAllSpy).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
+  });
 });

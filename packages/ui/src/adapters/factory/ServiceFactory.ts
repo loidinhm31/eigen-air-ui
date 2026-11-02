@@ -41,6 +41,64 @@ let serviceAccessContext: RunAccessContext = {
   authToken: typeof window !== "undefined" ? getStoredAuthToken() : undefined,
 };
 let serviceAccessRevision = 0;
+let serviceDeploymentId: string | null = null;
+
+export interface PersistenceScope {
+  deploymentId: string;
+  identityKey: string;
+}
+
+export interface ExtendedAccessContext extends RunAccessContext {
+  deploymentId?: string;
+}
+
+export function setServiceDeploymentId(id: string | null | undefined): void {
+  const next = id?.trim() || null;
+  if (serviceDeploymentId !== next) {
+    serviceDeploymentId = next;
+    serviceAccessRevision += 1;
+    notifyAccessInvalidated(serviceAccessRevision);
+  }
+}
+
+export function getServiceDeploymentId(): string | null {
+  return serviceDeploymentId;
+}
+
+export function getPersistenceScope(): PersistenceScope | null {
+  const ctx = getServiceAccessContext();
+  const deploymentId = serviceDeploymentId?.trim();
+  const identityKey = ctx.identityKey?.trim();
+  if (!deploymentId || !identityKey) {
+    return null;
+  }
+  return { deploymentId, identityKey };
+}
+
+export function resetServiceFactoryState(clearListeners = false): void {
+  serviceAccessContext = {
+    authToken: typeof window !== "undefined" ? getStoredAuthToken() : undefined,
+  };
+  serviceDeploymentId = null;
+  serviceAccessRevision = 0;
+  chatService?.disconnect();
+  chatService = null;
+  memoryService = null;
+  toolService = null;
+  skillService = null;
+  configService = null;
+  sessionService = null;
+  vaultKnowledgeService = null;
+  userQuestionService = null;
+  toolApprovalService = null;
+  artifactService = null;
+  runService = null;
+  inferenceService = null;
+  localCompanionService = null;
+  if (clearListeners) {
+    _accessInvalidationListeners.clear();
+  }
+}
 
 type AccessInvalidationListener = (revision: number) => void;
 const _accessInvalidationListeners = new Set<AccessInvalidationListener>();
@@ -96,9 +154,18 @@ function areCapabilitiesEqual(
 }
 
 /** Ephemeral host access; never persisted or included in question state. */
-export function setServiceAccessContext(context: RunAccessContext | undefined): void {
+export function setServiceAccessContext(context: ExtendedAccessContext | undefined): void {
   const next = context ? { ...context } : {};
+  let deploymentChanged = false;
+  if (context && "deploymentId" in context && typeof context.deploymentId === "string") {
+    const nextDep = context.deploymentId.trim() || null;
+    if (serviceDeploymentId !== nextDep) {
+      serviceDeploymentId = nextDep;
+      deploymentChanged = true;
+    }
+  }
   const changed =
+    deploymentChanged ||
     serviceAccessContext.authToken !== next.authToken ||
     serviceAccessContext.identityKey !== next.identityKey ||
     !areCapabilitiesEqual(serviceAccessContext.capabilities, next.capabilities);
@@ -109,7 +176,7 @@ export function setServiceAccessContext(context: RunAccessContext | undefined): 
   }
 }
 
-export function getServiceAccessContext(): RunAccessContext {
+export function getServiceAccessContext(): ExtendedAccessContext {
   const token =
     serviceAccessContext.authToken ||
     (typeof window !== "undefined" ? getStoredAuthToken() : undefined);
@@ -120,6 +187,7 @@ export function getServiceAccessContext(): RunAccessContext {
       serviceAccessContext.capabilities ??
       (token ? new Set(["run:read:debug", "run:export", "run:delete"]) : undefined),
     accessRevision: serviceAccessRevision,
+    ...(serviceDeploymentId ? { deploymentId: serviceDeploymentId } : {}),
   };
 }
 

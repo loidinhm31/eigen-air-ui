@@ -23,6 +23,7 @@ import {
   setRunService,
   setInferenceService,
   getServiceAccessContext,
+  setServiceDeploymentId,
 } from "./ServiceFactory.js";
 
 export interface NormalizedDaemonUrls {
@@ -62,9 +63,9 @@ export function normalizeDaemonUrl(daemonUrl: string): NormalizedDaemonUrls {
   return { httpUrl, wsUrl };
 }
 
-export function initServicesForDaemonUrl(daemonUrl: string): void {
+export function initServicesForDaemonUrl(daemonUrl: string, deploymentId?: string): void {
   const { httpUrl, wsUrl } = normalizeDaemonUrl(daemonUrl);
-
+  setServiceDeploymentId(deploymentId ?? httpUrl);
   const access = () => getServiceAccessContext();
   const wsAdapter = new WsChatAdapter(wsUrl, access);
   setChatService(wsAdapter);

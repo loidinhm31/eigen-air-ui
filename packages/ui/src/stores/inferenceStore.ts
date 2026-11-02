@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { AUTHORITATIVE_CATALOG_DIGESTS } from "@eigen-air-ui/shared/types";
 import type {
   ApproveRecoveryRequest,
+  AppSourceRef,
   CanonicalOperationSnapshot,
   ClientUpdateRecoveryPreferences,
   ConfiguredStorageRoot,
@@ -23,6 +24,7 @@ import type {
   InstallationStatus,
   LocalCompanionStatus,
   ModelInventoryItem,
+  OperationKind,
   OperationSnapshot,
   OperationState,
   OperatorRecoveryView,
@@ -33,6 +35,7 @@ import type {
   PublicDeviceSummary,
   RunInferenceProgressEvent,
   StorageRootDescriptor,
+  WorkerLoadProfile,
 } from "@eigen-air-ui/shared/types";
 import {
   getInferenceService,
@@ -147,12 +150,39 @@ export interface InferenceStoreState {
   invalidateAccess: () => void;
   getTargetReadiness: (target?: ExecutionTarget) => TargetReadiness;
   reconcilePersistedMutations: () => Promise<void>;
+  retryPendingMutation: (mutationId: string) => Promise<string | undefined>;
 }
 
 function computeAccessKey(): string {
   const ctx = getServiceAccessContext();
-  return `${ctx.identityKey ?? ""}:${ctx.authToken ?? ""}:${ctx.accessRevision ?? 0}`;
+  const dep = "deploymentId" in ctx && typeof ctx.deploymentId === "string" ? ctx.deploymentId.trim() : "";
+  return `${dep}:${ctx.identityKey ?? ""}:${ctx.authToken ?? ""}:${ctx.accessRevision ?? 0}`;
 }
+
+export interface AllowlistedOperationRequest {
+  kind: OperationKind;
+  artifact_id?: string;
+  mutation_id?: string;
+  expected_sha256?: string;
+  profile?: WorkerLoadProfile;
+  license_accepted?: boolean;
+  source_root_id?: string;
+  source_relative_path?: string;
+  target_root_id?: string;
+  scope_key?: string;
+  session_hash?: string;
+  invalidation_revision?: number;
+  intent_revision?: number;
+  source_ref?: AppSourceRef;
+}
+
+export type PersistedMutationStatus =
+  | "pending_dispatch"
+  | "dispatched"
+  | "ambiguous"
+  | "unknown"
+  | "expired"
+  | OperationState;
 
 export interface PersistedMutation {
   mutationId: string;
@@ -160,16 +190,125 @@ export interface PersistedMutation {
   kind: string;
   artifactId?: string;
   operationId?: string;
-  status?: string;
+  status?: PersistedMutationStatus | string;
   timestamp: number;
+  request?: AllowlistedOperationRequest;
 }
 
-function computePersistenceNamespace(): string {
-  const ctx = getServiceAccessContext();
-  if (ctx.identityKey) {
-    return `id:${ctx.identityKey}`;
+function sanitizeWorkerLoadProfile(profile: unknown): WorkerLoadProfile | undefined {
+  if (!profile || typeof profile !== "object") return undefined;
+  const p = profile as Record<string, unknown>;
+  if (
+    typeof p.context_tokens !== "number" ||
+    typeof p.batch_tokens !== "number" ||
+    typeof p.ubatch_tokens !== "number" ||
+    typeof p.threads !== "number" ||
+    typeof p.gpu_layers !== "number" ||
+    typeof p.kv_placement !== "string" ||
+    typeof p.type_k !== "string" ||
+    typeof p.type_v !== "string" ||
+    typeof p.flash_attention !== "boolean"
+  ) {
+    return undefined;
   }
-  return `rev:${ctx.accessRevision ?? 0}`;
+  const clean: WorkerLoadProfile = {
+    context_tokens: p.context_tokens,
+    batch_tokens: p.batch_tokens,
+    ubatch_tokens: p.ubatch_tokens,
+    threads: p.threads,
+    gpu_layers: p.gpu_layers,
+    kv_placement: p.kv_placement,
+    type_k: p.type_k,
+    type_v: p.type_v,
+    flash_attention: p.flash_attention,
+  };
+  if (typeof p.device_index === "number" || p.device_index === null) {
+    clean.device_index = p.device_index;
+  }
+  if (typeof p.swa_full === "boolean") {
+    clean.swa_full = p.swa_full;
+  }
+  if (typeof p.n_rs_seq === "number") {
+    clean.n_rs_seq = p.n_rs_seq;
+  }
+  return clean;
+}
+
+function sanitizeAppSourceRef(ref: unknown): AppSourceRef | undefined {
+  if (!ref || typeof ref !== "object") return undefined;
+  const r = ref as Record<string, unknown>;
+  if (
+    typeof r.tenant_id !== "string" ||
+    typeof r.user_id !== "string" ||
+    typeof r.workspace_id !== "string" ||
+    typeof r.session_id !== "string" ||
+    typeof r.scope_hash !== "string" ||
+    typeof r.session_hash !== "string" ||
+    typeof r.prompt_profile_id !== "string" ||
+    typeof r.source_revision !== "string" ||
+    typeof r.prefix_digest !== "string" ||
+    typeof r.preparation_fingerprint !== "string"
+  ) {
+    return undefined;
+  }
+  return {
+    tenant_id: r.tenant_id,
+    user_id: r.user_id,
+    workspace_id: r.workspace_id,
+    session_id: r.session_id,
+    scope_hash: r.scope_hash,
+    session_hash: r.session_hash,
+    prompt_profile_id: r.prompt_profile_id,
+    source_revision: r.source_revision,
+    prefix_digest: r.prefix_digest,
+    preparation_fingerprint: r.preparation_fingerprint,
+  };
+}
+
+function sanitizeAllowlistedOperationRequest(
+  req: HostOperationRequest
+): AllowlistedOperationRequest | undefined {
+  if (req.kind === "prepare_kv") {
+    return undefined;
+  }
+  const sanitized: AllowlistedOperationRequest = {
+    kind: req.kind,
+  };
+  if (typeof req.artifact_id === "string") sanitized.artifact_id = req.artifact_id;
+  if (typeof req.mutation_id === "string") sanitized.mutation_id = req.mutation_id;
+  if (typeof req.expected_sha256 === "string") sanitized.expected_sha256 = req.expected_sha256;
+  if (req.profile) {
+    const prof = sanitizeWorkerLoadProfile(req.profile);
+    if (prof) sanitized.profile = prof;
+  }
+  if (typeof req.license_accepted === "boolean") sanitized.license_accepted = req.license_accepted;
+  if (typeof req.source_root_id === "string") sanitized.source_root_id = req.source_root_id;
+  if (typeof req.source_relative_path === "string") sanitized.source_relative_path = req.source_relative_path;
+  if (typeof req.target_root_id === "string") sanitized.target_root_id = req.target_root_id;
+  if (typeof req.scope_key === "string") sanitized.scope_key = req.scope_key;
+  if (typeof req.session_hash === "string") sanitized.session_hash = req.session_hash;
+  if (typeof req.invalidation_revision === "number") sanitized.invalidation_revision = req.invalidation_revision;
+  if (typeof req.intent_revision === "number") sanitized.intent_revision = req.intent_revision;
+  if (req.source_ref) {
+    const sref = sanitizeAppSourceRef(req.source_ref);
+    if (sref) sanitized.source_ref = sref;
+  }
+  return sanitized;
+}
+
+function computePersistenceNamespace(): string | null {
+  const ctx = getServiceAccessContext();
+  let deploymentId: string | undefined;
+  if ("deploymentId" in ctx && typeof ctx.deploymentId === "string") {
+    deploymentId = ctx.deploymentId.trim() || undefined;
+  }
+  const identityKey = ctx.identityKey?.trim() || undefined;
+  if (!deploymentId || !identityKey) {
+    return null;
+  }
+  const safeDep = encodeURIComponent(deploymentId);
+  const safeOwner = encodeURIComponent(identityKey);
+  return `deploy:${safeDep}:owner:${safeOwner}`;
 }
 
 function mergeHostPreferences(
@@ -281,14 +420,21 @@ function operationSnapshotToCanonical(op: OperationSnapshot): CanonicalOperation
 
 const MAX_PERSISTED_MUTATIONS = 50;
 const MUTATION_STORAGE_KEY_PREFIX = "eigen-air:persisted-mutations:ns:";
+const INSTALLATION_STORAGE_KEY_PREFIX = "eigen-air:active-installation-id:ns:";
 
-function cleanupLegacyMutationStorageKeys() {
+function cleanupLegacyStorageKeys() {
   if (typeof window === "undefined" || !window.sessionStorage) return;
   try {
     const keysToRemove: string[] = [];
     for (let i = 0; i < window.sessionStorage.length; i++) {
       const k = window.sessionStorage.key(i);
-      if (k && k.startsWith("eigen-air:persisted-mutations:") && !k.startsWith(MUTATION_STORAGE_KEY_PREFIX)) {
+      if (!k) continue;
+      if (k === "eigen-air:active-installation-id") {
+        keysToRemove.push(k);
+      } else if (
+        k.startsWith("eigen-air:persisted-mutations:") &&
+        !k.startsWith(MUTATION_STORAGE_KEY_PREFIX)
+      ) {
         keysToRemove.push(k);
       }
     }
@@ -300,11 +446,41 @@ function cleanupLegacyMutationStorageKeys() {
   }
 }
 
+function loadPersistedInstallationId(): string | null {
+  if (typeof window === "undefined" || !window.sessionStorage) return null;
+  cleanupLegacyStorageKeys();
+  const ns = computePersistenceNamespace();
+  if (!ns) return null;
+  try {
+    return window.sessionStorage.getItem(`${INSTALLATION_STORAGE_KEY_PREFIX}${ns}`);
+  } catch {
+    return null;
+  }
+}
+
+function savePersistedInstallationId(id: string | null) {
+  if (typeof window === "undefined" || !window.sessionStorage) return;
+  cleanupLegacyStorageKeys();
+  const ns = computePersistenceNamespace();
+  if (!ns) return;
+  try {
+    const key = `${INSTALLATION_STORAGE_KEY_PREFIX}${ns}`;
+    if (id) {
+      window.sessionStorage.setItem(key, id);
+    } else {
+      window.sessionStorage.removeItem(key);
+    }
+  } catch {
+    // ignore
+  }
+}
+
 function loadPersistedMutations(): Record<string, PersistedMutation> {
   if (typeof window === "undefined" || !window.sessionStorage) return {};
-  cleanupLegacyMutationStorageKeys();
+  cleanupLegacyStorageKeys();
   try {
     const ns = computePersistenceNamespace();
+    if (!ns) return {};
     const raw = window.sessionStorage.getItem(`${MUTATION_STORAGE_KEY_PREFIX}${ns}`);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
@@ -315,9 +491,23 @@ function loadPersistedMutations(): Record<string, PersistedMutation> {
     const TTL_MS = 24 * 60 * 60 * 1000;
     for (const [k, v] of entries) {
       if (v && typeof v === "object" && "mutationId" in v && "hostId" in v && "kind" in v) {
-        const item = v as PersistedMutation;
-        if (typeof item.timestamp === "number" && now - item.timestamp < TTL_MS) {
-          valid[k] = item;
+        const item = v as Record<string, unknown>;
+        const timestamp = typeof item.timestamp === "number" ? item.timestamp : 0;
+        if (now - timestamp < TTL_MS) {
+          const req =
+            item.request && typeof item.request === "object"
+              ? sanitizeAllowlistedOperationRequest(item.request as HostOperationRequest)
+              : undefined;
+          valid[k] = {
+            mutationId: String(item.mutationId),
+            hostId: String(item.hostId),
+            kind: String(item.kind),
+            artifactId: typeof item.artifactId === "string" ? item.artifactId : undefined,
+            operationId: typeof item.operationId === "string" ? item.operationId : undefined,
+            status: typeof item.status === "string" ? (item.status as PersistedMutationStatus) : undefined,
+            timestamp,
+            request: req,
+          };
         }
       }
     }
@@ -329,9 +519,10 @@ function loadPersistedMutations(): Record<string, PersistedMutation> {
 
 function savePersistedMutations(mutations: Record<string, unknown>) {
   if (typeof window === "undefined" || !window.sessionStorage) return;
-  cleanupLegacyMutationStorageKeys();
+  cleanupLegacyStorageKeys();
   try {
     const ns = computePersistenceNamespace();
+    if (!ns) return;
     const entries = Object.entries(mutations).slice(-MAX_PERSISTED_MUTATIONS);
     const map = Object.fromEntries(entries);
     window.sessionStorage.setItem(`${MUTATION_STORAGE_KEY_PREFIX}${ns}`, JSON.stringify(map));
@@ -341,6 +532,8 @@ function savePersistedMutations(mutations: Record<string, unknown>) {
 }
 
 let lastFetchHostsStartedMs = 0;
+let activeReconciliationPromise: Promise<void> | null = null;
+let activeReconciliationScope: string | null = null;
 
 export const useInferenceStore = create<InferenceStoreState>((set, get) => {
   registerAccessInvalidationListener(() => {
@@ -373,7 +566,7 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
     hostOperations: {},
     credentialRecoveries: {},
     installations: {},
-    activeInstallationId: typeof window !== "undefined" ? window.sessionStorage?.getItem("eigen-air:active-installation-id") ?? null : null,
+    activeInstallationId: loadPersistedInstallationId(),
     persistedMutations: loadPersistedMutations(),
 
     loadingHosts: false,
@@ -409,7 +602,7 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
         hostOperations: {},
         credentialRecoveries: {},
         installations: {},
-        activeInstallationId: null,
+        activeInstallationId: loadPersistedInstallationId(),
         persistedMutations: loadPersistedMutations(),
         loadingHosts: false,
         hostsError: null,
@@ -713,7 +906,11 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
               let changed = false;
               const nextMutations = { ...state.persistedMutations };
               for (const [k, m] of Object.entries(nextMutations)) {
-                if (m.operationId === op.operation_id) {
+                if (
+                  m.operationId === op.operation_id ||
+                  m.mutationId === op.operation_id ||
+                  m.mutationId === op.mutation_id
+                ) {
                   delete nextMutations[k];
                   changed = true;
                 }
@@ -809,13 +1006,7 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
     },
 
     setActiveInstallationId: (id: string | null) => {
-      if (typeof window !== "undefined" && window.sessionStorage) {
-        if (id) {
-          window.sessionStorage.setItem("eigen-air:active-installation-id", id);
-        } else {
-          window.sessionStorage.removeItem("eigen-air:active-installation-id");
-        }
-      }
+      savePersistedInstallationId(id);
       set({ activeInstallationId: id });
     },
 
@@ -857,50 +1048,102 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
     ) => {
       const startKey = get().accessKey;
       const mutationId = req.mutation_id || `${Date.now()}-${crypto.randomUUID()}`;
-      const persisted = {
+      const now = Date.now();
+      const TTL_MS = 24 * 60 * 60 * 1000;
+
+      // Clean up expired and terminal entries before checking capacity
+      const currentMutations = get().persistedMutations;
+      const retainedMutations: Record<string, PersistedMutation> = {};
+      for (const [k, m] of Object.entries(currentMutations)) {
+        if (now - m.timestamp >= TTL_MS) continue;
+        if (
+          m.status === "completed" ||
+          m.status === "failed" ||
+          m.status === "cancelled" ||
+          m.status === "indeterminate"
+        ) {
+          continue;
+        }
+        retainedMutations[k] = m;
+      }
+
+      if (Object.keys(retainedMutations).length >= MAX_PERSISTED_MUTATIONS && !retainedMutations[mutationId]) {
+        throw new Error(
+          `Mutation capacity exceeded: maximum ${MAX_PERSISTED_MUTATIONS} active mutations allowed`
+        );
+      }
+
+      const allowlistedRequest = sanitizeAllowlistedOperationRequest(req);
+      if (allowlistedRequest) {
+        allowlistedRequest.mutation_id = mutationId;
+      }
+      const persisted: PersistedMutation = {
         mutationId,
         hostId,
         kind: req.kind,
         artifactId,
-        timestamp: Date.now(),
+        timestamp: now,
+        status: "pending_dispatch",
+        request: allowlistedRequest,
       };
-      set((state) => {
-        const nextMutations = {
-          ...state.persistedMutations,
-          [mutationId]: persisted,
-        };
-        savePersistedMutations(nextMutations);
-        return { persistedMutations: nextMutations };
-      });
+
+      const nextMutations = {
+        ...retainedMutations,
+        [mutationId]: persisted,
+      };
+      savePersistedMutations(nextMutations);
+      set({ persistedMutations: nextMutations });
 
       const opReq: HostOperationRequest = {
         ...req,
         mutation_id: mutationId,
       };
-      const res = await getInferenceService().dispatchModelOperation(hostId, artifactId, opReq);
-      if (get().accessKey !== startKey) {
+
+      try {
+        const res = await getInferenceService().dispatchModelOperation(hostId, artifactId, opReq);
+        if (get().accessKey !== startKey) {
+          return res.operation_id;
+        }
+        if (res.operation_id) {
+          set((state) => {
+            const updated = {
+              ...state.persistedMutations,
+              [mutationId]: {
+                ...persisted,
+                operationId: res.operation_id,
+                status: "dispatched",
+              },
+            };
+            savePersistedMutations(updated);
+            return { persistedMutations: updated };
+          });
+          void get().pollActiveOperation(res.operation_id);
+        }
+        await Promise.allSettled([
+          get().fetchHostOperations(hostId),
+          get().fetchHostModels(hostId),
+        ]);
         return res.operation_id;
+      } catch (err) {
+        if (get().accessKey === startKey) {
+          set((state) => {
+            const existing = state.persistedMutations[mutationId];
+            if (existing && !existing.operationId) {
+              const updated = {
+                ...state.persistedMutations,
+                [mutationId]: {
+                  ...existing,
+                  status: "ambiguous",
+                },
+              };
+              savePersistedMutations(updated);
+              return { persistedMutations: updated };
+            }
+            return {};
+          });
+        }
+        throw err;
       }
-      if (res.operation_id) {
-        set((state) => {
-          const updated = {
-            ...state.persistedMutations,
-            [mutationId]: {
-              ...persisted,
-              operationId: res.operation_id,
-              status: "dispatched",
-            },
-          };
-          savePersistedMutations(updated);
-          return { persistedMutations: updated };
-        });
-        void get().pollActiveOperation(res.operation_id);
-      }
-      await Promise.allSettled([
-        get().fetchHostOperations(hostId),
-        get().fetchHostModels(hostId),
-      ]);
-      return res.operation_id;
     },
 
     cancelOperation: async (operationId: string) => {
@@ -1344,12 +1587,31 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
       if (existing && existing.revision > event.revision) {
         return;
       }
-      set((state) => ({
-        runProgress: {
+      set((state) => {
+        const next = {
           ...state.runProgress,
           [key]: event,
-        },
-      }));
+        };
+        const MAX_RUN_PROGRESS = 50;
+        const keys = Object.keys(next);
+        if (keys.length > MAX_RUN_PROGRESS) {
+          const terminalKey = keys.find((k) => {
+            const status = next[k]?.status;
+            return (
+              status === "completed" ||
+              status === "failed" ||
+              status === "cancelled" ||
+              status === "indeterminate"
+            );
+          });
+          if (terminalKey) {
+            delete next[terminalKey];
+          } else {
+            delete next[keys[0]];
+          }
+        }
+        return { runProgress: next };
+      });
     },
 
     clearRunProgress: (sessionId: string, runId?: string) => {
@@ -1583,35 +1845,73 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
 
     reconcilePersistedMutations: async () => {
       const startKey = get().accessKey;
-      const mutations = get().persistedMutations;
-      const now = Date.now();
-      const updated = { ...mutations };
-      let changed = false;
+      if (activeReconciliationPromise && activeReconciliationScope === startKey) {
+        return activeReconciliationPromise;
+      }
+      activeReconciliationScope = startKey;
+      activeReconciliationPromise = (async () => {
+        const mutations = get().persistedMutations;
+        const now = Date.now();
+        const updated = { ...mutations };
+        let changed = false;
 
-      for (const [id, m] of Object.entries(mutations)) {
-        if (now - m.timestamp > 24 * 60 * 60 * 1000) {
-          delete updated[id];
-          changed = true;
-          continue;
+        const hostsToQuery = new Set<string>();
+        for (const [id, m] of Object.entries(mutations)) {
+          if (now - m.timestamp > 24 * 60 * 60 * 1000) {
+            delete updated[id];
+            changed = true;
+            continue;
+          }
+          if (
+            m.status === "completed" ||
+            m.status === "failed" ||
+            m.status === "cancelled" ||
+            m.status === "indeterminate"
+          ) {
+            delete updated[id];
+            changed = true;
+            continue;
+          }
+          if (!m.operationId && m.hostId) {
+            hostsToQuery.add(m.hostId);
+          }
         }
-        if (m.status === "completed" || m.status === "failed" || m.status === "cancelled") {
-          delete updated[id];
-          changed = true;
-          continue;
+
+        const hostOpsCache: Record<string, OperationSnapshot[]> = {};
+        if (hostsToQuery.size > 0) {
+          await Promise.all(
+            Array.from(hostsToQuery).map(async (hostId) => {
+              try {
+                hostOpsCache[hostId] = await getInferenceService().listHostOperations(hostId);
+              } catch {
+                hostOpsCache[hostId] = [];
+              }
+            })
+          );
         }
-        if (m.operationId) {
-          void get().pollActiveOperation(m.operationId);
-        } else {
-          try {
-            const ops = await getInferenceService().listHostOperations(m.hostId);
-            if (get().accessKey !== startKey) return;
-            const matched = ops.find((op) => op.operation_id === m.mutationId);
+
+        if (get().accessKey !== startKey) return;
+
+        const pollPromises: Promise<void>[] = [];
+        const terminalSnapshots: OperationSnapshot[] = [];
+
+        for (const [id, m] of Object.entries(mutations)) {
+          if (!updated[id]) continue;
+          if (m.operationId) {
+            pollPromises.push(get().pollActiveOperation(m.operationId));
+          } else if (m.hostId) {
+            const ops = hostOpsCache[m.hostId] ?? [];
+            const matched = ops.find(
+              (op) => op.operation_id === m.mutationId || op.mutation_id === m.mutationId
+            );
             if (matched) {
               if (
                 matched.state === "completed" ||
                 matched.state === "failed" ||
-                matched.state === "cancelled"
+                matched.state === "cancelled" ||
+                matched.state === "indeterminate"
               ) {
+                terminalSnapshots.push(matched);
                 delete updated[id];
               } else {
                 updated[id] = {
@@ -1619,33 +1919,93 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
                   operationId: matched.operation_id,
                   status: matched.state,
                 };
-                void get().pollActiveOperation(matched.operation_id);
+                pollPromises.push(get().pollActiveOperation(matched.operation_id));
               }
               changed = true;
+            } else {
+              if (m.status !== "unknown") {
+                updated[id] = {
+                  ...m,
+                  status: "unknown",
+                };
+                changed = true;
+              }
             }
-          } catch {
-            // retain within TTL
           }
         }
-      }
 
-      if (changed && get().accessKey === startKey) {
-        set((state) => {
-          const merged = { ...state.persistedMutations };
-          for (const [id, m] of Object.entries(updated)) {
-            if (merged[id]) {
-              merged[id] = { ...merged[id], ...m };
+        await Promise.all(pollPromises);
+
+        if ((changed || terminalSnapshots.length > 0) && get().accessKey === startKey) {
+          set((state) => {
+            const nextOps = { ...state.operations };
+            let nextHostOps = state.hostOperations;
+            if (terminalSnapshots.length > 0) {
+              for (const op of terminalSnapshots) {
+                nextOps[op.operation_id] = operationSnapshotToCanonical(op);
+                if (op.host_id) {
+                  const list = nextHostOps[op.host_id] ?? [];
+                  const idx = list.findIndex((item) => item.operation_id === op.operation_id);
+                  const updatedList =
+                    idx >= 0
+                      ? list.map((item, i) =>
+                          i === idx ? (op.revision >= item.revision ? op : item) : item
+                        )
+                      : [op, ...list];
+                  nextHostOps = {
+                    ...nextHostOps,
+                    [op.host_id]: updatedList,
+                  };
+                }
+              }
             }
-          }
-          for (const id of Object.keys(mutations)) {
-            if (!updated[id] && merged[id]) {
-              delete merged[id];
+            const merged = { ...state.persistedMutations };
+            for (const [id, m] of Object.entries(updated)) {
+              if (merged[id]) {
+                merged[id] = { ...merged[id], ...m };
+              }
             }
-          }
-          savePersistedMutations(merged);
-          return { persistedMutations: merged };
-        });
+            for (const id of Object.keys(mutations)) {
+              if (!updated[id] && merged[id]) {
+                delete merged[id];
+              }
+            }
+            savePersistedMutations(merged);
+            return {
+              operations: nextOps,
+              hostOperations: nextHostOps,
+              persistedMutations: merged,
+            };
+          });
+        }
+      })();
+
+      try {
+        await activeReconciliationPromise;
+      } finally {
+        if (activeReconciliationScope === startKey) {
+          activeReconciliationPromise = null;
+          activeReconciliationScope = null;
+        }
       }
+    },
+
+    retryPendingMutation: async (mutationId: string) => {
+      const mut = get().persistedMutations[mutationId];
+      if (!mut || !mut.request) {
+        throw new Error(`No pending allowlisted request found for mutation ID ${mutationId}`);
+      }
+      if (mut.status !== "unknown" && mut.status !== "ambiguous" && mut.status !== "failed") {
+        throw new Error(`Cannot retry mutation in status ${mut.status}`);
+      }
+      return get().dispatchModelOperation(
+        mut.hostId,
+        mut.artifactId || mut.request.artifact_id || "",
+        {
+          ...mut.request,
+          mutation_id: mut.mutationId,
+        }
+      );
     },
   };
 });

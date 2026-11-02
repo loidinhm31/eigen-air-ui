@@ -1,11 +1,20 @@
+// @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
+  AppSourceRef,
   CanonicalOperationSnapshot,
+  OperationSnapshot,
   RunInferenceProgressEvent,
+  WorkerLoadProfile,
 } from "@eigen-air-ui/shared/types";
-import { useInferenceStore } from "./inferenceStore.js";
+import { useInferenceStore, type PersistedMutation } from "./inferenceStore.js";
 import { useReadinessStore } from "./readinessStore.js";
-import { setInferenceService } from "../adapters/factory/ServiceFactory.js";
+import {
+  setInferenceService,
+  setServiceDeploymentId,
+  setServiceAccessContext,
+  resetServiceFactoryState,
+} from "../adapters/factory/ServiceFactory.js";
 import type { IInferenceService } from "../adapters/factory/interfaces/IInferenceService.js";
 
 const mockInferenceService = {
@@ -20,6 +29,10 @@ const mockInferenceService = {
 setInferenceService(mockInferenceService);
 describe("inferenceStore", () => {
   beforeEach(() => {
+    resetServiceFactoryState();
+    setInferenceService(mockInferenceService);
+    setServiceDeploymentId("http://127.0.0.1:18790");
+    setServiceAccessContext({ identityKey: "test-user-1" });
     useInferenceStore.getState().invalidateAccess();
   });
 
@@ -1076,6 +1089,491 @@ describe("inferenceStore", () => {
         counters: {},
       });
       expect(pollSpy).toHaveBeenCalledWith("op-gap-1");
+    });
+    it("UI-01: isolates mutations and active installation ID between daemon A and daemon B", async () => {
+      setServiceDeploymentId("http://daemon-a:18790");
+      setServiceAccessContext({ identityKey: "user-alpha" });
+      useInferenceStore.getState().invalidateAccess();
+
+      useInferenceStore.getState().setActiveInstallationId("inst-daemon-a");
+      mockInferenceService.dispatchModelOperation = vi.fn().mockResolvedValue({ operation_id: "op-a" });
+      await useInferenceStore.getState().dispatchModelOperation("host-a", "gemma-4", {
+        kind: "load",
+        mutation_id: "mut-a",
+      });
+
+      // Switch to Daemon B with same user identity
+      setServiceDeploymentId("http://daemon-b:18790");
+      useInferenceStore.getState().invalidateAccess();
+
+      // Daemon B must NOT hydrate Daemon A's installation or mutations
+      expect(useInferenceStore.getState().activeInstallationId).toBeNull();
+      expect(useInferenceStore.getState().persistedMutations).toEqual({});
+
+      // Set Daemon B data
+      useInferenceStore.getState().setActiveInstallationId("inst-daemon-b");
+
+      // Switch back to Daemon A
+      setServiceDeploymentId("http://daemon-a:18790");
+      useInferenceStore.getState().invalidateAccess();
+
+      // Daemon A's data remains intact and isolated
+      expect(useInferenceStore.getState().activeInstallationId).toBe("inst-daemon-a");
+      expect(useInferenceStore.getState().persistedMutations["mut-a"]).toBeDefined();
+    });
+
+    it("UI-01: fails closed when persistence scope is unknown", () => {
+      resetServiceFactoryState(); // no deploymentId, no identityKey
+      setInferenceService(mockInferenceService);
+      useInferenceStore.getState().invalidateAccess();
+
+      useInferenceStore.getState().setActiveInstallationId("unscoped-inst");
+      expect(useInferenceStore.getState().activeInstallationId).toBe("unscoped-inst");
+
+      // Invalidation with unknown scope cannot read or write to any persistent bucket
+      useInferenceStore.getState().invalidateAccess();
+      expect(useInferenceStore.getState().activeInstallationId).toBeNull();
+      expect(useInferenceStore.getState().persistedMutations).toEqual({});
+      expect(sessionStorage.getItem("eigen-air:active-installation-id")).toBeNull();
+    });
+
+    it("UI-05: enforces 50-entry live insertion bound and refuses 51st without silent eviction", async () => {
+      const store = useInferenceStore.getState();
+      const now = Date.now();
+      const existingMutations: Record<string, PersistedMutation> = {};
+      for (let i = 1; i <= 50; i++) {
+        existingMutations[`mut-${i}`] = {
+          mutationId: `mut-${i}`,
+          hostId: "h1",
+          kind: "load",
+          status: "pending_dispatch",
+          timestamp: now - 1000,
+        };
+      }
+      useInferenceStore.setState({ persistedMutations: existingMutations });
+
+      await expect(
+        store.dispatchModelOperation("h1", "gemma-4", { kind: "load" })
+      ).rejects.toThrow(/Mutation capacity exceeded/i);
+
+      // Verify all 50 mutations are still preserved and none were silently evicted
+      const mutations = useInferenceStore.getState().persistedMutations;
+      expect(Object.keys(mutations).length).toBe(50);
+      expect(mutations["mut-1"]).toBeDefined();
+      expect(mutations["mut-50"]).toBeDefined();
+    });
+
+    it("UI-05: deduplicates host operations queries when multiple pending mutations share the same host", async () => {
+      useInferenceStore.setState({
+        persistedMutations: {
+          "mut-h1-a": {
+            mutationId: "mut-h1-a",
+            hostId: "host-shared",
+            kind: "load",
+            status: "pending_dispatch",
+            timestamp: Date.now(),
+          },
+          "mut-h1-b": {
+            mutationId: "mut-h1-b",
+            hostId: "host-shared",
+            kind: "load",
+            status: "pending_dispatch",
+            timestamp: Date.now(),
+          },
+          "mut-h1-c": {
+            mutationId: "mut-h1-c",
+            hostId: "host-shared",
+            kind: "load",
+            status: "pending_dispatch",
+            timestamp: Date.now(),
+          },
+        },
+      });
+
+      mockInferenceService.listHostOperations = vi.fn().mockResolvedValue([]);
+
+      await useInferenceStore.getState().reconcilePersistedMutations();
+
+      // listHostOperations must be called exactly ONCE for host-shared
+      expect(mockInferenceService.listHostOperations).toHaveBeenCalledTimes(1);
+      expect(mockInferenceService.listHostOperations).toHaveBeenCalledWith("host-shared");
+    });
+
+    it("UI-05: deduplicates concurrent in-flight reconciliation calls", async () => {
+      useInferenceStore.setState({
+        persistedMutations: {
+          "mut-conc": {
+            mutationId: "mut-conc",
+            hostId: "host-conc",
+            kind: "load",
+            status: "pending_dispatch",
+            timestamp: Date.now(),
+          },
+        },
+      });
+
+      let resolveOps!: (val: OperationSnapshot[]) => void;
+      const deferredPromise = new Promise<OperationSnapshot[]>((resolve) => {
+        resolveOps = resolve;
+      });
+      mockInferenceService.listHostOperations = vi.fn().mockReturnValue(deferredPromise);
+
+      // Start two reconciliations concurrently
+      const p1 = useInferenceStore.getState().reconcilePersistedMutations();
+      const p2 = useInferenceStore.getState().reconcilePersistedMutations();
+
+      resolveOps([]);
+      await Promise.all([p1, p2]);
+
+      expect(mockInferenceService.listHostOperations).toHaveBeenCalledTimes(1);
+    });
+
+    it("UI-05: bounds runProgress retention to 50 entries, pruning terminal/oldest entries", () => {
+      const store = useInferenceStore.getState();
+      for (let i = 1; i <= 55; i++) {
+        store.applyRunProgressEvent({
+          schema_version: "inference.progress.v1",
+          session_id: "s1",
+          run_id: `run-${i}`,
+          turn_index: 0,
+          stage: "load_context",
+          stage_instance_id: `stage-${i}`,
+          attempt_id: 1,
+          status: i <= 5 ? "completed" : "active",
+          revision: 1,
+          elapsed_ms: 10,
+          occurred_at_ms: i * 100,
+          counters: {},
+        });
+      }
+
+      const progress = useInferenceStore.getState().runProgress;
+      expect(Object.keys(progress).length).toBeLessThanOrEqual(50);
+      // Terminal runs 1-5 should have been pruned first
+      expect(progress["s1:run-1:0"]).toBeUndefined();
+    });
+
+    it("UI-10: persists exact allowlisted nonsecret request fields before dispatch and excludes prepare_kv", async () => {
+      mockInferenceService.dispatchModelOperation = vi.fn().mockResolvedValue({
+        operation_id: "op-load-1",
+      });
+
+      const opId = await useInferenceStore.getState().dispatchModelOperation("h1", "gemma-4", {
+        kind: "load",
+        mutation_id: "custom-mut-10",
+        expected_sha256: "sha256-hash",
+        profile: {
+          context_tokens: 4096,
+          batch_tokens: 512,
+          ubatch_tokens: 128,
+          threads: 8,
+          gpu_layers: 0,
+          kv_placement: "cpu",
+          type_k: "f16",
+          type_v: "f16",
+          flash_attention: true,
+        },
+        license_accepted: true,
+      });
+
+      expect(opId).toBe("op-load-1");
+      const mut = useInferenceStore.getState().persistedMutations["custom-mut-10"];
+      expect(mut).toBeDefined();
+      expect(mut.request).toEqual({
+        kind: "load",
+        mutation_id: "custom-mut-10",
+        expected_sha256: "sha256-hash",
+        profile: {
+          context_tokens: 4096,
+          batch_tokens: 512,
+          ubatch_tokens: 128,
+          threads: 8,
+          gpu_layers: 0,
+          kv_placement: "cpu",
+          type_k: "f16",
+          type_v: "f16",
+          flash_attention: true,
+        },
+        license_accepted: true,
+      });
+    });
+
+    it("UI-10: does not persist request body for prepare_kv operations", async () => {
+      mockInferenceService.dispatchModelOperation = vi.fn().mockResolvedValue({
+        operation_id: "op-prep-1",
+      });
+
+      await useInferenceStore.getState().dispatchModelOperation("h1", "gemma-4", {
+        kind: "prepare_kv",
+        mutation_id: "prep-mut-1",
+      });
+
+      const mut = useInferenceStore.getState().persistedMutations["prep-mut-1"];
+      expect(mut).toBeDefined();
+      expect(mut.request).toBeUndefined();
+    });
+
+    it("UI-10: marks status as ambiguous on POST failure while preserving mutationId and allowlisted request", async () => {
+      mockInferenceService.dispatchModelOperation = vi.fn().mockRejectedValue(new Error("Network drop"));
+
+      await expect(
+        useInferenceStore.getState().dispatchModelOperation("h1", "gemma-4", {
+          kind: "load",
+          mutation_id: "lost-mut-1",
+          expected_sha256: "sha256-val",
+        })
+      ).rejects.toThrow("Network drop");
+
+      const mut = useInferenceStore.getState().persistedMutations["lost-mut-1"];
+      expect(mut).toBeDefined();
+      expect(mut.status).toBe("ambiguous");
+      expect(mut.mutationId).toBe("lost-mut-1");
+      expect(mut.request?.expected_sha256).toBe("sha256-val");
+    });
+
+    it("UI-10: correlates uncommitted/ambiguous mutation via mutation_id on host during reconciliation", async () => {
+      useInferenceStore.setState({
+        persistedMutations: {
+          "ambig-mut": {
+            mutationId: "ambig-mut",
+            hostId: "h1",
+            kind: "load",
+            status: "ambiguous",
+            timestamp: Date.now(),
+            request: { kind: "load", mutation_id: "ambig-mut" },
+          },
+        },
+      });
+
+      mockInferenceService.listHostOperations = vi.fn().mockResolvedValue([
+        {
+          operation_id: "op-server-999",
+          mutation_id: "ambig-mut",
+          state: "running",
+          stage: "load_weights",
+          revision: 1,
+        },
+      ]);
+      mockInferenceService.getOperation = vi.fn().mockResolvedValue({
+        operation_id: "op-server-999",
+        state: "running",
+        revision: 1,
+      });
+
+      await useInferenceStore.getState().reconcilePersistedMutations();
+
+      const mut = useInferenceStore.getState().persistedMutations["ambig-mut"];
+      expect(mut).toBeDefined();
+      expect(mut.operationId).toBe("op-server-999");
+      expect(mut.status).toBe("running");
+    });
+
+    it("UI-10: marks lost mutation as unknown when host has no matching operation", async () => {
+      useInferenceStore.setState({
+        persistedMutations: {
+          "no-match-mut": {
+            mutationId: "no-match-mut",
+            hostId: "h1",
+            kind: "load",
+            status: "pending_dispatch",
+            timestamp: Date.now(),
+            request: { kind: "load", mutation_id: "no-match-mut" },
+          },
+        },
+      });
+
+      mockInferenceService.listHostOperations = vi.fn().mockResolvedValue([]);
+
+      await useInferenceStore.getState().reconcilePersistedMutations();
+
+      const mut = useInferenceStore.getState().persistedMutations["no-match-mut"];
+      expect(mut).toBeDefined();
+      expect(mut.status).toBe("unknown");
+      expect(mut.mutationId).toBe("no-match-mut");
+    });
+    it("W1: setServiceAccessContext with deploymentId automatically invalidates store without manual invalidateAccess", async () => {
+      setServiceAccessContext({ deploymentId: "http://daemon-auto-a:18790", identityKey: "u1" });
+      useInferenceStore.getState().setActiveInstallationId("inst-a");
+      mockInferenceService.dispatchModelOperation = vi.fn().mockResolvedValue({ operation_id: "op-a" });
+      await useInferenceStore.getState().dispatchModelOperation("h1", "gemma-4", { kind: "load", mutation_id: "mut-a" });
+
+      // Automatically invalidate by setting new deploymentId in context
+      setServiceAccessContext({ deploymentId: "http://daemon-auto-b:18790", identityKey: "u1" });
+
+      // Store must automatically re-scope without calling invalidateAccess manually
+      expect(useInferenceStore.getState().activeInstallationId).toBeNull();
+      expect(useInferenceStore.getState().persistedMutations).toEqual({});
+    });
+
+    it("W2: deep sanitization strips extra and private properties on profile and source_ref", async () => {
+      mockInferenceService.dispatchModelOperation = vi.fn().mockResolvedValue({ operation_id: "op-san-1" });
+      const profileWithExtras = {
+        context_tokens: 4096,
+        batch_tokens: 512,
+        ubatch_tokens: 128,
+        threads: 8,
+        gpu_layers: 0,
+        kv_placement: "cpu",
+        type_k: "f16",
+        type_v: "f16",
+        flash_attention: true,
+        extra_private_prompt: "secret text",
+        internal_token: "sk-private",
+      } as unknown as WorkerLoadProfile;
+
+      const sourceRefWithExtras = {
+        tenant_id: "t1",
+        user_id: "u1",
+        workspace_id: "w1",
+        session_id: "s1",
+        scope_hash: "scope-1",
+        session_hash: "sess-1",
+        prompt_profile_id: "p1",
+        source_revision: "rev-1",
+        prefix_digest: "pfx-1",
+        preparation_fingerprint: "prep-1",
+        raw_prompt_history: ["prompt 1"],
+      } as unknown as AppSourceRef;
+      await useInferenceStore.getState().dispatchModelOperation("h1", "gemma-4", {
+        kind: "load",
+        mutation_id: "deep-san-1",
+        profile: profileWithExtras,
+        source_ref: sourceRefWithExtras,
+      });
+
+      const mut = useInferenceStore.getState().persistedMutations["deep-san-1"];
+      expect(mut).toBeDefined();
+      expect(mut.request?.profile).toBeDefined();
+      const rawProfile = mut.request?.profile as unknown as Record<string, unknown>;
+      expect(rawProfile.extra_private_prompt).toBeUndefined();
+      expect(rawProfile.internal_token).toBeUndefined();
+      expect(mut.request?.source_ref).toBeDefined();
+      const rawSourceRef = mut.request?.source_ref as unknown as Record<string, unknown>;
+      expect(rawSourceRef.raw_prompt_history).toBeUndefined();
+    });
+
+    it("W3: projects terminal matching operation into canonical operations before removing mutation", async () => {
+      useInferenceStore.setState({
+        operations: {},
+        hostOperations: {},
+        persistedMutations: {
+          "mut-term-proj": {
+            mutationId: "mut-term-proj",
+            hostId: "h1",
+            kind: "load",
+            status: "pending_dispatch",
+            timestamp: Date.now(),
+          },
+        },
+      });
+
+      mockInferenceService.listHostOperations = vi.fn().mockResolvedValue([
+        {
+          operation_id: "op-term-123",
+          mutation_id: "mut-term-proj",
+          artifact_id: "gemma-4",
+          host_id: "h1",
+          state: "completed",
+          stage: "load_context",
+          revision: 5,
+        },
+      ]);
+
+      await useInferenceStore.getState().reconcilePersistedMutations();
+
+      // Mutation is pruned from persistedMutations
+      expect(useInferenceStore.getState().persistedMutations["mut-term-proj"]).toBeUndefined();
+      // Terminal operation is projected into operations and hostOperations
+      const canonicalOp = useInferenceStore.getState().operations["op-term-123"];
+      expect(canonicalOp).toBeDefined();
+      expect(canonicalOp.status).toBe("completed");
+      expect(canonicalOp.revision).toBe(5);
+      const hostOp = useInferenceStore.getState().hostOperations["h1"]?.find((o) => o.operation_id === "op-term-123");
+      expect(hostOp).toBeDefined();
+      expect(hostOp?.state).toBe("completed");
+    });
+
+    it("W3: retryPendingMutation resubmits with exact same mutationId and allowlisted request", async () => {
+      const mutId = "retry-mut-777";
+      useInferenceStore.setState({
+        persistedMutations: {
+          [mutId]: {
+            mutationId: mutId,
+            hostId: "h1",
+            kind: "load",
+            artifactId: "gemma-4",
+            status: "ambiguous",
+            timestamp: Date.now(),
+            request: {
+              kind: "load",
+              mutation_id: mutId,
+              artifact_id: "gemma-4",
+              expected_sha256: "sha-retry",
+            },
+          },
+        },
+      });
+
+      mockInferenceService.dispatchModelOperation = vi.fn().mockResolvedValue({ operation_id: "op-retried" });
+
+      const opId = await useInferenceStore.getState().retryPendingMutation(mutId);
+      expect(opId).toBe("op-retried");
+
+      expect(mockInferenceService.dispatchModelOperation).toHaveBeenCalledWith(
+        "h1",
+        "gemma-4",
+        expect.objectContaining({ mutation_id: mutId, expected_sha256: "sha-retry" })
+      );
+    });
+
+    it("W4: mixed expired and terminal entries are pruned at insertion so live map never exceeds 50", async () => {
+      const store = useInferenceStore.getState();
+      const now = Date.now();
+      const TTL_MS = 24 * 60 * 60 * 1000;
+      const initialMutations: Record<string, PersistedMutation> = {};
+      // 40 active
+      for (let i = 1; i <= 40; i++) {
+        initialMutations[`active-${i}`] = {
+          mutationId: `active-${i}`,
+          hostId: "h1",
+          kind: "load",
+          status: "pending_dispatch",
+          timestamp: now - 1000,
+        };
+      }
+      // 15 expired (> 24h)
+      for (let i = 1; i <= 15; i++) {
+        initialMutations[`expired-${i}`] = {
+          mutationId: `expired-${i}`,
+          hostId: "h1",
+          kind: "load",
+          status: "pending_dispatch",
+          timestamp: now - TTL_MS - 5000,
+        };
+      }
+      // 5 terminal
+      for (let i = 1; i <= 5; i++) {
+        initialMutations[`terminal-${i}`] = {
+          mutationId: `terminal-${i}`,
+          hostId: "h1",
+          kind: "load",
+          status: "completed",
+          timestamp: now - 1000,
+        };
+      }
+
+      useInferenceStore.setState({ persistedMutations: initialMutations });
+      expect(Object.keys(useInferenceStore.getState().persistedMutations).length).toBe(60);
+
+      mockInferenceService.dispatchModelOperation = vi.fn().mockResolvedValue({ operation_id: "op-fresh" });
+
+      await store.dispatchModelOperation("h1", "gemma-4", { kind: "load", mutation_id: "fresh-41" });
+
+      const live = useInferenceStore.getState().persistedMutations;
+      expect(Object.keys(live).length).toBe(41);
+      expect(live["fresh-41"]).toBeDefined();
+      expect(live["expired-1"]).toBeUndefined();
+      expect(live["terminal-1"]).toBeUndefined();
     });
   });
 });
