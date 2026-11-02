@@ -201,4 +201,97 @@ describe("ChatPanel target-aware readiness and progress", () => {
     expect(screen.getByText("(18.5 t/s)")).toBeTruthy();
     expect(screen.getByText("reused: 128")).toBeTruthy();
   });
+
+  it("UI-07: reactively blocks and unblocks composer when pool qualified models transition", async () => {
+    // Pool initially has only qwen-3.5 qualified
+    useInferenceStore.setState({
+      pools: {
+        "pool-qa": {
+          pool_id: "pool-qa",
+          ready_hosts: 1,
+          busy_hosts: 0,
+          offline_hosts: 0,
+          qualified_models: ["qwen-3.5-9b-ud-q4_k_xl"],
+        },
+      },
+      hosts: {
+        "host-qa": {
+          host_id: "host-qa",
+          installation_id: "i-qa",
+          label: "QA Host",
+          platform: "linux",
+          agent_version: "0.2.0",
+          lifecycle_revision: 1,
+          last_seen_at_ms: 1000,
+          is_connected: true,
+          lease_valid: true,
+          applied_binding_revision: 1,
+          current_binding: {
+            host_id: "host-qa",
+            pool_id: "pool-qa",
+            state: "bound",
+            revision: 1,
+            changed_at_ms: 1000,
+          },
+          recovery: {
+            desired_revision: 1,
+            reconciled_revision: 1,
+            auto_load_model: true,
+            auto_prepare_kv: false,
+            model_ready: true,
+            cache_ready: true,
+            model_action: "none",
+            cache_action: "none",
+          },
+        },
+      },
+    });
+
+    // Session targets gemma-4 in pool-qa (which is NOT qualified yet)
+    serviceMocks.listSessions.mockResolvedValue([
+      {
+        id: "sess-dev-1",
+        title: "QA Pool Session",
+        created_at: 100,
+        updated_at: 200,
+        inference_target: {
+          kind: "pool",
+          pool_id: "pool-qa",
+          model_artifact_id: "gemma-4-e4b-it-qat-ud-q4_k_xl",
+          model_digest: "df0fd4ee07072c607c29a0a1cb4f98918426cca12f45a2776bdd6ee6d09a4de3",
+        },
+      },
+    ]);
+
+    render(<ChatPanel />);
+    await vi.waitFor(() => expect(serviceMocks.listSessions).toHaveBeenCalled());
+
+    // Target alert should show model is not qualified in pool
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("not qualified in pool pool-qa");
+    const input = screen.getByPlaceholderText(/not qualified in pool/) as HTMLInputElement;
+    expect(input.disabled).toBe(true);
+
+    // Now pool transitions dynamically to qualify gemma-4
+    act(() => {
+      useInferenceStore.setState({
+        pools: {
+          "pool-qa": {
+            pool_id: "pool-qa",
+            ready_hosts: 1,
+            busy_hosts: 0,
+            offline_hosts: 0,
+            qualified_models: ["qwen-3.5-9b-ud-q4_k_xl", "gemma-4-e4b-it-qat-ud-q4_k_xl"],
+          },
+        },
+      });
+    });
+
+    // Composer reactively unblocks without page reload or server readiness change
+    await vi.waitFor(() => {
+      expect(screen.queryByRole("alert")).toBeNull();
+      const activeInput = screen.getByPlaceholderText("Message eigen-air...") as HTMLInputElement;
+      expect(activeInput.disabled).toBe(false);
+    });
+  });
 });

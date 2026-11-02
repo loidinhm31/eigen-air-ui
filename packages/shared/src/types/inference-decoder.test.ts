@@ -13,6 +13,7 @@ import {
   decodeInferenceOperationProgressEvent,
   decodeInstallationDescriptor,
   decodeInstallationStatus,
+  decodeOperationSnapshot,
   decodeModelInventoryItem,
   decodeOperatorRecoveryView,
   decodePoolBinding,
@@ -504,6 +505,83 @@ describe("inference-decoder", () => {
       });
       expect(opView.status).toBe("pending_approval");
       expect(opView.public_key_fingerprint).toBe("sha256:fp");
+    });
+
+    it("decodes real gateway installation status with scalar projection (UI-03)", () => {
+      const gatewayRaw = {
+        installation_id: "inst-gw-1",
+        deployment_id: "dep-prod",
+        platform: "linux-x86_64",
+        label: "Primary Node",
+        created_at_ms: 170000000000,
+        status: "connected",
+        enrolled: true,
+        connected: true,
+        host_id: "host-node-1",
+        proof_fingerprint: "sha256:abcd1234",
+        last_seen_ms: 170000050000,
+      };
+      const decoded = decodeInstallationStatus(gatewayRaw);
+      expect(decoded.installation_id).toBe("inst-gw-1");
+      expect(decoded.deployment_id).toBe("dep-prod");
+      expect(decoded.status).toBe("connected");
+      expect(decoded.enrolled).toBe(true);
+      expect(decoded.connected).toBe(true);
+      expect(decoded.host_id).toBe("host-node-1");
+      expect(decoded.proof_fingerprint).toBe("sha256:abcd1234");
+      expect(decoded.last_seen_ms).toBe(170000050000);
+      expect(decoded.registered_hosts).toEqual(["host-node-1"]);
+      expect(decoded.connected_hosts).toEqual(["host-node-1"]);
+    });
+
+    it("decodes enrolled-offline installation projection honestly (UI-03)", () => {
+      const offlineRaw = {
+        installation_id: "inst-gw-2",
+        platform: "linux-x86_64",
+        label: "Offline Node",
+        created_at_ms: 170000000000,
+        status: "enrolled",
+        enrolled: true,
+        connected: false,
+        host_id: "host-node-2",
+      };
+      const decoded = decodeInstallationStatus(offlineRaw);
+      expect(decoded.status).toBe("enrolled");
+      expect(decoded.enrolled).toBe(true);
+      expect(decoded.connected).toBe(false);
+      expect(decoded.host_id).toBe("host-node-2");
+      expect(decoded.registered_hosts).toEqual(["host-node-2"]);
+      expect(decoded.connected_hosts).toEqual([]);
+    });
+
+    it("decodes indeterminate operation snapshot and progress event (UI-02)", () => {
+      const opRaw = {
+        operation_id: "op-ind-1",
+        host_id: "host-1",
+        artifact_id: "gemma-4",
+        kind: "load",
+        state: "indeterminate",
+        revision: 3,
+        counters: {},
+      };
+      const decodedOp = decodeOperationSnapshot(opRaw);
+      expect(decodedOp.state).toBe("indeterminate");
+
+      const eventRaw = {
+        schema_version: "inference.operation.v1",
+        operation_id: "op-ind-1",
+        execution_target_kind: "server",
+        artifact_id: "gemma-4",
+        stage: "verify",
+        attempt_id: 1,
+        status: "indeterminate",
+        revision: 4,
+        elapsed_ms: 1500,
+        occurred_at_ms: 170000010000,
+        counters: {},
+      };
+      const decodedEvent = decodeInferenceOperationProgressEvent(eventRaw);
+      expect(decodedEvent.status).toBe("indeterminate");
     });
   });
 });

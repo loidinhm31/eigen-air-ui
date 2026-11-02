@@ -134,4 +134,32 @@ describe("ExecutionTargetSelector", () => {
       model_digest: "3f227079003add2511437e5b1e94812e363385225bf6a9b47b0054a72bc8b01e",
     });
   });
+
+  it("UI-07: does not fabricate Gemma choice when pool qualified_models is empty", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+
+    useInferenceStore.setState({
+      pools: {
+        "empty-pool": {
+          pool_id: "empty-pool",
+          ready_hosts: 1,
+          busy_hosts: 0,
+          offline_hosts: 0,
+          qualified_models: [],
+        },
+      },
+      devices: [],
+    });
+
+    render(<ExecutionTargetSelector onChange={onChange} />);
+
+    // Badge shows "No Models", not "1 Ready"
+    expect(screen.getByText("No Models")).toBeTruthy();
+    // Pool button without qualified models is disabled to prevent invalid target emission
+    const poolBtn = screen.getByRole("button", { name: /Pool: empty-pool/ });
+    expect(poolBtn.hasAttribute("disabled")).toBe(true);
+    await user.click(poolBtn);
+    expect(onChange).not.toHaveBeenCalled();
+  });
 });

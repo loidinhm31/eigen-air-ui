@@ -142,6 +142,8 @@ export function ChatPanel() {
   }, [sessionId]);
 
   const devices = useInferenceStore((state) => state.devices);
+  const pools = useInferenceStore((state) => state.pools);
+  const hosts = useInferenceStore((state) => state.hosts);
   const getStoreTargetReadiness = useInferenceStore((state) => state.getTargetReadiness);
   const targetReadiness = React.useMemo(() => {
     if (isResolvingTarget) {
@@ -162,7 +164,18 @@ export function ChatPanel() {
       };
     }
     return getStoreTargetReadiness(currentSessionTarget);
-  }, [isResolvingTarget, targetLookupFailed, currentSessionTarget, devices, canInfer, readinessPhase, readinessError, getStoreTargetReadiness]);
+  }, [
+    isResolvingTarget,
+    targetLookupFailed,
+    currentSessionTarget,
+    devices,
+    pools,
+    hosts,
+    canInfer,
+    readinessPhase,
+    readinessError,
+    getStoreTargetReadiness,
+  ]);
 
   const isConnected = connectionStatus === "connected";
   const targetBlocksComposer =
@@ -180,7 +193,7 @@ export function ChatPanel() {
       ? "Connecting to eigen-air..."
       : connectionStatus === "disconnected"
       ? "Connect to eigen-air to start..."
-      : targetBlocksComposer && targetReadiness.phase === "failed"
+      : targetBlocksComposer && (targetReadiness.phase === "failed" || targetReadiness.phase === "offline")
       ? (targetReadiness.reason ?? "Model unavailable")
       : targetBlocksComposer
       ? "Model is loading..."

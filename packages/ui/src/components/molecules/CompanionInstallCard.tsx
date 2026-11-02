@@ -157,11 +157,22 @@ export function CompanionInstallCard({
     }
   };
 
-  // Correlated hosts registered under active installation
+  // Correlated hosts registered under active installation or matching correlated host_id
   const correlatedHosts = Object.values(hosts).filter(
-    (h) => h.installation_id === activeInstallationId
+    (h) =>
+      h.installation_id === activeInstallationId ||
+      Boolean(currentInstallation?.host_id && h.host_id === currentInstallation.host_id)
   );
 
+  // Authoritative connectivity: scalar disconnect takes precedence over stale host map
+  const isScalarDisconnected = currentInstallation !== null && currentInstallation?.connected === false;
+  const isConnected =
+    !isScalarDisconnected &&
+    (Boolean(currentInstallation?.connected) ||
+      correlatedHosts.some((h) => h.is_connected && h.lease_valid !== false));
+  const isEnrolled =
+    Boolean(currentInstallation?.enrolled) ||
+    correlatedHosts.length > 0;
   return (
     <Card className={cn("border-border/70 bg-card text-card-foreground shadow-sm", className)}>
       <CardHeader className="space-y-1.5 pb-3">
@@ -319,9 +330,13 @@ export function CompanionInstallCard({
           <div className="space-y-2 rounded-md border border-border/60 bg-background/50 p-3">
             <div className="flex items-center justify-between">
               <span className="font-semibold text-foreground">3. Installation Progress &amp; Connection</span>
-              {correlatedHosts.length > 0 ? (
+              {isConnected ? (
                 <Badge variant="outline" className="border-emerald-500/40 text-emerald-400 text-[10px]">
-                  Connected ({correlatedHosts.length})
+                  Connected ({correlatedHosts.length > 0 ? correlatedHosts.filter((h) => h.is_connected).length : 1})
+                </Badge>
+              ) : isEnrolled ? (
+                <Badge variant="outline" className="border-amber-500/40 text-amber-400 text-[10px]">
+                  Enrolled (Offline)
                 </Badge>
               ) : (
                 <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -330,7 +345,6 @@ export function CompanionInstallCard({
                 </div>
               )}
             </div>
-
             {correlatedHosts.length > 0 ? (
               <div className="space-y-1.5">
                 {correlatedHosts.map((h) => (
@@ -339,17 +353,32 @@ export function CompanionInstallCard({
                     className="flex items-center justify-between rounded border border-border/40 bg-muted/30 px-2 py-1.5"
                   >
                     <div className="flex items-center gap-2">
-                      <CheckCircle className="h-3.5 w-3.5 text-emerald-400" />
+                      <CheckCircle className={`h-3.5 w-3.5 ${h.is_connected ? "text-emerald-400" : "text-amber-400"}`} />
                       <span className="font-medium text-foreground">{h.label || h.host_id}</span>
                       <span className="text-[10px] text-muted-foreground">({h.platform})</span>
                     </div>
                     <Badge variant={h.current_binding?.state === "bound" ? "default" : "outline"} className="text-[10px]">
                       {h.current_binding?.state === "bound"
                         ? `Bound: ${h.current_binding.pool_id}`
-                        : "Connected (Unbound)"}
+                        : !isScalarDisconnected && h.is_connected
+                        ? "Connected (Unbound)"
+                        : "Enrolled (Offline)"}
                     </Badge>
                   </div>
                 ))}
+              </div>
+            ) : currentInstallation?.host_id ? (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between rounded border border-border/40 bg-muted/30 px-2 py-1.5">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle className={`h-3.5 w-3.5 ${currentInstallation.connected ? "text-emerald-400" : "text-amber-400"}`} />
+                    <span className="font-medium text-foreground">{currentInstallation.label || currentInstallation.host_id}</span>
+                    <span className="text-[10px] text-muted-foreground">({currentInstallation.platform})</span>
+                  </div>
+                  <Badge variant="outline" className="text-[10px]">
+                    {currentInstallation.connected ? "Connected (Resolving Binding...)" : "Enrolled (Offline)"}
+                  </Badge>
+                </div>
               </div>
             ) : (
               <p className="text-[11px] text-muted-foreground">

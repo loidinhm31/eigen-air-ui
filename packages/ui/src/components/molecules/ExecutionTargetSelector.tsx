@@ -49,17 +49,17 @@ export function ExecutionTargetSelector({
         {poolList.map((p) => {
           const isSelected = selectedPoolId === p.pool_id;
           const isReady = p.ready_hosts > 0;
-          const defaultModel = p.qualified_models[0] || "gemma-4-e4b-it-qat-ud-q4_k_xl";
+          const hasQualifiedModels = Array.isArray(p.qualified_models) && p.qualified_models.length > 0;
+          const defaultModel = hasQualifiedModels ? p.qualified_models[0] : "";
           return (
             <button
               key={p.pool_id}
-              type="button"
-              disabled={disabled}
+              disabled={disabled || !hasQualifiedModels}
               className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 font-medium transition-colors ${
                 isSelected
                   ? "border-primary bg-primary/10 text-primary"
                   : "border-border bg-card text-muted-foreground hover:bg-accent"
-              } ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+              } ${disabled || !hasQualifiedModels ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
               onClick={() => {
                 const modelId =
                   isSelected && value?.kind === "pool" ? value.model_artifact_id : defaultModel;
@@ -67,16 +67,20 @@ export function ExecutionTargetSelector({
                   kind: "pool",
                   pool_id: p.pool_id,
                   model_artifact_id: modelId,
-                  model_digest: resolveAuthoritativeModelDigest(modelId),
+                  model_digest: modelId ? resolveAuthoritativeModelDigest(modelId) : "",
                 });
               }}
             >
               <span>Pool: {p.pool_id}</span>
               <Badge
-                variant={isReady ? "default" : "outline"}
-                className={`text-[10px] ${!isReady ? "border-amber-500/40 text-amber-400" : ""}`}
+                variant={isReady && hasQualifiedModels ? "default" : "outline"}
+                className={`text-[10px] ${!isReady || !hasQualifiedModels ? "border-amber-500/40 text-amber-400" : ""}`}
               >
-                {p.ready_hosts > 0 ? `${p.ready_hosts} Ready` : "No Hosts"}
+                {!hasQualifiedModels
+                  ? "No Models"
+                  : p.ready_hosts > 0
+                  ? `${p.ready_hosts} Ready`
+                  : "No Hosts"}
               </Badge>
             </button>
           );

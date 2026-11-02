@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { AUTHORITATIVE_CATALOG_DIGESTS } from "@eigen-air-ui/shared/types";
 import type {
   ApproveRecoveryRequest,
   CanonicalOperationSnapshot,
@@ -10,6 +11,7 @@ import type {
   HostModelRecommendation,
   HostOperationRequest,
   HostRecoveryPreferences,
+  HostRecoveryStatus,
   HostView,
   InferenceBindingUpdatedPayload,
   InferenceHostUpdatedPayload,
@@ -22,6 +24,7 @@ import type {
   LocalCompanionStatus,
   ModelInventoryItem,
   OperationSnapshot,
+  OperationState,
   OperatorRecoveryView,
   PoolBinding,
   PoolBindingMutation,
@@ -196,12 +199,65 @@ function mergeHostPreferences(
   };
 }
 
+function mergeHostRecoveryStatus(
+  existing: HostRecoveryStatus | undefined,
+  incoming: HostRecoveryStatus | undefined,
+  existingLifecycleRev?: number,
+  incomingLifecycleRev?: number
+): HostRecoveryStatus | undefined {
+  if (!existing) return incoming;
+  if (!incoming) return existing;
+
+  const keepDesired =
+    typeof existing.desired_revision === "number" &&
+    typeof incoming.desired_revision === "number" &&
+    existing.desired_revision > incoming.desired_revision;
+
+  let keepObserved = false;
+  if (
+    typeof existing.reconciled_revision === "number" &&
+    typeof incoming.reconciled_revision === "number"
+  ) {
+    if (existing.reconciled_revision > incoming.reconciled_revision) {
+      keepObserved = true;
+    } else if (existing.reconciled_revision === incoming.reconciled_revision) {
+      if (
+        typeof existingLifecycleRev === "number" &&
+        typeof incomingLifecycleRev === "number"
+      ) {
+        if (existingLifecycleRev > incomingLifecycleRev) {
+          keepObserved = true;
+        }
+      }
+    }
+  }
+
+  return {
+    desired_revision: keepDesired ? existing.desired_revision : incoming.desired_revision,
+    auto_load_model: keepDesired ? existing.auto_load_model : incoming.auto_load_model,
+    auto_prepare_kv: keepDesired ? existing.auto_prepare_kv : incoming.auto_prepare_kv,
+
+    reconciled_revision: keepObserved ? existing.reconciled_revision : incoming.reconciled_revision,
+    model_ready: keepObserved ? existing.model_ready : incoming.model_ready,
+    cache_ready: keepObserved ? existing.cache_ready : incoming.cache_ready,
+    model_action: keepObserved ? existing.model_action : incoming.model_action,
+    cache_action: keepObserved ? existing.cache_action : incoming.cache_action,
+  };
+}
+
 function operationSnapshotToCanonical(op: OperationSnapshot): CanonicalOperationSnapshot {
   let status: CanonicalOperationSnapshot["status"] = "active";
-  if (op.state === "completed" || op.state === "failed" || op.state === "cancelled") {
+  if (
+    op.state === "completed" ||
+    op.state === "failed" ||
+    op.state === "cancelled" ||
+    op.state === "indeterminate"
+  ) {
     status = op.state;
   } else if (op.state === "queued") {
     status = "pending";
+  } else if (op.state === "cancelling") {
+    status = "active";
   }
   const stage = (op.stage as CanonicalOperationSnapshot["stage"]) || "load_weights";
   return {
@@ -217,6 +273,9 @@ function operationSnapshotToCanonical(op: OperationSnapshot): CanonicalOperation
     error_code: op.error_code,
     error_message: op.error_message,
     counters: op.counters || {},
+    host_id: op.host_id,
+    state: op.state,
+    kind: op.kind,
   };
 }
 
@@ -280,6 +339,8 @@ function savePersistedMutations(mutations: Record<string, unknown>) {
     // ignore quota error
   }
 }
+
+let lastFetchHostsStartedMs = 0;
 
 export const useInferenceStore = create<InferenceStoreState>((set, get) => {
   registerAccessInvalidationListener(() => {
@@ -445,16 +506,29 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
         get().fetchCredentialRecoveries(),
       ]);
       void get().reconcilePersistedMutations();
+      const activeOps = Object.values(get().operations).filter(
+        (op) =>
+          op.status === "active" ||
+          op.status === "pending" ||
+          op.state === "running" ||
+          op.state === "queued" ||
+          op.state === "cancelling"
+      );
+      for (const op of activeOps) {
+        void get().pollActiveOperation(op.operation_id);
+      }
     },
 
     // --- Phase 12 Gateway Actions ---
 
     fetchHosts: async () => {
       const startKey = get().accessKey;
+      const requestStartedMs = Date.now();
+      lastFetchHostsStartedMs = requestStartedMs;
       set({ loadingHosts: true, hostsError: null });
       try {
         const list = await getInferenceService().listHosts();
-        if (get().accessKey !== startKey) return;
+        if (get().accessKey !== startKey || requestStartedMs < lastFetchHostsStartedMs) return;
         const map: Record<string, HostView> = { ...get().hosts };
         for (const h of list) {
           const existing = map[h.host_id];
@@ -463,10 +537,12 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
           } else {
             const keepLifecycle = existing.lifecycle_revision > h.lifecycle_revision;
             const keepBinding = existing.applied_binding_revision > h.applied_binding_revision;
-            const keepRecovery =
-              existing.recovery &&
-              h.recovery &&
-              existing.recovery.reconciled_revision > h.recovery.reconciled_revision;
+            const mergedRecovery = mergeHostRecoveryStatus(
+              existing.recovery,
+              h.recovery,
+              existing.lifecycle_revision,
+              h.lifecycle_revision
+            );
             map[h.host_id] = {
               ...h,
               is_connected: keepLifecycle ? existing.is_connected : h.is_connected,
@@ -475,14 +551,14 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
               applied_binding_revision: keepBinding
                 ? existing.applied_binding_revision
                 : h.applied_binding_revision,
-              recovery: keepRecovery ? existing.recovery : h.recovery,
+              recovery: mergedRecovery ?? h.recovery,
               lifecycle_revision: Math.max(existing.lifecycle_revision, h.lifecycle_revision),
             };
           }
         }
         set({ hosts: map, loadingHosts: false });
       } catch (e: unknown) {
-        if (get().accessKey !== startKey) return;
+        if (get().accessKey !== startKey || requestStartedMs < lastFetchHostsStartedMs) return;
         const msg = e instanceof Error ? e.message : "Failed to fetch hosts";
         set({ hostsError: msg, loadingHosts: false });
       }
@@ -564,16 +640,37 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
         for (const op of ops) {
           const existing = currentOps[op.operation_id];
           if (!existing || op.revision >= existing.revision) {
-            currentOps[op.operation_id] = op as unknown as CanonicalOperationSnapshot;
+            currentOps[op.operation_id] = operationSnapshotToCanonical(op);
+          }
+          if (op.state === "running" || op.state === "queued" || op.state === "cancelling") {
+            void get().pollActiveOperation(op.operation_id);
           }
         }
-        set((state) => ({
-          operations: currentOps,
-          hostOperations: {
-            ...state.hostOperations,
-            [hostId]: ops,
-          },
-        }));
+        set((state) => {
+          const existingList = state.hostOperations[hostId] ?? [];
+          const existingMap = new Map(existingList.map((item) => [item.operation_id, item]));
+          const mergedList: OperationSnapshot[] = [];
+          for (const op of ops) {
+            const ex = existingMap.get(op.operation_id);
+            if (!ex || op.revision >= ex.revision) {
+              mergedList.push(op);
+              existingMap.delete(op.operation_id);
+            } else {
+              mergedList.push(ex);
+              existingMap.delete(op.operation_id);
+            }
+          }
+          for (const remaining of existingMap.values()) {
+            mergedList.push(remaining);
+          }
+          return {
+            operations: currentOps,
+            hostOperations: {
+              ...state.hostOperations,
+              [hostId]: mergedList,
+            },
+          };
+        });
       } catch {
         // ignore background fetch failure
       }
@@ -591,8 +688,27 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
               ...state.operations,
               [op.operation_id]: operationSnapshotToCanonical(op),
             };
+            const hostId = op.host_id;
+            let nextHostOps = state.hostOperations;
+            if (hostId) {
+              const list = state.hostOperations[hostId] ?? [];
+              const idx = list.findIndex((item) => item.operation_id === op.operation_id);
+              const updatedList =
+                idx >= 0
+                  ? list.map((item, i) =>
+                      i === idx ? (op.revision >= item.revision ? op : item) : item
+                    )
+                  : [op, ...list];
+              nextHostOps = {
+                ...state.hostOperations,
+                [hostId]: updatedList,
+              };
+            }
             const isTerminal =
-              op.state === "completed" || op.state === "failed" || op.state === "cancelled";
+              op.state === "completed" ||
+              op.state === "failed" ||
+              op.state === "cancelled" ||
+              op.state === "indeterminate";
             if (isTerminal) {
               let changed = false;
               const nextMutations = { ...state.persistedMutations };
@@ -604,10 +720,14 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
               }
               if (changed) {
                 savePersistedMutations(nextMutations);
-                return { operations: nextOps, persistedMutations: nextMutations };
+                return {
+                  operations: nextOps,
+                  hostOperations: nextHostOps,
+                  persistedMutations: nextMutations,
+                };
               }
             }
-            return { operations: nextOps };
+            return { operations: nextOps, hostOperations: nextHostOps };
           });
         }
       } catch {
@@ -661,12 +781,27 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
       try {
         const status = await getInferenceService().getInstallation(installationId);
         if (get().accessKey !== startKey) return null;
+        const prev = get().installations[installationId];
         set((state) => ({
           installations: {
             ...state.installations,
             [installationId]: status,
           },
         }));
+        const stateChanged =
+          !prev ||
+          prev.enrolled !== status.enrolled ||
+          prev.connected !== status.connected ||
+          prev.host_id !== status.host_id;
+        const hostId = status.host_id;
+        const knownHost = hostId ? get().hosts[hostId] : undefined;
+        const hostNeedsSync =
+          Boolean(hostId && (!knownHost || (status.connected && !knownHost.is_connected)));
+        if (stateChanged || hostNeedsSync) {
+          if (status.enrolled || status.connected || status.host_id) {
+            void get().fetchHosts();
+          }
+        }
         return status;
       } catch {
         return null;
@@ -824,18 +959,38 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
       set((state) => {
         const existing = state.hosts[payload.host_id];
         if (!existing) return state;
-        if (typeof payload.revision === "number" && existing.lifecycle_revision > payload.revision) {
-          return state;
-        }
+        const keepLifecycle =
+          typeof payload.revision === "number" && existing.lifecycle_revision > payload.revision;
+        const payloadRev =
+          typeof payload.revision === "number" ? payload.revision : existing.lifecycle_revision;
+        const mergedRecovery = payload.recovery
+          ? mergeHostRecoveryStatus(
+              existing.recovery,
+              payload.recovery,
+              existing.lifecycle_revision,
+              payloadRev
+            )
+          : existing.recovery;
         return {
           hosts: {
             ...state.hosts,
             [payload.host_id]: {
               ...existing,
-              is_connected: typeof payload.is_connected === "boolean" ? payload.is_connected : existing.is_connected,
-              lease_valid: typeof payload.lease_valid === "boolean" ? payload.lease_valid : existing.lease_valid,
-              recovery: payload.recovery ?? existing.recovery,
-              lifecycle_revision: typeof payload.revision === "number" ? payload.revision : existing.lifecycle_revision,
+              is_connected: keepLifecycle
+                ? existing.is_connected
+                : typeof payload.is_connected === "boolean"
+                ? payload.is_connected
+                : existing.is_connected,
+              lease_valid: keepLifecycle
+                ? existing.lease_valid
+                : typeof payload.lease_valid === "boolean"
+                ? payload.lease_valid
+                : existing.lease_valid,
+              recovery: mergedRecovery ?? existing.recovery,
+              lifecycle_revision:
+                typeof payload.revision === "number"
+                  ? Math.max(existing.lifecycle_revision, payload.revision)
+                  : existing.lifecycle_revision,
             },
           },
         };
@@ -1051,31 +1206,72 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
       if (contextKey && contextKey !== currentKey) return;
 
       if (!("stage" in event)) {
+        if (typeof event.revision !== "number") {
+          void get().pollActiveOperation(event.operation_id);
+          return;
+        }
         const existing = get().operations[event.operation_id];
-        if (existing && typeof event.revision === "number" && existing.revision > event.revision) {
+        if (!existing || event.revision > existing.revision + 1) {
+          void get().pollActiveOperation(event.operation_id);
+        }
+        if (existing && existing.revision > event.revision) {
           return;
         }
         if (existing) {
-          set((state) => ({
-            operations: {
+          const nextStatus =
+            event.state === "completed" ||
+            event.state === "failed" ||
+            event.state === "cancelled" ||
+            event.state === "indeterminate"
+              ? (event.state as CanonicalOperationSnapshot["status"])
+              : event.state === "queued"
+              ? "pending"
+              : existing.status;
+          const nextRevision = event.revision;
+          set((state) => {
+            const nextOps = {
               ...state.operations,
               [event.operation_id]: {
                 ...existing,
-                status: (event.state as CanonicalOperationSnapshot["status"]) || existing.status,
-                revision: typeof event.revision === "number" ? event.revision : existing.revision,
+                status: nextStatus,
+                revision: nextRevision,
                 updated_at_ms: Date.now(),
               },
-            },
-          }));
+            };
+            let nextHostOps = state.hostOperations;
+            const hostId = event.host_id ?? existing.host_id;
+            if (hostId && state.hostOperations[hostId]) {
+              const list = state.hostOperations[hostId];
+              const idx = list.findIndex((item) => item.operation_id === event.operation_id);
+              if (idx >= 0) {
+                const current = list[idx];
+                if (nextRevision >= current.revision) {
+                  const updatedOp: OperationSnapshot = {
+                    ...current,
+                    state: (event.state as OperationState) ?? current.state,
+                    revision: nextRevision,
+                    updated_at_ms: Date.now(),
+                  };
+                  nextHostOps = {
+                    ...state.hostOperations,
+                    [hostId]: list.map((item, i) => (i === idx ? updatedOp : item)),
+                  };
+                }
+              }
+            }
+            return { operations: nextOps, hostOperations: nextHostOps };
+          });
         }
         return;
       }
 
       const existing = get().operations[event.operation_id];
+      if (!existing || event.revision > existing.revision + 1) {
+        void get().pollActiveOperation(event.operation_id);
+      }
       if (existing && existing.revision > event.revision) {
         return;
       }
-
       const snapshot: CanonicalOperationSnapshot = {
         operation_id: event.operation_id,
         artifact_id: event.artifact_id,
@@ -1086,20 +1282,58 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
         started_at_ms: existing ? existing.started_at_ms : event.occurred_at_ms - event.elapsed_ms,
         updated_at_ms: event.occurred_at_ms,
         completed_at_ms:
-          event.status === "completed" || event.status === "failed" || event.status === "cancelled"
+          event.status === "completed" ||
+          event.status === "failed" ||
+          event.status === "cancelled" ||
+          event.status === "indeterminate"
             ? event.occurred_at_ms
             : null,
         error_code: existing?.error_code,
         error_message: existing?.error_message,
         counters: event.counters,
+        host_id: event.host_id ?? existing?.host_id,
       };
 
-      set((state) => ({
-        operations: {
+      set((state) => {
+        const nextOps = {
           ...state.operations,
           [event.operation_id]: snapshot,
-        },
-      }));
+        };
+        let nextHostOps = state.hostOperations;
+        const hostId = event.host_id ?? existing?.host_id;
+        if (hostId && state.hostOperations[hostId]) {
+          const list = state.hostOperations[hostId];
+          const idx = list.findIndex((item) => item.operation_id === event.operation_id);
+          if (idx >= 0) {
+            const current = list[idx];
+            if (event.revision >= current.revision) {
+              const stateFromStatus: OperationState =
+                event.status === "completed" ||
+                event.status === "failed" ||
+                event.status === "cancelled" ||
+                event.status === "indeterminate"
+                  ? event.status
+                  : event.status === "pending"
+                  ? "queued"
+                  : "running";
+              const updatedOp: OperationSnapshot = {
+                ...current,
+                state: stateFromStatus,
+                stage: event.stage,
+                revision: event.revision,
+                counters: event.counters,
+                updated_at_ms: event.occurred_at_ms,
+                completed_at_ms: snapshot.completed_at_ms,
+              };
+              nextHostOps = {
+                ...state.hostOperations,
+                [hostId]: list.map((item, i) => (i === idx ? updatedOp : item)),
+              };
+            }
+          }
+        }
+        return { operations: nextOps, hostOperations: nextHostOps };
+      });
     },
 
     applyRunProgressEvent: (event: RunInferenceProgressEvent, contextKey?: string) => {
@@ -1145,13 +1379,144 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
 
       if (target.kind === "pool") {
         const pool = get().pools[target.pool_id];
-        const isReady = Boolean(pool && pool.ready_hosts > 0);
+        if (!pool) {
+          return {
+            canInfer: false,
+            isReady: false,
+            phase: "offline",
+            label: `Pool ${target.pool_id}`,
+            reason: `Pool ${target.pool_id} not found`,
+          };
+        }
+        if (pool.ready_hosts === 0) {
+          return {
+            canInfer: false,
+            isReady: false,
+            phase: "offline",
+            label: `Pool: ${pool.pool_id}`,
+            reason: "No ready hosts in pool",
+          };
+        }
+        if (!target.model_artifact_id) {
+          return {
+            canInfer: false,
+            isReady: false,
+            phase: "offline",
+            label: `Pool: ${pool.pool_id}`,
+            reason: "No model artifact specified for pool target",
+          };
+        }
+        const qualifiedList = Array.isArray(pool.qualified_models) ? pool.qualified_models : [];
+        if (!qualifiedList.includes(target.model_artifact_id)) {
+          return {
+            canInfer: false,
+            isReady: false,
+            phase: "offline",
+            label: `Pool: ${pool.pool_id} (${target.model_artifact_id})`,
+            reason: `Model ${target.model_artifact_id} is not qualified in pool ${pool.pool_id}`,
+          };
+        }
+        // Validate exact model_digest against authoritative catalog if known
+        if (!target.model_digest) {
+          return {
+            canInfer: false,
+            isReady: false,
+            phase: "offline",
+            label: `Pool: ${pool.pool_id} (${target.model_artifact_id})`,
+            reason: "No model digest specified for pool target",
+          };
+        }
+        const expectedDigest = AUTHORITATIVE_CATALOG_DIGESTS[target.model_artifact_id];
+        if (expectedDigest) {
+          if (target.model_digest !== expectedDigest) {
+            return {
+              canInfer: false,
+              isReady: false,
+              phase: "offline",
+              label: `Pool: ${pool.pool_id} (${target.model_artifact_id})`,
+              reason: `Model digest mismatch for ${target.model_artifact_id}`,
+            };
+          }
+        } else if (target.model_digest.length < 32) {
+          return {
+            canInfer: false,
+            isReady: false,
+            phase: "offline",
+            label: `Pool: ${pool.pool_id} (${target.model_artifact_id})`,
+            reason: `Unrecognized or invalid model digest for ${target.model_artifact_id}`,
+          };
+        }
+        if (target.host_id) {
+          const host = get().hosts[target.host_id];
+          if (!host) {
+            return {
+              canInfer: false,
+              isReady: false,
+              phase: "offline",
+              label: `Pool: ${pool.pool_id} (${target.host_id})`,
+              reason: `Host ${target.host_id} not found`,
+            };
+          }
+          if (host.current_binding?.pool_id !== target.pool_id || host.current_binding?.state !== "bound") {
+            return {
+              canInfer: false,
+              isReady: false,
+              phase: "offline",
+              label: `Pool: ${pool.pool_id} (${target.host_id})`,
+              reason: `Host ${target.host_id} is not bound to pool ${pool.pool_id}`,
+            };
+          }
+          if (!host.is_connected || host.lease_valid === false) {
+            return {
+              canInfer: false,
+              isReady: false,
+              phase: "offline",
+              label: `Pool: ${pool.pool_id} (${target.host_id})`,
+              reason: `Host ${target.host_id} is offline or lease invalid`,
+            };
+          }
+          if (host.recovery && host.recovery.model_ready === false) {
+            return {
+              canInfer: false,
+              isReady: false,
+              phase: "offline",
+              label: `Pool: ${pool.pool_id} (${target.host_id})`,
+              reason: `Host ${target.host_id} is not model-ready`,
+            };
+          }
+        } else {
+          const poolBoundHosts = Object.values(get().hosts).filter(
+            (h) => h.current_binding?.pool_id === target.pool_id && h.current_binding?.state === "bound"
+          );
+          if (poolBoundHosts.length === 0) {
+            return {
+              canInfer: false,
+              isReady: false,
+              phase: "offline",
+              label: `Pool: ${pool.pool_id} (${target.model_artifact_id})`,
+              reason: `No bound hosts in pool ${pool.pool_id}`,
+            };
+          }
+          const hasReadyHost = poolBoundHosts.some(
+            (h) => h.is_connected && h.lease_valid !== false && (!h.recovery || h.recovery.model_ready)
+          );
+          if (!hasReadyHost) {
+            return {
+              canInfer: false,
+              isReady: false,
+              phase: "offline",
+              label: `Pool: ${pool.pool_id} (${target.model_artifact_id})`,
+              reason: `No hosts in pool ${pool.pool_id} are currently model-ready`,
+            };
+          }
+        }
+        const label = `Pool: ${pool.pool_id}`;
         return {
-          canInfer: isReady,
-          isReady,
-          phase: isReady ? "ready" : "offline",
-          label: pool ? `Pool: ${pool.pool_id}` : `Pool ${target.pool_id}`,
-          reason: isReady ? undefined : "No ready hosts in pool",
+          canInfer: true,
+          isReady: true,
+          phase: "ready",
+          label,
+          reason: undefined,
         };
       }
 

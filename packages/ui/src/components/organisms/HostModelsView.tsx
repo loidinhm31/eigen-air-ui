@@ -1,5 +1,6 @@
 import * as React from "react";
 import { useEffect, useState } from "react";
+import type { OperationState } from "@eigen-air-ui/shared/types";
 import { useInferenceStore } from "../../stores/inferenceStore.js";
 import { HostModelRecommendationCard } from "./host-model-recommendation-card.js";
 import { HostOperationProgressCard } from "./host-operation-progress-card.js";
@@ -18,6 +19,7 @@ export function HostModelsView({ hostId: propHostId, onHostChange, className = "
     hosts,
     hostModels,
     hostOperations,
+    operations: allOperations,
     fetchHosts,
     fetchHostModels,
     fetchHostOperations,
@@ -55,11 +57,50 @@ export function HostModelsView({ hostId: propHostId, onHostChange, className = "
   }, [effectiveHostId, fetchHostModels, fetchHostOperations]);
 
   const recommendations = (effectiveHostId && hostModels[effectiveHostId]) || [];
-  const operations = (effectiveHostId && hostOperations[effectiveHostId]) || [];
-  const activeOperations = operations.filter(
+  const operationsFromStore = effectiveHostId
+    ? Object.values(allOperations)
+        .filter((op) => op.host_id === effectiveHostId)
+        .map((c) => {
+          const opState: OperationState =
+            c.state ??
+            (c.status === "pending"
+              ? "queued"
+              : c.status === "active"
+              ? "running"
+              : c.status === "coalesced"
+              ? "completed"
+              : c.status);
+          return {
+            operation_id: c.operation_id,
+            host_id: c.host_id || effectiveHostId,
+            artifact_id: c.artifact_id,
+            kind: c.kind || "load",
+            state: opState,
+            stage: c.stage,
+            revision: c.revision,
+            counters: c.counters,
+            started_at_ms: c.started_at_ms,
+            updated_at_ms: c.updated_at_ms,
+            completed_at_ms: c.completed_at_ms,
+            error_code: c.error_code,
+            error_message: c.error_message,
+          };
+        })
+    : [];
+  const operations =
+    operationsFromStore.length > 0
+      ? operationsFromStore
+      : (effectiveHostId && hostOperations[effectiveHostId]) || [];
+  const hasActiveOperations = operations.some(
     (op) => op.state === "running" || op.state === "queued" || op.state === "cancelling"
   );
-
+  useEffect(() => {
+    if (!effectiveHostId || !hasActiveOperations) return;
+    const interval = setInterval(() => {
+      void fetchHostOperations(effectiveHostId);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [effectiveHostId, hasActiveOperations, fetchHostOperations]);
   const validRanks = recommendations.map((r) => r.rank).filter((r): r is number => typeof r === "number" && r > 0);
   const minRank = validRanks.length > 0 ? Math.min(...validRanks) : null;
 
@@ -133,13 +174,13 @@ export function HostModelsView({ hostId: propHostId, onHostChange, className = "
       )}
 
       {/* Active Operations Progress Region */}
-      {activeOperations.length > 0 && (
+      {operations.length > 0 && (
         <div className="space-y-2.5" data-testid="active-operations-region">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Active Host Operations ({activeOperations.length})
+            Host Operations ({operations.length})
           </h3>
           <div className="grid gap-2">
-            {activeOperations.map((op) => (
+            {operations.map((op) => (
               <HostOperationProgressCard
                 key={op.operation_id}
                 operation={op}

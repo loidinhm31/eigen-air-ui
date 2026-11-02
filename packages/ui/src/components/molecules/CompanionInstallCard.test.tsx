@@ -122,4 +122,125 @@ describe("CompanionInstallCard", () => {
     // Does NOT show unrelated host
     expect(screen.queryByText("Unrelated Host")).toBeNull();
   });
+
+  it("UI-03: renders enrolled offline host honestly rather than connected", () => {
+    useInferenceStore.setState({
+      activeInstallationId: "inst-offline",
+      hosts: {
+        h_offline: {
+          host_id: "h_offline",
+          installation_id: "inst-offline",
+          label: "Offline Remote Host",
+          platform: "linux-x86_64",
+          agent_version: "0.2.0",
+          lifecycle_revision: 1,
+          last_seen_at_ms: 1000,
+          is_connected: false,
+          lease_valid: false,
+          applied_binding_revision: 0,
+          current_binding: null,
+          recovery: {
+            desired_revision: 1,
+            reconciled_revision: 1,
+            auto_load_model: false,
+            auto_prepare_kv: false,
+            model_ready: false,
+            cache_ready: false,
+            model_action: "none",
+            cache_action: "none",
+          },
+        },
+      },
+    });
+
+    render(<CompanionInstallCard />);
+
+    expect(screen.getByText("Offline Remote Host")).toBeDefined();
+    // Both header badge and host row badge must be labeled Enrolled (Offline), NOT Connected (Unbound)
+    expect(screen.getAllByText("Enrolled (Offline)").length).toBe(2);
+    expect(screen.queryByText("Connected (Unbound)")).toBeNull();
+  });
+
+  it("UI-03: consumes scalar installation projection before hosts are populated", () => {
+    useInferenceStore.setState({
+      activeInstallationId: "inst-early-conn",
+      installations: {
+        "inst-early-conn": {
+          installation_id: "inst-early-conn",
+          deployment_id: "dep-1",
+          platform: "linux-x86_64",
+          label: "Early Gateway Host",
+          status: "connected",
+          enrolled: true,
+          connected: true,
+          host_id: "host-early-1",
+          created_at_ms: 1000,
+          registered_hosts: ["host-early-1"],
+          connected_hosts: ["host-early-1"],
+          bound_hosts: [],
+        },
+      },
+      hosts: {},
+    });
+
+    render(<CompanionInstallCard />);
+
+    // Header shows Connected (1) from installation projection
+    expect(screen.getByText("Connected (1)")).toBeDefined();
+    expect(screen.getByText("Early Gateway Host")).toBeDefined();
+  });
+
+  it("UI-03: scalar disconnect takes precedence over stale connected host snapshot", () => {
+    useInferenceStore.setState({
+      activeInstallationId: "inst-disc-override",
+      installations: {
+        "inst-disc-override": {
+          installation_id: "inst-disc-override",
+          deployment_id: "dep-1",
+          platform: "linux-x86_64",
+          label: "Disconnected Host",
+          status: "enrolled",
+          enrolled: true,
+          connected: false, // Scalar disconnect from gateway
+          host_id: "host-disc",
+          created_at_ms: 1000,
+          registered_hosts: ["host-disc"],
+          connected_hosts: [],
+          bound_hosts: [],
+        },
+      },
+      hosts: {
+        "host-disc": {
+          host_id: "host-disc",
+          installation_id: "inst-disc-override",
+          label: "Disconnected Host",
+          platform: "linux-x86_64",
+          agent_version: "0.2.0",
+          lifecycle_revision: 1,
+          last_seen_at_ms: 1000,
+          is_connected: true, // Stale snapshot still says true
+          lease_valid: true,
+          applied_binding_revision: 0,
+          current_binding: null,
+          recovery: {
+            desired_revision: 1,
+            reconciled_revision: 1,
+            auto_load_model: false,
+            auto_prepare_kv: false,
+            model_ready: false,
+            cache_ready: false,
+            model_action: "none",
+            cache_action: "none",
+          },
+        },
+      },
+    });
+
+    render(<CompanionInstallCard />);
+
+    // Both header badge and host row badge must render Enrolled (Offline) because scalar disconnected === false
+    expect(screen.getAllByText("Enrolled (Offline)").length).toBe(2);
+    expect(screen.queryByText(/Connected \(1\)/)).toBeNull();
+    expect(screen.queryByText("Connected (Unbound)")).toBeNull();
+  });
 });

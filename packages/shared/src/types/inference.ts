@@ -63,8 +63,8 @@ export type StageStatus =
   | "coalesced"
   | "completed"
   | "failed"
-  | "cancelled";
-
+  | "cancelled"
+  | "indeterminate";
 export interface StageCounters {
   unit?: string;
   unit_name?: string;
@@ -84,6 +84,7 @@ export interface StageCounters {
 export interface InferenceOperationProgressEvent {
   schema_version: string;
   operation_id: string;
+  host_id?: string;
   execution_target_kind: string;
   artifact_id: string;
   stage: OperationStage;
@@ -124,6 +125,9 @@ export interface CanonicalOperationSnapshot {
   error_code?: string | null;
   error_message?: string | null;
   counters: StageCounters;
+  host_id?: string;
+  state?: OperationState;
+  kind?: OperationKind;
 }
 
 export type StorageRootKind = "model_root" | "cache_root" | "download_staging";
@@ -570,8 +574,15 @@ export interface InstallationDescriptor {
 
 export interface InstallationStatus {
   installation_id: string;
+  deployment_id?: string;
   platform: string;
   label: string;
+  status?: string;
+  enrolled?: boolean;
+  connected?: boolean;
+  host_id?: string | null;
+  proof_fingerprint?: string | null;
+  last_seen_ms?: number | null;
   registered_hosts: string[];
   connected_hosts: string[];
   bound_hosts: string[];

@@ -352,4 +352,77 @@ describe("HostModelsView", () => {
     await user.click(cancelBtn);
     expect(screen.getByTestId("host-models-error").textContent).toContain("Operation not cancellable in current stage");
   });
+
+  it("UI-02: displays completed, failed, and indeterminate terminal operation evidence", () => {
+    useInferenceStore.setState({
+      hosts: {
+        "host-term": {
+          host_id: "host-term",
+          installation_id: "inst-1",
+          label: "Terminal Host",
+          platform: "linux_x86_64",
+          agent_version: "0.2.0",
+          lifecycle_revision: 1,
+          last_seen_at_ms: Date.now(),
+          is_connected: true,
+          lease_valid: true,
+          applied_binding_revision: 0,
+          recovery: {
+            desired_revision: 1,
+            reconciled_revision: 1,
+            auto_load_model: false,
+            auto_prepare_kv: false,
+            model_ready: false,
+            cache_ready: false,
+            model_action: "none",
+            cache_action: "none",
+          },
+        },
+      },
+      hostModels: {
+        "host-term": [],
+      },
+      hostOperations: {
+        "host-term": [
+          {
+            operation_id: "op-completed",
+            host_id: "host-term",
+            artifact_id: "gemma-4",
+            kind: "load",
+            state: "completed",
+            revision: 5,
+            started_at_ms: Date.now() - 5000,
+            completed_at_ms: Date.now(),
+            counters: {},
+          },
+          {
+            operation_id: "op-indeterminate",
+            host_id: "host-term",
+            artifact_id: "qwen-3.5",
+            kind: "prepare_kv",
+            state: "indeterminate",
+            revision: 3,
+            started_at_ms: Date.now() - 10000,
+            completed_at_ms: Date.now() - 2000,
+            counters: {},
+          },
+        ],
+      },
+      fetchHostModels: vi.fn().mockResolvedValue([]),
+      fetchHostOperations: vi.fn().mockResolvedValue([]),
+    });
+
+    render(<HostModelsView hostId="host-term" />);
+
+    // Both terminal operations are visible in the operations region
+    expect(screen.getByTestId("active-operations-region")).toBeTruthy();
+    expect(screen.getByTestId("operation-progress-op-completed")).toBeTruthy();
+    expect(screen.getByTestId("operation-state-op-completed").textContent).toContain("completed");
+    expect(screen.getByTestId("operation-progress-op-indeterminate")).toBeTruthy();
+    expect(screen.getByTestId("operation-state-op-indeterminate").textContent).toContain("indeterminate");
+
+    // Terminal operations do not render Cancel buttons
+    expect(screen.queryByTestId("cancel-operation-op-completed")).toBeNull();
+    expect(screen.queryByTestId("cancel-operation-op-indeterminate")).toBeNull();
+  });
 });

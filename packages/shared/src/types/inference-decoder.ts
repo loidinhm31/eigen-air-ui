@@ -56,6 +56,7 @@ const VALID_STATUSES: Record<StageStatus, true> = {
   completed: true,
   failed: true,
   cancelled: true,
+  indeterminate: true,
 };
 
 const VALID_DEVICE_STATUSES: Record<DeviceStatus, true> = {
@@ -185,6 +186,8 @@ export function decodeCanonicalOperationSnapshot(raw: unknown): CanonicalOperati
     error_code: typeof obj.error_code === "string" ? obj.error_code : null,
     error_message: typeof obj.error_message === "string" ? obj.error_message : null,
     counters: decodeStageCounters(obj.counters),
+    host_id: typeof obj.host_id === "string" && obj.host_id ? obj.host_id : undefined,
+    state: typeof obj.state === "string" ? (obj.state as OperationState) : undefined,
   };
 }
 
@@ -216,6 +219,7 @@ export function decodeInferenceOperationProgressEvent(raw: unknown): InferenceOp
     elapsed_ms: typeof obj.elapsed_ms === "number" ? obj.elapsed_ms : 0,
     occurred_at_ms: typeof obj.occurred_at_ms === "number" ? obj.occurred_at_ms : Date.now(),
     counters: decodeStageCounters(obj.counters),
+    host_id: typeof obj.host_id === "string" && obj.host_id ? obj.host_id : undefined,
   };
 }
 
@@ -856,14 +860,47 @@ export function decodeInstallationStatus(raw: unknown): InstallationStatus {
     throw new Error("Invalid InstallationStatus: expected object");
   }
   const obj = raw as Record<string, unknown>;
+  const enrolled = typeof obj.enrolled === "boolean" ? obj.enrolled : false;
+  const connected = typeof obj.connected === "boolean" ? obj.connected : false;
+  const status =
+    typeof obj.status === "string"
+      ? obj.status
+      : connected
+      ? "connected"
+      : enrolled
+      ? "enrolled"
+      : "pending";
+  const hostId = typeof obj.host_id === "string" && obj.host_id ? obj.host_id : null;
+
+  const registeredHosts = Array.isArray(obj.registered_hosts)
+    ? obj.registered_hosts.filter((h): h is string => typeof h === "string")
+    : hostId && enrolled
+    ? [hostId]
+    : [];
+  const connectedHosts = Array.isArray(obj.connected_hosts)
+    ? obj.connected_hosts.filter((h): h is string => typeof h === "string")
+    : hostId && connected
+    ? [hostId]
+    : [];
+  const boundHosts = Array.isArray(obj.bound_hosts)
+    ? obj.bound_hosts.filter((h): h is string => typeof h === "string")
+    : [];
+
   return {
     installation_id: typeof obj.installation_id === "string" ? obj.installation_id : "",
+    deployment_id: typeof obj.deployment_id === "string" ? obj.deployment_id : undefined,
     platform: typeof obj.platform === "string" ? obj.platform : "unknown",
     label: typeof obj.label === "string" ? obj.label : "",
-    registered_hosts: Array.isArray(obj.registered_hosts) ? obj.registered_hosts.filter((h): h is string => typeof h === "string") : [],
-    connected_hosts: Array.isArray(obj.connected_hosts) ? obj.connected_hosts.filter((h): h is string => typeof h === "string") : [],
-    bound_hosts: Array.isArray(obj.bound_hosts) ? obj.bound_hosts.filter((h): h is string => typeof h === "string") : [],
+    status,
+    enrolled,
+    connected,
+    host_id: hostId,
+    proof_fingerprint: typeof obj.proof_fingerprint === "string" ? obj.proof_fingerprint : null,
+    last_seen_ms: typeof obj.last_seen_ms === "number" ? obj.last_seen_ms : null,
     created_at_ms: typeof obj.created_at_ms === "number" ? obj.created_at_ms : 0,
+    registered_hosts: registeredHosts,
+    connected_hosts: connectedHosts,
+    bound_hosts: boundHosts,
   };
 }
 
