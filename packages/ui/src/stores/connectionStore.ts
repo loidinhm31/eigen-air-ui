@@ -1,11 +1,12 @@
 import { create } from "zustand";
-import type { ConnectionState, ConnectionStatus } from "@eigen-air-ui/shared/types";
+import type { ConnectionErrorKind, ConnectionState, ConnectionStatus } from "@eigen-air-ui/shared/types";
 import { DEFAULT_DAEMON_URL, STORAGE_KEYS } from "@eigen-air-ui/shared/constants";
 
 interface ConnectionStore extends ConnectionState {
   setUrl(url: string): void;
   setStatus(status: ConnectionStatus, version?: string): void;
   setSessionId(id: string | undefined): void;
+  setError(error: ConnectionErrorKind | undefined): void;
 }
 
 export const useConnectionStore = create<ConnectionStore>((set) => ({
@@ -17,6 +18,7 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
   sessionId: (typeof localStorage !== "undefined"
     ? localStorage.getItem(STORAGE_KEYS.SESSION_ID) ?? undefined
     : undefined),
+  error: undefined,
   setUrl: (url) => {
     if (typeof localStorage !== "undefined") {
       localStorage.setItem(STORAGE_KEYS.DAEMON_URL, url);
@@ -31,4 +33,5 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
     }
     set({ sessionId });
   },
+  setError: (error) => set({ error }),
 }));

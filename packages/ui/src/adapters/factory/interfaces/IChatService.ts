@@ -53,7 +53,7 @@ export interface SendMessageOptions {
 }
 
 export interface IChatService {
-  connect(token?: string): Promise<ConnectResponse>;
+  connect(token?: string, options?: { signal?: AbortSignal }): Promise<ConnectResponse>;
   sendMessage(
     message: string,
     sessionId: string | undefined,

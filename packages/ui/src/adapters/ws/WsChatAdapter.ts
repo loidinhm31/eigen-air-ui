@@ -106,6 +106,7 @@ export class WsChatAdapter implements IChatService, ISessionService {
   private readonly client: WsClient;
   private token: string | undefined;
   private activeRunId: string | undefined;
+  private retired = false;
   private readonly runSubscribers = new Set<RunCorrelationCallback>();
   private readonly reconnectSubscribers = new Set<() => void>();
   private readonly questionSubscribers = new Set<(event: UserQuestionUpdatedEvent) => void>();
@@ -158,6 +159,7 @@ export class WsChatAdapter implements IChatService, ISessionService {
     });
     this.client.onInvalidImageHint(() => this.notifyImageHint({ invalid: true }));
     this.client.onConnectionStatus((status) => {
+      if (this.retired) return;
       if (status === "reconnecting") useConnectionStore.getState().setStatus("connecting");
       if (status === "offline") useConnectionStore.getState().setStatus("disconnected");
       if (status === "connected") useConnectionStore.getState().setStatus("connected");
@@ -170,6 +172,7 @@ export class WsChatAdapter implements IChatService, ISessionService {
       try {
         const connection = await this.authenticateAndResolveSession(fence);
         this.assertReconnectFence(fence);
+        if (this.retired) return;
         useConnectionStore.getState().setStatus("connected", connection.version);
         this.reconnectSubscribers.forEach((callback) => callback());
         // Reconcile gap snapshot after reconnect
@@ -261,14 +264,21 @@ export class WsChatAdapter implements IChatService, ISessionService {
     this.runSubscribers.forEach((callback) => callback(projected));
   }
 
-  async connect(token?: string): Promise<ConnectResponse> {
+  async connect(token?: string, options?: { signal?: AbortSignal }): Promise<ConnectResponse> {
+    this.retired = false;
+    this.assertSignal(options?.signal);
     this.token = token ?? this.accessProvider?.().authToken;
     try {
       await this.client.connect();
-      return await this.authenticateAndResolveSession();
+      this.assertSignal(options?.signal);
+      return await this.authenticateAndResolveSession(undefined, options?.signal);
     } catch (error) {
       // Authentication failure must not leave an unauthenticated socket alive.
-      this.client.disconnect();
+      // However, an aborted/superseded connect must not tear down a socket that might have been
+      // superseded or reopened by a newer connect attempt on this adapter.
+      if (!options?.signal?.aborted && !isWsRequestError(error, "superseded")) {
+        this.client.disconnect();
+      }
       throw error;
     }
   }
@@ -292,37 +302,59 @@ export class WsChatAdapter implements IChatService, ISessionService {
   private assertReconnectFence(fence?: WsReconnectFence): void {
     if (fence?.signal.aborted) throw new Error("reconnect superseded");
   }
-
-  private async authenticateAndResolveSession(
-    fence?: WsReconnectFence
-  ): Promise<ConnectResponse> {
-    const connection = await this.authenticate(fence);
-    this.assertReconnectFence(fence);
-    return this.resolveSelectedSession(connection, fence);
+  private assertSignal(signal?: AbortSignal): void {
+    if (signal?.aborted) {
+      throw new WsRequestError("superseded", "connect superseded", WS_METHODS.CONNECT);
+    }
   }
 
-  private async authenticate(fence?: WsReconnectFence): Promise<ConnectResponse> {
+
+  private async authenticateAndResolveSession(
+    fence?: WsReconnectFence,
+    signal?: AbortSignal
+  ): Promise<ConnectResponse> {
+    const connection = await this.authenticate(fence, signal);
+    this.assertReconnectFence(fence);
+    this.assertSignal(signal);
+    return this.resolveSelectedSession(connection, fence, signal);
+  }
+
+  private async authenticate(
+    fence?: WsReconnectFence,
+    signal?: AbortSignal
+  ): Promise<ConnectResponse> {
+    this.assertReconnectFence(fence);
+    this.assertSignal(signal);
     if (fence && this.accessProvider) {
       this.token = this.accessProvider().authToken;
     } else if (this.token === undefined && this.accessProvider) {
       this.token = this.accessProvider().authToken;
     }
-    return this.call<{ token?: string }, ConnectResponse>(
+    const res = await this.call<{ token?: string }, ConnectResponse>(
       WS_METHODS.CONNECT,
       this.token ? { token: this.token } : {},
       { fence }
     );
+    this.assertReconnectFence(fence);
+    this.assertSignal(signal);
+    return res;
   }
 
   private async resolveSelectedSession(
     connection: ConnectResponse,
-    fence?: WsReconnectFence
+    fence?: WsReconnectFence,
+    signal?: AbortSignal
   ): Promise<ConnectResponse> {
     const { sessionId, setSessionId } = useConnectionStore.getState();
     const selected = sessionId ? await this.getSession(sessionId, fence) : null;
     this.assertReconnectFence(fence);
+    this.assertSignal(signal);
     const activeSession = selected ?? (await this.createSession(undefined, fence));
     this.assertReconnectFence(fence);
+    this.assertSignal(signal);
+    if (this.retired) {
+      throw new WsRequestError("superseded", "connect superseded", WS_METHODS.CONNECT);
+    }
     setSessionId(activeSession.id);
     return {
       ...connection,
@@ -489,6 +521,7 @@ export class WsChatAdapter implements IChatService, ISessionService {
   }
 
   disconnect() {
+    this.retired = true;
     this.clearWaitingHandlers();
     this.client.disconnect();
   }

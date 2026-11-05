@@ -2,11 +2,15 @@ import * as React from "react";
 import { useState } from "react";
 import { useConnectionStore } from "../../stores/connectionStore.js";
 import {
-  getChatService,
   getConfigService,
   reinitServices,
   setServiceAccessContext,
 } from "../../adapters/factory/ServiceFactory.js";
+import {
+  connectChat,
+  disconnectChat,
+  ConnectSupersededError,
+} from "../../adapters/factory/connection-controller.js";
 import {
   getStoredAuthToken,
   getStoredTokenRetention,
@@ -47,7 +51,7 @@ function toSafeErrorMessage(err: unknown): string {
 }
 
 export function ConnectionStatus({ managedAccess = false }: ConnectionStatusProps) {
-  const { url, status, version, sessionId, setUrl, setStatus, setSessionId } =
+  const { url, status, version, sessionId, setUrl, setSessionId } =
     useConnectionStore();
   const [draftUrl, setDraftUrl] = useState(url);
   const [draftToken, setDraftToken] = useState(() => (!managedAccess ? getStoredAuthToken() ?? "" : ""));
@@ -60,48 +64,53 @@ export function ConnectionStatus({ managedAccess = false }: ConnectionStatusProp
   async function handleConnect() {
     setConnecting(true);
     setError(null);
-    setStatus("connecting");
-    setUrl(draftUrl);
 
-    if (!managedAccess) {
-      const trimmed = draftToken.trim();
-      if (trimmed) {
-        saveStoredAuthToken(trimmed, retention);
-        setServiceAccessContext({
-          authToken: trimmed,
-          capabilities: new Set(["run:read:debug", "run:export", "run:delete"]),
-        });
-      } else {
-        clearStoredAuthToken();
-        setServiceAccessContext({});
-      }
-    }
-
-    // Re-create all adapters pointing at the (possibly new) URL / access context before any call.
-    reinitServices();
+    const abortController = new AbortController();
+    const timeoutId = setTimeout(() => {
+      abortController.abort();
+    }, 10_000);
 
     try {
-      await getConfigService().health();
-      const [cfg, aStatus, connectRes] = await Promise.all([
-        getConfigService().getConfig(),
-        getConfigService().getStatus(),
-        getChatService().connect(),
+      const connecting = connectChat({
+        intent: "manual",
+        beforeConnect: () => {
+          setUrl(draftUrl);
+          if (!managedAccess) {
+            const trimmed = draftToken.trim();
+            if (trimmed) {
+              saveStoredAuthToken(trimmed, retention);
+              setServiceAccessContext({
+                authToken: trimmed,
+                capabilities: new Set(["run:read:debug", "run:export", "run:delete"]),
+              });
+            } else {
+              clearStoredAuthToken();
+              setServiceAccessContext({});
+            }
+          }
+          // Re-create all adapters pointing at the (possibly new) URL / access context before any call.
+          reinitServices();
+        },
+      });
+
+      const [cfg, aStatus] = await Promise.all([
+        getConfigService().getConfig(abortController.signal),
+        getConfigService().getStatus(abortController.signal),
+        connecting,
       ]);
+
       setConfig(cfg);
       setAgentStatus(aStatus);
-      setStatus("connected", connectRes.version);
-      setSessionId(connectRes.session_id);
     } catch (e) {
-      try {
-        getChatService().disconnect();
-      } catch {
-        // Ignore disconnect failure during error recovery
+      if (e instanceof ConnectSupersededError) {
+        return;
       }
       setConfig(null);
       setAgentStatus(null);
-      setStatus("disconnected");
       setError(toSafeErrorMessage(e));
     } finally {
+      abortController.abort();
+      clearTimeout(timeoutId);
       setConnecting(false);
     }
   }
@@ -112,16 +121,11 @@ export function ConnectionStatus({ managedAccess = false }: ConnectionStatusProp
     clearStoredAuthToken();
     setServiceAccessContext({});
     reinitServices();
-    try {
-      getChatService().disconnect();
-    } catch {
-      // Ignore disconnect failure during clear
-    }
+    disconnectChat();
     setConfig(null);
     setAgentStatus(null);
     setError(null);
     setSessionId(undefined);
-    setStatus("disconnected");
   }
 
   const statusVariant =

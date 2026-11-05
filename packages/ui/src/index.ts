@@ -110,3 +110,17 @@ export { HttpInferenceAdapter, InferenceHttpError } from "./adapters/http/HttpIn
 export { ToolApprovalController } from "./components/organisms/toolApprovalController.js";
 
 export { initServicesForDaemonUrl, normalizeDaemonUrl } from "./adapters/factory/init-services.js";
+
+export {
+  connectChat,
+  startAutoConnect,
+  disconnectChat,
+  classifyConnectError,
+  resetConnectionControllerForTests,
+  ConnectSupersededError,
+  CONNECT_HEALTH_TIMEOUT_MS,
+} from "./adapters/factory/connection-controller.js";
+export type {
+  ConnectIntent,
+  ConnectRequest,
+} from "./adapters/factory/connection-controller.js";

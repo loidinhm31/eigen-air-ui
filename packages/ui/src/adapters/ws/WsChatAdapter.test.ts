@@ -35,7 +35,13 @@ const wsHarness = vi.hoisted(() => {
       this.handlers = this.handlers.filter((candidate) => candidate !== handler);
     }
 
-    onConnectionStatus() {}
+    connectionStatusHandlers: Array<(status: string) => void> = [];
+    onConnectionStatus(handler: (status: string) => void) {
+      this.connectionStatusHandlers.push(handler);
+    }
+    emitConnectionStatus(status: string) {
+      this.connectionStatusHandlers.forEach((handler) => handler(status));
+    }
     onProtocolError() {}
     private invalidImageHintHandlers: Array<() => void> = [];
     onInvalidImageHint(handler: () => void) {
@@ -847,5 +853,96 @@ describe("WsChatAdapter sessions.get and paged sessions.list (Phase 04)", () => 
       params: { id: "target-1" },
       options: { fence },
     });
+  });
+});
+
+describe("WsChatAdapter connection fencing and retirement (Phase 05)", () => {
+  it("same-service supersession aborts old connect before setSessionId", async () => {
+    wsHarness.harness.reset();
+    useConnectionStore.getState().setSessionId("original-session");
+
+    const adapter = new WsChatAdapter("ws://localhost:18790/ws");
+    const abortController = new AbortController();
+
+    wsHarness.harness.responses = [
+      { ok: true, data: { session_id: "ignored-connect-id", version: "v1" } },
+      { ok: true, data: { id: "old-session-id" } },
+    ];
+
+    // Abort signal right as connect runs
+    abortController.abort();
+
+    await expect(
+      adapter.connect(undefined, { signal: abortController.signal })
+    ).rejects.toSatisfy((err: unknown) => {
+      return isWsRequestError(err, "superseded");
+    });
+
+    // Store must NOT be mutated with old-session-id
+    expect(useConnectionStore.getState().sessionId).toBe("original-session");
+    // Socket was not disconnected by aborted connect
+    expect(wsHarness.harness.disconnectedCount).toBe(0);
+  });
+
+  it("same-service supersession aborts connect during session creation await before setSessionId", async () => {
+    wsHarness.harness.reset();
+    useConnectionStore.getState().setSessionId(undefined);
+
+    const adapter = new WsChatAdapter("ws://localhost:18790/ws");
+    const abortController = new AbortController();
+
+    let resolveSessionCreate!: (val: unknown) => void;
+    const sessionCreatePromise = new Promise((resolve) => {
+      resolveSessionCreate = resolve;
+    });
+
+    wsHarness.harness.responses = [
+      { ok: true, data: { session_id: "auth-session-id", version: "v1" } },
+      sessionCreatePromise,
+    ];
+
+    const connectP = adapter.connect(undefined, { signal: abortController.signal });
+
+    await vi.waitFor(() => {
+      expect(wsHarness.harness.sent.some((s) => s.method === "sessions.create")).toBe(true);
+    });
+
+    // Abort first attempt (superseded by newer attempt)
+    abortController.abort();
+
+    // Start and complete newer connect attempt on the same adapter
+    wsHarness.harness.responses = [
+      { ok: true, data: { session_id: "newer-session-id", version: "v2" } },
+      { ok: true, data: { id: "newer-session-id" } },
+    ];
+    const newerP = adapter.connect();
+    await newerP;
+    expect(useConnectionStore.getState().sessionId).toBe("newer-session-id");
+
+    // Release the stale response from first attempt
+    resolveSessionCreate({ ok: true, data: { id: "late-created-session" } });
+
+    await expect(connectP).rejects.toSatisfy((err: unknown) => {
+      return isWsRequestError(err, "superseded");
+    });
+
+    // Store retains winning newer session ID
+    expect(useConnectionStore.getState().sessionId).toBe("newer-session-id");
+    expect(wsHarness.harness.disconnectedCount).toBe(0);
+  });
+
+  it("after disconnect(), a late onConnectionStatus('connected') from old client does not change store", () => {
+    wsHarness.harness.reset();
+    useConnectionStore.getState().setStatus("disconnected");
+
+    const adapter = new WsChatAdapter("ws://localhost:18790/ws");
+    const client = wsHarness.harness.client!;
+
+    adapter.disconnect();
+
+    // Simulate late status callback arriving after retirement
+    client.emitConnectionStatus("connected");
+
+    expect(useConnectionStore.getState().status).toBe("disconnected");
   });
 });

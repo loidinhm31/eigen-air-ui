@@ -5,6 +5,10 @@ import {
   getRunService,
   getUserQuestionService,
 } from "../../adapters/factory/ServiceFactory.js";
+import {
+  connectChat,
+  disconnectChat,
+} from "../../adapters/factory/connection-controller.js";
 import type { IUserQuestionService } from "../../adapters/factory/interfaces/IUserQuestionService.js";
 import type { IChatService } from "../../adapters/factory/interfaces/IChatService.js";
 import { UserQuestionCard } from "./UserQuestionCard.js";
@@ -120,23 +124,11 @@ export function PendingQuestionRegion({
   React.useEffect(() => {
     if (!chatService || previousAccessChangeKey.current === accessChangeKey) return;
     previousAccessChangeKey.current = accessChangeKey;
-    chatService.disconnect();
-    if (!identityKey && !authToken) return;
-    let cancelled = false;
-    void chatService
-      .connect()
-      .then((connection) => {
-        if (cancelled) return;
-        const connectionState = useConnectionStore.getState();
-        connectionState.setSessionId(connection.session_id);
-        connectionState.setStatus("connected", connection.version);
-      })
-      .catch(() => {
-        if (!cancelled) useConnectionStore.getState().setStatus("disconnected");
-      });
-    return () => {
-      cancelled = true;
-    };
+    if (!identityKey && !authToken) {
+      disconnectChat();
+      return;
+    }
+    void connectChat({ intent: "access-change" }).catch(() => {});
   }, [accessChangeKey, authToken, chatService, identityKey]);
 
   React.useEffect(() => {

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import * as React from "react";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectionStatus } from "./ConnectionStatus.js";
@@ -18,6 +18,12 @@ import {
   clearStoredAuthToken,
 } from "../../adapters/factory/tokenStorage.js";
 import { STORAGE_KEYS } from "@eigen-air-ui/shared/constants";
+import {
+  connectChat,
+  startAutoConnect,
+  resetConnectionControllerForTests,
+} from "../../adapters/factory/connection-controller.js";
+import { WsRequestError } from "../../adapters/ws/ws-request-error.js";
 
 const mockChatConnect = vi.fn();
 const mockChatDisconnect = vi.fn();
@@ -25,33 +31,35 @@ const mockConfigHealth = vi.fn();
 const mockConfigGetConfig = vi.fn();
 const mockConfigGetStatus = vi.fn();
 const mockConfigGetReadiness = vi.fn();
+const mockChatService = {
+  connect: mockChatConnect,
+  disconnect: mockChatDisconnect,
+  sendMessage: vi.fn(),
+  getHistory: vi.fn(),
+  abort: vi.fn(),
+  subscribeRunCorrelation: () => () => undefined,
+  onRunReconnect: () => () => undefined,
+  subscribeUserQuestion: () => () => undefined,
+  onQuestionProtocolError: () => () => undefined,
+};
+const mockConfigService = {
+  health: mockConfigHealth,
+  getConfig: mockConfigGetConfig,
+  getStatus: mockConfigGetStatus,
+  getReadiness: mockConfigGetReadiness,
+};
 
 vi.mock("../../adapters/factory/ServiceFactory.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../adapters/factory/ServiceFactory.js")>();
   return {
     ...actual,
-    getChatService: () => ({
-      connect: mockChatConnect,
-      disconnect: mockChatDisconnect,
-      sendMessage: vi.fn(),
-      getHistory: vi.fn(),
-      abort: vi.fn(),
-      subscribeRunCorrelation: () => () => undefined,
-      onRunReconnect: () => () => undefined,
-      subscribeUserQuestion: () => () => undefined,
-      onQuestionProtocolError: () => () => undefined,
-    }),
-    getConfigService: () => ({
-      health: mockConfigHealth,
-      getConfig: mockConfigGetConfig,
-      getStatus: mockConfigGetStatus,
-      getReadiness: mockConfigGetReadiness,
-    }),
+    getChatService: () => mockChatService,
+    getConfigService: () => mockConfigService,
   };
 });
-
 beforeEach(() => {
   vi.clearAllMocks();
+  resetConnectionControllerForTests();
   localStorage.clear();
   sessionStorage.clear();
   clearStoredAuthToken();
@@ -298,8 +306,12 @@ describe("ConnectionStatus", () => {
   describe("Safe error handling & cleanup", () => {
     it("sanitizes 401 unauthorized errors without leaking token into error UI", async () => {
       const user = userEvent.setup();
-      mockConfigGetConfig.mockRejectedValueOnce(
-        new Error("Request failed: 401 Unauthorized with token secret-sentinel-token")
+      mockChatConnect.mockRejectedValueOnce(
+        new WsRequestError(
+          "unauthorized",
+          "Request failed: 401 Unauthorized with token secret-sentinel-token",
+          "connect"
+        )
       );
 
       render(<ConnectionStatus />);
@@ -338,6 +350,90 @@ describe("ConnectionStatus", () => {
         "Network error: Unable to connect to daemon"
       );
       expect(useConnectionStore.getState().status).toBe("disconnected");
+    });
+
+    it("re-enables Connect and Clear buttons on connection failure", async () => {
+      const user = userEvent.setup();
+      mockConfigHealth.mockRejectedValueOnce(new Error("Network failed"));
+
+      render(<ConnectionStatus />);
+      const connectBtn = screen.getByRole("button", { name: "Connect" });
+      const clearBtn = screen.getByRole("button", { name: "Clear" });
+
+      await user.click(connectBtn);
+      await waitFor(() => expect(screen.getByRole("alert")).toBeDefined());
+
+      expect(connectBtn.hasAttribute("disabled")).toBe(false);
+      expect(clearBtn.hasAttribute("disabled")).toBe(false);
+    });
+
+    it("shows no error when a connect attempt is superseded", async () => {
+      let resolveFirstConnect!: (val: unknown) => void;
+      const firstConnectPromise = new Promise((resolve) => {
+        resolveFirstConnect = resolve;
+      });
+      mockChatConnect.mockImplementationOnce(() => firstConnectPromise);
+
+      render(<ConnectionStatus />);
+      const connectBtn = screen.getByRole("button", { name: "Connect" });
+
+      // First connect click starts
+      fireEvent.click(connectBtn);
+
+      // A superseding manual connect is dispatched
+      const second = connectChat({ intent: "manual" });
+
+      // Resolve the first connect late (after it was superseded)
+      resolveFirstConnect({ version: "0.1.0", session_id: "s-1" });
+
+      await second;
+
+      await waitFor(() => {
+        expect(screen.getByText("connected")).toBeDefined();
+      });
+
+      // No alert banner should be rendered
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(useConnectionStore.getState().sessionId).toBe("s-1");
+    });
+
+    it("Connect while auto in flight ends with single active socket and buttons re-enabled", async () => {
+      const user = userEvent.setup();
+      let resolveAuto!: (val: unknown) => void;
+      const autoPromise = new Promise((resolve) => {
+        resolveAuto = resolve;
+      });
+
+      // Auto connect is in flight (awaiting autoPromise)
+      mockChatConnect
+        .mockImplementationOnce(() => autoPromise)
+        .mockResolvedValueOnce({ version: "0.2.0", session_id: "s-manual-win" });
+
+      const cancelAuto = startAutoConnect();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Verify auto attempt is in flight and store is connecting
+      expect(useConnectionStore.getState().status).toBe("connecting");
+
+      render(<ConnectionStatus />);
+      const connectBtn = screen.getByRole("button", { name: "Connect" });
+      const clearBtn = screen.getByRole("button", { name: "Clear" });
+
+      // Click manual Connect while auto is in flight
+      await user.click(connectBtn);
+
+      // Resolve auto promise; auto attempt was superseded so its response is dropped
+      resolveAuto({ version: "0.1.0", session_id: "s-auto-stale" });
+
+      await waitFor(() => expect(screen.getByText("connected")).toBeDefined());
+
+      // Winning session is manual, not stale auto
+      expect(useConnectionStore.getState().sessionId).toBe("s-manual-win");
+      expect(connectBtn.hasAttribute("disabled")).toBe(false);
+      expect(clearBtn.hasAttribute("disabled")).toBe(false);
+      expect(screen.queryByRole("alert")).toBeNull();
+      cancelAuto();
     });
   });
 });

@@ -1,10 +1,25 @@
 // @vitest-environment jsdom
 import * as React from "react";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EigenAirApp } from "./EigenAirApp.js";
 import { useConnectionStore } from "../stores/connectionStore.js";
 import * as ServiceFactory from "../adapters/factory/ServiceFactory.js";
+import { resetConnectionControllerForTests } from "../adapters/factory/connection-controller.js";
+
+const mockChatService = {
+  connect: vi.fn().mockResolvedValue({ version: "0.1.0", session_id: "s-1" }),
+  disconnect: vi.fn(),
+  subscribeRunCorrelation: () => () => undefined,
+  onRunReconnect: () => () => undefined,
+  subscribeUserQuestion: () => () => undefined,
+  onQuestionProtocolError: () => () => undefined,
+};
+const mockConfigService = {
+  health: vi.fn().mockResolvedValue({ status: "ok" }),
+  getConfig: vi.fn().mockResolvedValue({}),
+  getStatus: vi.fn().mockResolvedValue({}),
+};
 
 vi.mock("../adapters/factory/ServiceFactory.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../adapters/factory/ServiceFactory.js")>();
@@ -12,19 +27,8 @@ vi.mock("../adapters/factory/ServiceFactory.js", async (importOriginal) => {
     ...actual,
     hasReinitFn: () => true, // Avoid autoConnect timer loop in test
     setServiceAccessContext: vi.fn(),
-    getConfigService: () => ({
-      health: vi.fn().mockResolvedValue({ status: "ok" }),
-      getConfig: vi.fn().mockResolvedValue({}),
-      getStatus: vi.fn().mockResolvedValue({}),
-    }),
-    getChatService: () => ({
-      connect: vi.fn().mockResolvedValue({ version: "0.1.0", session_id: "s-1" }),
-      disconnect: vi.fn(),
-      subscribeRunCorrelation: () => () => undefined,
-      onRunReconnect: () => () => undefined,
-      subscribeUserQuestion: () => () => undefined,
-      onQuestionProtocolError: () => () => undefined,
-    }),
+    getConfigService: () => mockConfigService,
+    getChatService: () => mockChatService,
     getSessionService: () => ({
       createSession: vi.fn().mockResolvedValue({ id: "s-1" }),
     }),
@@ -42,6 +46,7 @@ vi.mock("../adapters/factory/ServiceFactory.js", async (importOriginal) => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resetConnectionControllerForTests();
   Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
     configurable: true,
     value: vi.fn(),
@@ -79,5 +84,14 @@ describe("EigenAirApp", () => {
     rerender(<EigenAirApp />);
 
     expect(ServiceFactory.setServiceAccessContext).not.toHaveBeenCalled();
+  });
+
+  it("starts auto connect and settles connection when appLayerOwnsLifecycle is false", async () => {
+    vi.spyOn(ServiceFactory, "hasReinitFn").mockReturnValue(false);
+    render(<EigenAirApp />);
+    await waitFor(() => {
+      expect(useConnectionStore.getState().status).toBe("connected");
+      expect(useConnectionStore.getState().sessionId).toBe("s-1");
+    });
   });
 });

@@ -8,25 +8,39 @@ export class HttpConfigAdapter implements IConfigService {
     private readonly access?: AccessSource
   ) {}
 
-  private async request<T>(path: string, mode: HttpRequestMode = "protected"): Promise<T> {
-    const res = await fetchWithAccess(this.baseUrl, path, this.access, undefined, mode);
+  private async request<T>(
+    path: string,
+    mode: HttpRequestMode = "protected",
+    signal?: AbortSignal
+  ): Promise<T> {
+    const res = await fetchWithAccess(
+      this.baseUrl,
+      path,
+      this.access,
+      signal ? { signal } : undefined,
+      mode
+    );
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error((err as { message?: string }).message ?? `Request failed: ${res.status}`);
+      const err = await res.json().catch(() => null);
+      const msg =
+        err && typeof err === "object" && "message" in err && typeof err.message === "string"
+          ? err.message
+          : undefined;
+      throw new Error(msg ?? `Request failed: ${res.status}`);
     }
     return res.json() as Promise<T>;
   }
 
-  health(): Promise<HealthStatus> {
-    return this.request("/health", "public");
+  health(signal?: AbortSignal): Promise<HealthStatus> {
+    return this.request("/health", "public", signal);
   }
 
-  getConfig(): Promise<ServerConfig> {
-    return this.request("/v1/config");
+  getConfig(signal?: AbortSignal): Promise<ServerConfig> {
+    return this.request("/v1/config", "protected", signal);
   }
 
-  getStatus(): Promise<AgentStatusResponse> {
-    return this.request("/v1/status");
+  getStatus(signal?: AbortSignal): Promise<AgentStatusResponse> {
+    return this.request("/v1/status", "protected", signal);
   }
 
   async getReadiness(signal?: AbortSignal): Promise<ProviderReadinessSnapshot> {
