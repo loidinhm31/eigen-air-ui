@@ -86,10 +86,23 @@ async function installDesktopCompanionRoutes(page: Page) {
 
   await page.routeWebSocket("ws://127.0.0.1:18790/ws", async (socket) => {
     socket.onMessage((raw) => {
-      const msg = JSON.parse(String(raw)) as { id: string; method: string };
+      const msg = JSON.parse(String(raw)) as { id: string; method: string; params?: { id?: string } };
       const respond = (data: unknown) => socket.send(JSON.stringify({ type: "res", id: msg.id, ok: true, data }));
       if (msg.method === "connect") respond({ session_id: TEST_SESSION.id, version: "0.2.0" });
-      else if (msg.method === "sessions.list") respond({ sessions: [TEST_SESSION] });
+      else if (msg.method === "sessions.get") {
+        if (msg.params?.id === TEST_SESSION.id) {
+          respond({ session: TEST_SESSION });
+        } else {
+          socket.send(
+            JSON.stringify({
+              type: "res",
+              id: msg.id,
+              ok: false,
+              error: { code: "not_found", message: "Session not found", request_id: msg.id },
+            })
+          );
+        }
+      } else if (msg.method === "sessions.list") respond({ sessions: [TEST_SESSION], next_cursor: null });
       else if (msg.method === "chat.history") respond({ messages: [] });
     });
   });

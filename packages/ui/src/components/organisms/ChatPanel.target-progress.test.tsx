@@ -10,6 +10,7 @@ import { useChatStore } from "../../stores/chatStore.js";
 
 const serviceMocks = vi.hoisted(() => ({
   createSession: vi.fn(),
+  getSession: vi.fn(),
   listSessions: vi.fn(),
   sendMessage: vi.fn(),
   getHistory: vi.fn(),
@@ -28,6 +29,7 @@ vi.mock("../../adapters/factory/ServiceFactory.js", () => ({
   }),
   getSessionService: () => ({
     createSession: serviceMocks.createSession,
+    getSession: serviceMocks.getSession,
     listSessions: serviceMocks.listSessions,
   }),
   getSkillService: () => ({ list: serviceMocks.listSkills }),
@@ -78,19 +80,17 @@ describe("ChatPanel target-aware readiness and progress", () => {
     });
 
     // Session is bound to active client device
-    serviceMocks.listSessions.mockResolvedValue([
-      {
-        id: "sess-dev-1",
-        channel: "ws",
-        status: "active",
-        execution_target: {
-          kind: "client_device",
-          device_id: "dev-mac-1",
-          model_artifact_id: "gemma-4",
-          binding_revision: 1,
-        },
+    serviceMocks.getSession.mockResolvedValue({
+      id: "sess-dev-1",
+      channel: "ws",
+      status: "active",
+      execution_target: {
+        kind: "client_device",
+        device_id: "dev-mac-1",
+        model_artifact_id: "gemma-4",
+        binding_revision: 1,
       },
-    ]);
+    });
 
     // Active device in inferenceStore
     useInferenceStore.setState({
@@ -113,7 +113,8 @@ describe("ChatPanel target-aware readiness and progress", () => {
     render(<ChatPanel />);
 
     await vi.waitFor(() => {
-      expect(serviceMocks.listSessions).toHaveBeenCalled();
+      expect(serviceMocks.getSession).toHaveBeenCalledWith("sess-dev-1");
+      expect(serviceMocks.listSessions).not.toHaveBeenCalled();
     });
 
     const input = await screen.findByPlaceholderText("Message eigen-air...");
@@ -123,19 +124,17 @@ describe("ChatPanel target-aware readiness and progress", () => {
 
   it("blocks message composition and displays target alert when client device is offline or revoked", async () => {
     // Session is bound to client device
-    serviceMocks.listSessions.mockResolvedValue([
-      {
-        id: "sess-dev-1",
-        channel: "ws",
-        status: "active",
-        execution_target: {
-          kind: "client_device",
-          device_id: "dev-mac-1",
-          model_artifact_id: "gemma-4",
-          binding_revision: 1,
-        },
+    serviceMocks.getSession.mockResolvedValue({
+      id: "sess-dev-1",
+      channel: "ws",
+      status: "active",
+      execution_target: {
+        kind: "client_device",
+        device_id: "dev-mac-1",
+        model_artifact_id: "gemma-4",
+        binding_revision: 1,
       },
-    ]);
+    });
 
     // Revoked device
     useInferenceStore.setState({
@@ -191,7 +190,8 @@ describe("ChatPanel target-aware readiness and progress", () => {
       },
     });
     render(<ChatPanel />);
-    await vi.waitFor(() => expect(serviceMocks.listSessions).toHaveBeenCalled());
+    await vi.waitFor(() => expect(serviceMocks.getSession).toHaveBeenCalledWith("sess-dev-1"));
+    expect(serviceMocks.listSessions).not.toHaveBeenCalled();
     act(() => {
       useChatStore.getState().beginStream("Thinking...");
     });
@@ -248,23 +248,22 @@ describe("ChatPanel target-aware readiness and progress", () => {
     });
 
     // Session targets gemma-4 in pool-qa (which is NOT qualified yet)
-    serviceMocks.listSessions.mockResolvedValue([
-      {
-        id: "sess-dev-1",
-        title: "QA Pool Session",
-        created_at: 100,
-        updated_at: 200,
-        inference_target: {
-          kind: "pool",
-          pool_id: "pool-qa",
-          model_artifact_id: "gemma-4-e4b-it-qat-ud-q4_k_xl",
-          model_digest: "df0fd4ee07072c607c29a0a1cb4f98918426cca12f45a2776bdd6ee6d09a4de3",
-        },
+    serviceMocks.getSession.mockResolvedValue({
+      id: "sess-dev-1",
+      title: "QA Pool Session",
+      created_at: 100,
+      updated_at: 200,
+      inference_target: {
+        kind: "pool",
+        pool_id: "pool-qa",
+        model_artifact_id: "gemma-4-e4b-it-qat-ud-q4_k_xl",
+        model_digest: "df0fd4ee07072c607c29a0a1cb4f98918426cca12f45a2776bdd6ee6d09a4de3",
       },
-    ]);
+    });
 
     render(<ChatPanel />);
-    await vi.waitFor(() => expect(serviceMocks.listSessions).toHaveBeenCalled());
+    await vi.waitFor(() => expect(serviceMocks.getSession).toHaveBeenCalledWith("sess-dev-1"));
+    expect(serviceMocks.listSessions).not.toHaveBeenCalled();
 
     // Target alert should show model is not qualified in pool
     const alert = await screen.findByRole("alert");
@@ -293,5 +292,38 @@ describe("ChatPanel target-aware readiness and progress", () => {
       const activeInput = screen.getByPlaceholderText("Message eigen-air...") as HTMLInputElement;
       expect(activeInput.disabled).toBe(false);
     });
+  });
+
+  it("falls back to default server target when getSession returns null and never calls listSessions", async () => {
+    useReadinessStore.setState({
+      phase: "ready",
+      canInfer: true,
+    });
+    serviceMocks.getSession.mockResolvedValue(null);
+
+    render(<ChatPanel />);
+
+    await vi.waitFor(() => {
+      expect(serviceMocks.getSession).toHaveBeenCalledWith("sess-dev-1");
+      expect(serviceMocks.listSessions).not.toHaveBeenCalled();
+    });
+
+    const input = await screen.findByPlaceholderText("Message eigen-air...");
+    expect((input as HTMLInputElement).disabled).toBe(false);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("sets targetLookupFailed when getSession throws and renders failure alert", async () => {
+    serviceMocks.getSession.mockRejectedValue(new Error("network failure"));
+
+    render(<ChatPanel />);
+
+    await vi.waitFor(() => {
+      expect(serviceMocks.getSession).toHaveBeenCalledWith("sess-dev-1");
+      expect(serviceMocks.listSessions).not.toHaveBeenCalled();
+    });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Failed to resolve session target.");
   });
 });

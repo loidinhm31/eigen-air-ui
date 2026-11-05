@@ -14,7 +14,7 @@ async function installRunAppFixture(page: Page) {
   await page.route("**/v1/skills", (route) => route.fulfill({ json: [] }));
   await page.routeWebSocket("ws://127.0.0.1:18791/ws", async (socket) => {
     socket.onMessage((raw) => {
-      const request = JSON.parse(String(raw)) as { id: string; method: string };
+      const request = JSON.parse(String(raw)) as { id: string; method: string; params?: { id?: string } };
       const respond = (data: unknown) =>
         socket.send(
           JSON.stringify({
@@ -26,6 +26,27 @@ async function installRunAppFixture(page: Page) {
         );
       if (request.method === "connect") {
         respond({ session_id: SESSION_ID, agent: "default", version: "0.2.0" });
+      } else if (request.method === "sessions.get") {
+        if (request.params?.id === SESSION_ID) {
+          respond({
+            session: {
+              id: SESSION_ID,
+              channel: "web",
+              status: "active",
+              started_at: 1,
+              updated_at: 1,
+            },
+          });
+        } else {
+          socket.send(
+            JSON.stringify({
+              type: "res",
+              id: request.id,
+              ok: false,
+              error: { code: "not_found", message: "Session not found", request_id: request.id },
+            })
+          );
+        }
       } else if (request.method === "sessions.list") {
         respond({
           sessions: [
@@ -37,6 +58,7 @@ async function installRunAppFixture(page: Page) {
               updated_at: 1,
             },
           ],
+          next_cursor: null,
         });
       } else if (request.method === "chat.history") {
         respond({ messages: [] });

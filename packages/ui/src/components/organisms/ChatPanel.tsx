@@ -103,23 +103,20 @@ export function ChatPanel() {
     let cancelled = false;
     // Fail-closed: reset currentSessionTarget immediately on session switch
     setCurrentSessionTarget(undefined);
-    setIsResolvingTarget(true);
+    setIsResolvingTarget(connectionStatus === "connecting");
     setTargetLookupFailed(false);
     async function loadCurrentSessionTarget() {
-      if (!sessionId) {
-        setIsResolvingTarget(false);
+      if (!sessionId || connectionStatus !== "connected") {
         return;
       }
+      setIsResolvingTarget(true);
       try {
         const sessionService = getSessionService();
-        if (typeof sessionService.listSessions !== "function") {
-          setCurrentSessionTarget({ kind: "server", provider_id: "default" });
-          setTargetLookupFailed(false);
-          return;
-        }
-        const sessions = await sessionService.listSessions();
+        const current =
+          typeof sessionService?.getSession === "function"
+            ? await sessionService.getSession(sessionId)
+            : null;
         if (cancelled) return;
-        const current = sessions.find((s) => s.id === sessionId);
         setCurrentSessionTarget(
           current?.inference_target ?? current?.execution_target ?? { kind: "server", provider_id: "default" }
         );
@@ -139,7 +136,7 @@ export function ChatPanel() {
     return () => {
       cancelled = true;
     };
-  }, [sessionId]);
+  }, [sessionId, connectionStatus]);
 
   const devices = useInferenceStore((state) => state.devices);
   const pools = useInferenceStore((state) => state.pools);

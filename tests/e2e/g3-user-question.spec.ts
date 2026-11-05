@@ -215,11 +215,29 @@ async function installG3Fixture(page: Page, options: G3FixtureOptions = {}) {
 
       if (request.method === "connect") {
         respond({ session_id: SESSION_ID, agent: "default", version: "0.2.0" });
+      } else if (request.method === "sessions.get") {
+        const id = (request.params as { id?: string } | undefined)?.id;
+        if (id === SESSION_ID || id === "g3-new-session") {
+          respond({
+            session: { id, channel: "web", status: "active", started_at: 1, updated_at: 1 },
+          });
+        } else {
+          socket.send(
+            JSON.stringify({
+              type: "res",
+              version: "v1",
+              id: request.id,
+              ok: false,
+              error: { code: "not_found", message: "Session not found", request_id: request.id },
+            })
+          );
+        }
       } else if (request.method === "sessions.list") {
         respond({
           sessions: [
             { id: SESSION_ID, channel: "web", status: "active", started_at: 1, updated_at: 1 },
           ],
+          next_cursor: null,
         });
       } else if (request.method === "sessions.create") {
         respond({

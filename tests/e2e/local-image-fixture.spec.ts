@@ -392,7 +392,7 @@ class FakeDaemon {
 
     if (request.url().includes(TOKEN))
       this.violations.push(`credential in URL of ${method} ${path}`);
-    const publicRoute = path === "/health" || path === "/readyz";
+    const publicRoute = path === "/health" || path === "/readyz" || path === "/v1/skills";
     if (publicRoute && authorization !== undefined) {
       this.violations.push(`Authorization sent to public ${path}`);
     }
@@ -438,6 +438,8 @@ class FakeDaemon {
         approvals: [],
         redaction: "metadata_only",
       });
+    } else if (path.startsWith("/v1/inference/")) {
+      await this.respondJson(route, 200, []);
     } else if (method === "GET" && path === "/v1/image-templates") {
       await this.respondJson(route, 200, contract.vectors.templates.public_list_example);
     } else if (method === "GET" && path === `/v1/sessions/${SESSION_ID}/image-artifacts`) {
@@ -500,18 +502,34 @@ class FakeDaemon {
     socket.onMessage((raw) => {
       const text = String(raw);
       this.wsFrames.push(text);
-      const frame = JSON.parse(text) as { id: string; method: string };
+      const frame = JSON.parse(text) as { id: string; method: string; params?: { id?: string } };
       this.wsMethods.push(frame.method);
       const respond = (data: unknown) =>
         socket.send(JSON.stringify({ type: "res", id: frame.id, ok: true, data }));
       if (frame.method === "connect") {
         respond({ session_id: SESSION_ID, agent: "default", version: "0.2.0" });
         this.connectAnswered = true;
+      } else if (frame.method === "sessions.get") {
+        if (frame.params?.id === SESSION_ID) {
+          respond({
+            session: { id: SESSION_ID, channel: "web", status: "active", started_at: 1, updated_at: 1 },
+          });
+        } else {
+          socket.send(
+            JSON.stringify({
+              type: "res",
+              id: frame.id,
+              ok: false,
+              error: { code: "not_found", message: "Session not found", request_id: frame.id },
+            })
+          );
+        }
       } else if (frame.method === "sessions.list") {
         respond({
           sessions: [
             { id: SESSION_ID, channel: "web", status: "active", started_at: 1, updated_at: 1 },
           ],
+          next_cursor: null,
         });
       } else if (frame.method === "chat.history") {
         respond({ messages: this.history });

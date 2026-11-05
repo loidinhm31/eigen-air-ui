@@ -55,8 +55,22 @@ async function installDeterministicChatFixture(page: Page) {
 
       if (request.method === "connect") {
         respond({ session_id: SESSION.id, agent: "default", version: "0.2.0" });
+      } else if (request.method === "sessions.get") {
+        const id = (request.params as { id?: string } | undefined)?.id;
+        if (id === SESSION.id) {
+          respond({ session: SESSION });
+        } else {
+          socket.send(
+            JSON.stringify({
+              type: "res",
+              id: request.id,
+              ok: false,
+              error: { code: "not_found", message: "Session not found", request_id: request.id },
+            })
+          );
+        }
       } else if (request.method === "sessions.list") {
-        respond({ sessions: [SESSION] });
+        respond({ sessions: [SESSION], next_cursor: null });
       } else if (request.method === "chat.history") {
         respond({ messages: [{ role: "assistant", content: HOSTILE_MARKDOWN }] });
       } else if (request.method === "chat.send") {

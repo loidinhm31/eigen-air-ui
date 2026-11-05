@@ -1,5 +1,5 @@
 import { WsClient, type WsReconnectFence, type WsSendOptions } from "./WsClient.js";
-import { WsRequestError } from "./ws-request-error.js";
+import { WsRequestError, isWsRequestError } from "./ws-request-error.js";
 import type {
   DebugRequestOptions,
   ImageHintCallback,
@@ -20,10 +20,14 @@ import type {
   ConnectResponse,
   DebugRequest,
   ExecutionTargetInput,
+  Session,
   SessionsCreateParams,
   SessionsCreateResponse,
   SessionsDeleteParams,
   SessionsDeleteResponse,
+  SessionsGetParams,
+  SessionsGetResponse,
+  SessionsListParams,
   SessionsListResponse,
   WsEvent,
   ImageHintWsEvent,
@@ -315,10 +319,8 @@ export class WsChatAdapter implements IChatService, ISessionService {
     fence?: WsReconnectFence
   ): Promise<ConnectResponse> {
     const { sessionId, setSessionId } = useConnectionStore.getState();
-    const sessions = await this.listSessions(fence);
-    const selected = sessionId
-      ? sessions.find((candidate) => candidate.id === sessionId)
-      : undefined;
+    const selected = sessionId ? await this.getSession(sessionId, fence) : null;
+    this.assertReconnectFence(fence);
     const activeSession = selected ?? (await this.createSession(undefined, fence));
     this.assertReconnectFence(fence);
     setSessionId(activeSession.id);
@@ -415,13 +417,44 @@ export class WsChatAdapter implements IChatService, ISessionService {
     await this.call<ChatAbortParams, unknown>(WS_METHODS.CHAT_ABORT, params);
   }
 
-  async listSessions(fence?: WsReconnectFence): Promise<SessionsListResponse["sessions"]> {
-    const data = await this.call<object, SessionsListResponse>(
+  async listSessions(
+    queryOrFence?: SessionsListParams | WsReconnectFence,
+    maybeFence?: WsReconnectFence
+  ): Promise<SessionsListResponse> {
+    const isFence =
+      queryOrFence && typeof queryOrFence === "object" && "signal" in queryOrFence && "epoch" in queryOrFence;
+    const query: SessionsListParams = isFence ? {} : (queryOrFence as SessionsListParams) ?? {};
+    const fence: WsReconnectFence | undefined = isFence
+      ? (queryOrFence as WsReconnectFence)
+      : maybeFence;
+    return this.call<SessionsListParams, SessionsListResponse>(
       WS_METHODS.SESSIONS_LIST,
-      {},
+      query,
       { fence }
     );
-    return data.sessions;
+  }
+
+  async getSession(id: string, fence?: WsReconnectFence): Promise<Session | null> {
+    try {
+      const data = await this.call<SessionsGetParams, SessionsGetResponse>(
+        WS_METHODS.SESSIONS_GET,
+        { id },
+        { fence }
+      );
+      return data.session;
+    } catch (err: unknown) {
+      if (isWsRequestError(err, "not_found")) {
+        return null;
+      }
+      if (isWsRequestError(err, "method_not_found")) {
+        throw new WsRequestError(
+          "unsupported_daemon",
+          "Daemon does not support sessions.get; upgrade the daemon",
+          WS_METHODS.SESSIONS_GET
+        );
+      }
+      throw err;
+    }
   }
 
   async createSession(

@@ -15,23 +15,72 @@ import { ExecutionTargetSelector } from "../molecules/ExecutionTargetSelector.js
 
 export function SessionsPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { sessionId, setSessionId } = useConnectionStore();
+  const generationRef = React.useRef(0);
+  const loadingMoreCursorRef = React.useRef<string | null>(null);
+  const { sessionId, setSessionId, status: connectionStatus } = useConnectionStore();
   const clearMessages = useChatStore((state) => state.clearMessages);
   const { navigate } = useBasePathNavigation();
   const [targetInput, setTargetInput] = useState<ExecutionTargetInput>({ kind: "server" });
   const [showTargetSelector, setShowTargetSelector] = useState(false);
-  async function loadSessions() {
+
+  async function loadFirstPage() {
+    const generation = ++generationRef.current;
+    loadingMoreCursorRef.current = null;
     setLoading(true);
+    setLoadingMore(false);
     setError(null);
     try {
-      setSessions(await getSessionService().listSessions());
+      const response = await getSessionService().listSessions({ limit: 50 });
+      if (generation !== generationRef.current || !response) return;
+      setSessions(response.sessions ?? []);
+      setNextCursor(response.next_cursor ?? null);
     } catch (e) {
+      if (generation !== generationRef.current) return;
       setSessions([]);
+      setNextCursor(null);
       setError(String(e));
     } finally {
-      setLoading(false);
+      if (generation === generationRef.current) {
+        setLoading(false);
+      }
+    }
+  }
+
+  async function loadMore() {
+    if (!nextCursor || loading || loadingMore) return;
+    const cursor = nextCursor;
+    if (loadingMoreCursorRef.current === cursor) return;
+    const generation = generationRef.current;
+    loadingMoreCursorRef.current = cursor;
+    setLoadingMore(true);
+    setError(null);
+    try {
+      const response = await getSessionService().listSessions({ limit: 50, cursor });
+      if (generation !== generationRef.current) return;
+      setSessions((current) => {
+        const existingIds = new Set(current.map((s) => s.id));
+        const merged = [...current];
+        for (const s of response.sessions) {
+          if (!existingIds.has(s.id)) {
+            existingIds.add(s.id);
+            merged.push(s);
+          }
+        }
+        return merged;
+      });
+      setNextCursor(response.next_cursor ?? null);
+    } catch (e) {
+      if (generation !== generationRef.current) return;
+      setError(String(e));
+    } finally {
+      if (generation === generationRef.current) {
+        setLoadingMore(false);
+        loadingMoreCursorRef.current = null;
+      }
     }
   }
 
@@ -51,10 +100,9 @@ export function SessionsPage() {
       setSessionId(session.id);
       clearMessages();
       navigate("/");
-      setSessions(await getSessionService().listSessions());
+      await loadFirstPage();
     } catch (e) {
       setError(String(e));
-    } finally {
       setLoading(false);
     }
   }
@@ -76,19 +124,28 @@ export function SessionsPage() {
           const replacement = await getSessionService().createSession();
           setSessionId(replacement.id);
           clearMessages();
+          return;
         }
       }
-      setSessions(await getSessionService().listSessions());
+      await loadFirstPage();
     } catch (e) {
       setError(String(e));
-    } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    void loadSessions();
-  }, [sessionId]);
+    if (connectionStatus === "connected") {
+      void loadFirstPage();
+    } else if (connectionStatus === "connecting") {
+      setLoading(true);
+      setError(null);
+    }
+    return () => {
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      generationRef.current++;
+    };
+  }, [sessionId, connectionStatus]);
 
   return (
     <div className="flex h-full flex-col gap-3 p-4">
@@ -96,7 +153,7 @@ export function SessionsPage() {
         <div className="flex items-center justify-between">
           <p className="text-sm font-medium">Sessions</p>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => void loadSessions()} disabled={loading}>
+            <Button variant="outline" size="sm" onClick={() => void loadFirstPage()} disabled={loadingMore}>
               Refresh
             </Button>
             <Button
@@ -189,6 +246,19 @@ export function SessionsPage() {
               </div>
             </div>
           ))}
+          {nextCursor && (
+            <div className="flex justify-center pt-2">
+              <Button
+                variant="outline"
+                className="w-full min-h-11"
+                onClick={() => void loadMore()}
+                disabled={loading || loadingMore}
+                isLoading={loadingMore}
+              >
+                Load more sessions
+              </Button>
+            </div>
+          )}
         </div>
       </NativeScrollArea>
     </div>

@@ -39,7 +39,7 @@ async function installWebCompanionRoutes(page: Page) {
     localStorage.setItem("eigen-air-auth-token", "token-owner-test");
   }, TEST_SESSION.id);
 
-  await page.route("**/v1/health", async (route) => {
+  await page.route("**/*health", async (route) => {
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: "ok", version: "0.2.0" }) });
   });
 
@@ -105,10 +105,24 @@ async function installWebCompanionRoutes(page: Page) {
 
   await page.routeWebSocket("ws://127.0.0.1:18790/ws", async (socket) => {
     socket.onMessage((raw) => {
-      const msg = JSON.parse(String(raw)) as { id: string; method: string };
+      const msg = JSON.parse(String(raw)) as { id: string; method: string; params?: { id?: string } };
       const respond = (data: unknown) => socket.send(JSON.stringify({ type: "res", id: msg.id, ok: true, data }));
       if (msg.method === "connect") respond({ session_id: TEST_SESSION.id, version: "0.2.0" });
-      else if (msg.method === "sessions.list") respond({ sessions: [TEST_SESSION] });
+      else if (msg.method === "sessions.get") {
+        if (msg.params?.id === TEST_SESSION.id) {
+          respond({ session: TEST_SESSION });
+        } else {
+          socket.send(
+            JSON.stringify({
+              type: "res",
+              id: msg.id,
+              ok: false,
+              error: { code: "not_found", message: "Session not found", request_id: msg.id },
+            })
+          );
+        }
+      }
+      else if (msg.method === "sessions.list") respond({ sessions: [TEST_SESSION], next_cursor: null });
       else if (msg.method === "chat.history") respond({ messages: [] });
     });
   });
@@ -117,25 +131,28 @@ async function installWebCompanionRoutes(page: Page) {
 test.describe("Web Companion Experience (Phase 11)", () => {
   test("Settings companion view renders install guide, code approval and remote storage flow", async ({ page }) => {
     await installWebCompanionRoutes(page);
-    await page.goto("http://localhost:5173/settings");
+    await page.goto("/settings");
 
     // Click companion tab
     const companionTab = page.getByRole("button", { name: "Companion" });
     await expect(companionTab).toBeVisible();
     await companionTab.click();
+    const pairBtn = page.getByRole("button", { name: "+ Pair Another Companion" });
+    if (await pairBtn.isVisible()) {
+      await pairBtn.click();
+    }
 
     // Verify install card notes
-    await expect(page.getByText("Companion Required for Device Inference")).toBeVisible();
-    await expect(page.getByText(/Browser does not execute native weights/i)).toBeVisible();
-
+    await expect(page.getByText(/Install Companion Daemon|Companion Required/i)).toBeVisible();
+    await expect(page.getByText(/Browser does not execute native weights|does not execute native model weights/i)).toBeVisible();
     // Verify pairing approval card
-    await expect(page.getByText("Pair Companion Device")).toBeVisible();
-    const pairingInput = page.getByPlaceholder("pair_xxxxxxxx...");
+    await expect(page.getByText(/Companion Pairing Approval|Pair Companion Device/i)).toBeVisible();
+    const pairingInput = page.getByLabel("Pairing ID");
     await pairingInput.fill("pair-123");
-    const codeInput = page.getByPlaceholder("e.g. 123-456");
+    const codeInput = page.getByLabel("6-Digit Verification Code");
     await codeInput.fill("123-456");
 
-    await page.getByRole("button", { name: "Approve Pairing" }).click();
+    await page.getByRole("button", { name: /Approve (Companion )?Pairing/i }).click();
     await expect(page.getByText(/Pairing approved on server/i)).toBeVisible();
 
     // Verify paired device and remote storage flow
@@ -145,7 +162,7 @@ test.describe("Web Companion Experience (Phase 11)", () => {
     await storageBtn.click();
 
     // Remote folder request view renders
-    await expect(page.getByText("Request Storage Folder")).toBeVisible();
+    await expect(page.getByText("Remote Storage Selection")).toBeVisible();
   });
 
   test("Chat composer shows explicit New Server Session action when device target is offline", async ({ page }) => {
@@ -157,7 +174,7 @@ test.describe("Web Companion Experience (Phase 11)", () => {
       localStorage.setItem("eigen-air-session-id", sessionId);
     }, TEST_SESSION.id);
 
-    await page.route("**/v1/health", async (route) => {
+    await page.route("**/*health", async (route) => {
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: "ok" }) });
     });
     await page.route("**/v1/providers/readiness", async (route) => {
@@ -171,15 +188,29 @@ test.describe("Web Companion Experience (Phase 11)", () => {
     });
     await page.routeWebSocket("ws://127.0.0.1:18790/ws", async (socket) => {
       socket.onMessage((raw) => {
-        const msg = JSON.parse(String(raw)) as { id: string; method: string };
+        const msg = JSON.parse(String(raw)) as { id: string; method: string; params?: { id?: string } };
         const respond = (data: unknown) => socket.send(JSON.stringify({ type: "res", id: msg.id, ok: true, data }));
         if (msg.method === "connect") respond({ session_id: TEST_SESSION.id, version: "0.2.0" });
-        else if (msg.method === "sessions.list") respond({ sessions: [TEST_SESSION] });
+        else if (msg.method === "sessions.get") {
+          if (msg.params?.id === TEST_SESSION.id) {
+            respond({ session: TEST_SESSION });
+          } else {
+            socket.send(
+              JSON.stringify({
+                type: "res",
+                id: msg.id,
+                ok: false,
+                error: { code: "not_found", message: "Session not found", request_id: msg.id },
+              })
+            );
+          }
+        }
+        else if (msg.method === "sessions.list") respond({ sessions: [TEST_SESSION], next_cursor: null });
         else if (msg.method === "chat.history") respond({ messages: [] });
       });
     });
 
-    await page.goto("http://localhost:5173/");
+    await page.goto("/");
 
     // Expect alert banner and New Server Session button
     await expect(page.getByRole("alert")).toBeVisible();

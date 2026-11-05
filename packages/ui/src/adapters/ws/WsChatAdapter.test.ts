@@ -263,7 +263,7 @@ describe("WsChatAdapter auth and connection lifecycle", () => {
       {
         ok: true,
         data: {
-          sessions: [{ id: "resolved-session" }],
+          session: { id: "resolved-session" },
         },
       },
     ];
@@ -299,7 +299,7 @@ describe("WsChatAdapter auth and connection lifecycle", () => {
       {
         ok: true,
         data: {
-          sessions: [{ id: "default-session" }],
+          session: { id: "default-session" },
         },
       },
     ];
@@ -332,7 +332,7 @@ describe("WsChatAdapter auth and connection lifecycle", () => {
       {
         ok: true,
         data: {
-          sessions: [{ id: "default-session" }],
+          session: { id: "default-session" },
         },
       },
     ];
@@ -379,7 +379,7 @@ describe("WsChatAdapter auth and connection lifecycle", () => {
       },
       {
         ok: true,
-        data: { sessions: [{ id: "sess-1" }] },
+        data: { session: { id: "sess-1" } },
       },
     ];
     await adapter.connect();
@@ -395,7 +395,7 @@ describe("WsChatAdapter auth and connection lifecycle", () => {
       },
       {
         ok: true,
-        data: { sessions: [{ id: "sess-1" }] },
+        data: { session: { id: "sess-1" } },
       },
     ];
 
@@ -632,15 +632,13 @@ describe("WsChatAdapter reconnect gap reconciliation", () => {
         {
           ok: true,
           data: {
-            sessions: [
-              {
-                id: "sess-recon",
-                channel: "ws",
-                status: "active",
-                started_at: 1000,
-                updated_at: 1000,
-              },
-            ],
+            session: {
+              id: "sess-recon",
+              channel: "ws",
+              status: "active",
+              started_at: 1000,
+              updated_at: 1000,
+            },
           },
         },
       ];
@@ -708,6 +706,146 @@ describe("WsChatAdapter typed error mapping and RPC options (Phase 03)", () => {
 
     await expect(adapter.abort()).rejects.toSatisfy((err: unknown) => {
       return isWsRequestError(err, "run_not_found") && err.method === "chat.abort";
+    });
+  });
+});
+
+describe("WsChatAdapter sessions.get and paged sessions.list (Phase 04)", () => {
+  it("resolves stored session via getSession and does not call sessions.create or sessions.list", async () => {
+    wsHarness.harness.reset();
+    useConnectionStore.getState().setSessionId("existing-session");
+    const adapter = new WsChatAdapter("ws://localhost:18790/ws");
+
+    wsHarness.harness.responses = [
+      { ok: true, data: { session_id: "existing-session", version: "v1" } },
+      { ok: true, data: { session: { id: "existing-session", status: "active" } } },
+    ];
+
+    const result = await adapter.connect();
+    expect(result.session_id).toBe("existing-session");
+    expect(wsHarness.harness.sent.length).toBe(2);
+    expect(wsHarness.harness.sent[0].method).toBe("connect");
+    expect(wsHarness.harness.sent[1]).toEqual({
+      method: "sessions.get",
+      params: { id: "existing-session" },
+      options: { fence: undefined },
+    });
+  });
+
+  it("creates a new session when stored id is absent", async () => {
+    wsHarness.harness.reset();
+    useConnectionStore.getState().setSessionId(undefined);
+    const adapter = new WsChatAdapter("ws://localhost:18790/ws");
+
+    wsHarness.harness.responses = [
+      { ok: true, data: { session_id: "old-id", version: "v1" } },
+      { ok: true, data: { id: "new-session", status: "active", started_at: 1, updated_at: 1 } },
+    ];
+
+    const result = await adapter.connect();
+    expect(result.session_id).toBe("new-session");
+    expect(useConnectionStore.getState().sessionId).toBe("new-session");
+    expect(wsHarness.harness.sent.length).toBe(2);
+    expect(wsHarness.harness.sent[0].method).toBe("connect");
+    expect(wsHarness.harness.sent[1].method).toBe("sessions.create");
+  });
+
+  it("creates a new session when stored id returns not_found", async () => {
+    wsHarness.harness.reset();
+    useConnectionStore.getState().setSessionId("missing-session");
+    const adapter = new WsChatAdapter("ws://localhost:18790/ws");
+
+    wsHarness.harness.responses = [
+      { ok: true, data: { session_id: "missing-session", version: "v1" } },
+      { ok: false, error: { code: "not_found", message: "Session not found" } },
+      { ok: true, data: { id: "created-after-404", status: "active", started_at: 1, updated_at: 1 } },
+    ];
+
+    const result = await adapter.connect();
+    expect(result.session_id).toBe("created-after-404");
+    expect(useConnectionStore.getState().sessionId).toBe("created-after-404");
+    expect(wsHarness.harness.sent.length).toBe(3);
+    expect(wsHarness.harness.sent[0].method).toBe("connect");
+    expect(wsHarness.harness.sent[1]).toEqual({
+      method: "sessions.get",
+      params: { id: "missing-session" },
+      options: { fence: undefined },
+    });
+    expect(wsHarness.harness.sent[2].method).toBe("sessions.create");
+  });
+
+  it("propagates transport error on sessions.get and never creates a session", async () => {
+    wsHarness.harness.reset();
+    useConnectionStore.getState().setSessionId("some-session");
+    const adapter = new WsChatAdapter("ws://localhost:18790/ws");
+
+    wsHarness.harness.responses = [
+      { ok: true, data: { session_id: "some-session", version: "v1" } },
+      { ok: false, error: { code: "timeout", message: "RPC timed out" } },
+    ];
+
+    await expect(adapter.connect()).rejects.toSatisfy((err: unknown) => {
+      return isWsRequestError(err, "timeout");
+    });
+    // sessions.create must NOT have been called
+    expect(wsHarness.harness.sent.length).toBe(2);
+    expect(wsHarness.harness.sent.some((s) => s.method === "sessions.create")).toBe(false);
+  });
+
+  it("maps method_not_found on sessions.get to unsupported_daemon error and never lists sessions", async () => {
+    wsHarness.harness.reset();
+    useConnectionStore.getState().setSessionId("sess-old-daemon");
+    const adapter = new WsChatAdapter("ws://localhost:18790/ws");
+
+    wsHarness.harness.responses = [
+      { ok: true, data: { session_id: "sess-old-daemon", version: "v1" } },
+      { ok: false, error: { code: "method_not_found", message: "Unknown method sessions.get" } },
+    ];
+
+    await expect(adapter.connect()).rejects.toSatisfy((err: unknown) => {
+      return (
+        isWsRequestError(err, "unsupported_daemon") &&
+        err.message.includes("upgrade the daemon")
+      );
+    });
+    expect(wsHarness.harness.sent.some((s) => s.method === "sessions.list")).toBe(false);
+    expect(wsHarness.harness.sent.some((s) => s.method === "sessions.create")).toBe(false);
+  });
+
+  it("calls listSessions with query parameters and passes fence", async () => {
+    wsHarness.harness.reset();
+    const adapter = new WsChatAdapter("ws://localhost:18790/ws");
+    const mockResponse = {
+      sessions: [{ id: "s-1", channel: "ws", status: "active", started_at: 1, updated_at: 2 }],
+      next_cursor: "cur-123",
+    };
+    wsHarness.harness.nextResponse = { ok: true, data: mockResponse };
+
+    const fence = { signal: new AbortController().signal, epoch: 1 };
+    const result = await adapter.listSessions({ limit: 25, cursor: "cur-000" }, fence);
+
+    expect(result).toEqual(mockResponse);
+    expect(wsHarness.harness.sent[0]).toEqual({
+      method: "sessions.list",
+      params: { limit: 25, cursor: "cur-000" },
+      options: { fence },
+    });
+  });
+
+  it("calls getSession directly with id and fence", async () => {
+    wsHarness.harness.reset();
+    const adapter = new WsChatAdapter("ws://localhost:18790/ws");
+    const mockSession = { id: "target-1", channel: "web", status: "active", started_at: 1, updated_at: 1 };
+    wsHarness.harness.nextResponse = { ok: true, data: { session: mockSession } };
+
+    const fence = { signal: new AbortController().signal, epoch: 1 };
+    const result = await adapter.getSession("target-1", fence);
+
+    expect(result).toEqual(mockSession);
+    expect(wsHarness.harness.sent[0]).toEqual({
+      method: "sessions.get",
+      params: { id: "target-1" },
+      options: { fence },
     });
   });
 });

@@ -41,6 +41,7 @@ export const WS_METHODS = {
   CHAT_ABORT: "chat.abort",
   STATUS: "status",
   SESSIONS_LIST: "sessions.list",
+  SESSIONS_GET: "sessions.get",
   SESSIONS_CREATE: "sessions.create",
   SESSIONS_DELETE: "sessions.delete",
   SKILLS_LIST: "skills.list",

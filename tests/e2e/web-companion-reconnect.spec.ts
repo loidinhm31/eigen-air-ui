@@ -47,8 +47,11 @@ test.describe("Web Companion Reconnect & Fail-Closed Fencing (Phase 11)", () => 
       localStorage.setItem("eigen-air-session-id", sessionId);
     }, currentSessionId);
 
-    await page.route("**/v1/health", async (route) => {
+    await page.route("**/*health", async (route) => {
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: "ok" }) });
+    });
+    await page.route("**/*readyz", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: "ready" }) });
     });
     await page.route("**/v1/providers/readiness", async (route) => {
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: "ready", retryable: false, details: { stages: [] } }) });
@@ -62,26 +65,41 @@ test.describe("Web Companion Reconnect & Fail-Closed Fencing (Phase 11)", () => 
 
     await page.routeWebSocket("ws://127.0.0.1:18790/ws", async (socket) => {
       socket.onMessage((raw) => {
-        const msg = JSON.parse(String(raw)) as { id: string; method: string };
+        const msg = JSON.parse(String(raw)) as { id: string; method: string; params?: { id?: string } };
         const respond = (data: unknown) => socket.send(JSON.stringify({ type: "res", id: msg.id, ok: true, data }));
         if (msg.method === "connect") respond({ session_id: currentSessionId, version: "0.2.0" });
-        else if (msg.method === "sessions.list") respond({ sessions: [SESS_1, SESS_2] });
+        else if (msg.method === "sessions.get") {
+          const s = [SESS_1, SESS_2].find((item) => item.id === msg.params?.id);
+          if (s) {
+            respond({ session: s });
+          } else {
+            socket.send(
+              JSON.stringify({
+                type: "res",
+                id: msg.id,
+                ok: false,
+                error: { code: "not_found", message: "Session not found", request_id: msg.id },
+              })
+            );
+          }
+        }
+        else if (msg.method === "sessions.list") respond({ sessions: [SESS_1, SESS_2], next_cursor: null });
         else if (msg.method === "chat.history") respond({ messages: [] });
       });
     });
 
-    await page.goto("http://localhost:5173/");
+    await page.goto("/");
 
     // Initially on SESS_1 (client_device)
     await expect(page.getByPlaceholder("Message eigen-air...")).toBeVisible();
 
     // Navigate to sessions and switch to SESS_2
-    await page.goto("http://localhost:5173/sessions");
-    await expect(page.getByText(SESS_2.id)).toBeVisible();
+    await page.goto("/sessions");
+    await expect(page.getByText(SESS_2.id).first()).toBeVisible();
 
     // Target switches cleanly to server without retaining client device target
     currentSessionId = SESS_2.id;
-    await page.getByText(SESS_2.id).click();
+    await page.getByTestId(`session-${SESS_2.id}`).getByRole("button", { name: "Open" }).click();
     await page.waitForURL("**/");
 
     await expect(page.getByPlaceholder("Message eigen-air...")).toBeVisible();
@@ -95,7 +113,7 @@ test.describe("Web Companion Reconnect & Fail-Closed Fencing (Phase 11)", () => 
       localStorage.setItem("eigen-air-session-id", "sess-test");
     });
 
-    await page.route("**/v1/health", async (route) => {
+    await page.route("**/*health", async (route) => {
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: "ok" }) });
     });
     await page.route("**/v1/providers/readiness", async (route) => {
@@ -113,15 +131,29 @@ test.describe("Web Companion Reconnect & Fail-Closed Fencing (Phase 11)", () => 
     });
     await page.routeWebSocket("ws://127.0.0.1:18790/ws", async (socket) => {
       socket.onMessage((raw) => {
-        const msg = JSON.parse(String(raw)) as { id: string; method: string };
+        const msg = JSON.parse(String(raw)) as { id: string; method: string; params?: { id?: string } };
         const respond = (data: unknown) => socket.send(JSON.stringify({ type: "res", id: msg.id, ok: true, data }));
         if (msg.method === "connect") respond({ session_id: "sess-test", version: "0.2.0" });
-        else if (msg.method === "sessions.list") respond({ sessions: [] });
+        else if (msg.method === "sessions.get") {
+          if (msg.params?.id === "sess-test") {
+            respond({ session: { id: "sess-test", channel: "web", status: "active", started_at: 1, updated_at: 1 } });
+          } else {
+            socket.send(
+              JSON.stringify({
+                type: "res",
+                id: msg.id,
+                ok: false,
+                error: { code: "not_found", message: "Session not found", request_id: msg.id },
+              })
+            );
+          }
+        }
+        else if (msg.method === "sessions.list") respond({ sessions: [], next_cursor: null });
         else if (msg.method === "chat.history") respond({ messages: [] });
       });
     });
 
-    await page.goto("http://localhost:5173/settings");
+    await page.goto("/settings");
     await page.waitForTimeout(500);
     const initialCount = deviceFetchCount;
     expect(initialCount).toBeGreaterThanOrEqual(1);

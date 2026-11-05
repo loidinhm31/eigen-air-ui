@@ -35,7 +35,12 @@ vi.mock("../../adapters/factory/ServiceFactory.js", () => ({
   }),
   getServiceAccessContext: () => ({}),
   registerAccessInvalidationListener: () => () => {},
-  getSessionService: () => ({ listSessions: service.listSessions }),
+  getSessionService: () => ({
+    listSessions: service.listSessions,
+    getSession: vi.fn(),
+    createSession: vi.fn(),
+    deleteSession: vi.fn(),
+  }),
 }));
 
 function runSummary(): RunSummaryDto {
@@ -90,7 +95,7 @@ const response = (body: unknown) => ({ ok: true, json: async () => body }) as Re
 beforeEach(() => {
   useRunInspectorStore.getState().clear();
   useConnectionStore.setState({ url: "http://daemon" });
-  service.listSessions.mockResolvedValue([]);
+  service.listSessions.mockResolvedValue({ sessions: [], next_cursor: null });
 });
 
 afterEach(() => {
@@ -273,8 +278,11 @@ describe("RunsPage lifecycle reconciliation", () => {
   });
 
   it("opens session runs under the embed base path without switching the active chat session", async () => {
-    service.listSessions.mockResolvedValue([{ id: "session/a +", title: "Archived session", channel: "web", status: "active", updated_at: 1 }]);
-    useConnectionStore.setState({ sessionId: "active-chat" });
+    service.listSessions.mockResolvedValue({
+      sessions: [{ id: "session/a +", title: "Archived session", channel: "web", status: "active", updated_at: 1 }],
+      next_cursor: null,
+    });
+    useConnectionStore.setState({ sessionId: "active-chat", status: "connected" });
     const fetch = vi.fn().mockResolvedValue(response({ schema_version: 1, runs: [] }));
     vi.stubGlobal("fetch", fetch);
     const user = userEvent.setup();

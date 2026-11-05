@@ -257,6 +257,15 @@ export interface ChatAbortParams {
   run_id?: string;
 }
 
+export interface SessionsListParams {
+  limit?: number;
+  cursor?: string;
+}
+
+export interface SessionsGetParams {
+  id: string;
+}
+
 export interface SessionsDeleteParams {
   id: string;
 }
@@ -299,6 +308,11 @@ export interface ChatAbortResponse {
 
 export interface SessionsListResponse {
   sessions: Session[];
+  next_cursor: string | null;
+}
+
+export interface SessionsGetResponse {
+  session: Session;
 }
 
 export interface SessionsCreateParams {
