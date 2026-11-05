@@ -5,9 +5,8 @@ import {
   setServiceAccessContext,
   setLocalCompanionService,
   getStoredAuthToken,
-  saveStoredAuthToken,
 } from "@eigen-air-ui/ui";
-import { DEFAULT_AUTH_TOKEN, DEFAULT_DAEMON_URL } from "@eigen-air-ui/shared/constants";
+import { DEFAULT_DAEMON_URL } from "@eigen-air-ui/shared/constants";
 
 export function initServices() {
   // Browser environment has no embedded/IPC local companion controller.
@@ -25,12 +24,7 @@ export function initServices() {
       connectionStore.setUrl(DEFAULT_DAEMON_URL);
     }
 
-    // Ensure default auth token is populated in storage and access context
-    let token = getStoredAuthToken();
-    if (!token && DEFAULT_AUTH_TOKEN) {
-      saveStoredAuthToken(DEFAULT_AUTH_TOKEN, "forever");
-      token = DEFAULT_AUTH_TOKEN;
-    }
+    const token = getStoredAuthToken();
     if (token) {
       setServiceAccessContext({
         authToken: token,

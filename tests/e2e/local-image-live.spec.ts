@@ -7,24 +7,25 @@
  * and multi-principal authorization boundaries.
  */
 import { expect, test } from "@playwright/test";
+import { seedAuthToken } from "./support/seed-auth-token.js";
 
 const DAEMON_URL = process.env.EIGEN_AIR_DAEMON_URL || "http://127.0.0.1:18790";
-const AUTH_TOKEN =
-  process.env.EIGEN_AIR_AUTH_TOKEN ||
-  "7f59e58b5014618010a76843dc864b424e02f0bcb219676bb3b57a9d5394ab0d";
+const AUTH_TOKEN = process.env.EIGEN_AIR_AUTH_TOKEN;
 
 test.describe("Phase 09 Live Local Image Qualification", () => {
-  test.beforeEach(async ({ page }) => {
-    await page.addInitScript(
-      ({ daemonUrl, token }) => {
-        localStorage.setItem("eigen-air-daemon-url", daemonUrl);
-        localStorage.setItem("eigen-air-auth-token", token);
-        localStorage.removeItem("eigen-air-session-id");
-        localStorage.removeItem("eigen-air-chat-messages");
-      },
-      { daemonUrl: DAEMON_URL, token: AUTH_TOKEN }
-    );
-  });
+  test.describe("Owner Scenarios", () => {
+    test.beforeEach(async ({ page }) => {
+      test.skip(!AUTH_TOKEN, "EIGEN_AIR_AUTH_TOKEN required");
+      await seedAuthToken(page, AUTH_TOKEN);
+      await page.addInitScript(
+        ({ daemonUrl }) => {
+          localStorage.setItem("eigen-air-daemon-url", daemonUrl);
+          localStorage.removeItem("eigen-air-session-id");
+          localStorage.removeItem("eigen-air-chat-messages");
+        },
+        { daemonUrl: DAEMON_URL }
+      );
+    });
 
   test("scenario 1: direct image template execution without chat provider", async ({ page }) => {
     await page.goto("/");
@@ -117,27 +118,41 @@ test.describe("Phase 09 Live Local Image Qualification", () => {
     await expect(page.getByText("connected", { exact: true })).toBeVisible({
       timeout: 20_000,
     });
-    const storedToken = await page.evaluate(() => localStorage.getItem("eigen-air-auth-token"));
-    expect(storedToken).toBe(AUTH_TOKEN);
+    const storedPayload = await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("eigen-air-auth-token") || "{}")
+    );
+    expect(storedPayload.token).toBe(AUTH_TOKEN);
+  });
   });
 
-  test("scenario 4: second principal access denial / unauthorized scope", async ({ page }) => {
-    const FOREIGN_TOKEN = "0000000000000000000000000000000000000000000000000000000000000001";
+  test.describe("Foreign Principal", () => {
+    test.beforeEach(async ({ page }) => {
+      test.skip(!AUTH_TOKEN, "EIGEN_AIR_AUTH_TOKEN required");
+      await page.addInitScript(
+        ({ daemonUrl }) => {
+          localStorage.setItem("eigen-air-daemon-url", daemonUrl);
+          localStorage.removeItem("eigen-air-session-id");
+          localStorage.removeItem("eigen-air-chat-messages");
+        },
+        { daemonUrl: DAEMON_URL }
+      );
+    });
 
-    await page.addInitScript(
-      ({ daemonUrl, foreignToken }) => {
-        localStorage.setItem("eigen-air-daemon-url", daemonUrl);
-        localStorage.setItem("eigen-air-auth-token", foreignToken);
-        localStorage.removeItem("eigen-air-session-id");
-      },
-      { daemonUrl: DAEMON_URL, foreignToken: FOREIGN_TOKEN }
-    );
+    test("scenario 4: second principal access denial / unauthorized scope", async ({ page }) => {
+      const FOREIGN_TOKEN = "0000000000000000000000000000000000000000000000000000000000000001";
+      await seedAuthToken(page, FOREIGN_TOKEN);
 
-    await page.goto("/");
+      await page.goto("/");
 
-    // Foreign token should fail auth or receive unauthenticated / empty history
-    // Assert unauthorized principal cannot access historical image blobs
-    const images = page.locator("img[src^='blob:']");
-    await expect(images).toHaveCount(0);
+      const storedPayload = await page.evaluate(() =>
+        JSON.parse(localStorage.getItem("eigen-air-auth-token") || "{}")
+      );
+      expect(storedPayload.token).toBe(FOREIGN_TOKEN);
+
+      // Foreign token should fail auth or receive unauthenticated / empty history
+      // Assert unauthorized principal cannot access historical image blobs
+      const images = page.locator("img[src^='blob:']");
+      await expect(images).toHaveCount(0);
+    });
   });
 });

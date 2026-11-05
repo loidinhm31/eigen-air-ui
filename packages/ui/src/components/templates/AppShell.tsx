@@ -2,6 +2,7 @@ import * as React from "react";
 import { Outlet, NavLink } from "react-router-dom";
 import { MessageSquare, Brain, Wrench, BookOpen, Settings, History, Activity } from "lucide-react";
 import { StatusBadge } from "../molecules/StatusBadge.js";
+import { ConnectionErrorNotice } from "../molecules/connection-error-notice.js";
 import { cn } from "@eigen-air-ui/shared/utils";
 
 const NAV_ITEMS = [
@@ -44,8 +45,11 @@ export function AppShell() {
         </div>
       </nav>
 
-      <main className="flex-1 overflow-hidden">
-        <Outlet />
+      <main className="flex flex-1 flex-col overflow-hidden min-h-0">
+        <ConnectionErrorNotice />
+        <div className="flex-1 overflow-hidden min-h-0">
+          <Outlet />
+        </div>
       </main>
     </div>
   );

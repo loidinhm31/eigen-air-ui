@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
+import { seedAuthToken } from "./support/seed-auth-token.js";
 
 const TEST_SESSION = {
   id: "installed-companion-session",
@@ -38,10 +39,10 @@ const TEST_DEVICE = {
 };
 
 async function installDesktopCompanionRoutes(page: Page) {
+  await seedAuthToken(page, "token-owner-test");
   await page.addInitScript((sessionId) => {
     localStorage.setItem("eigen-air-daemon-url", "http://127.0.0.1:18790");
     localStorage.setItem("eigen-air-session-id", sessionId);
-    localStorage.setItem("eigen-air-auth-token", "token-owner-test");
   }, TEST_SESSION.id);
 
   await page.route("**/v1/health", async (route) => {

@@ -72,6 +72,7 @@ beforeEach(() => {
     status: "disconnected",
     version: undefined,
     sessionId: undefined,
+    error: undefined,
   });
 
   mockConfigHealth.mockResolvedValue({ status: "ok" });
@@ -434,6 +435,56 @@ describe("ConnectionStatus", () => {
       expect(clearBtn.hasAttribute("disabled")).toBe(false);
       expect(screen.queryByRole("alert")).toBeNull();
       cancelAuto();
+    });
+    it("displays store error guidance when store error is unauthenticated and no local error", () => {
+      useConnectionStore.setState({ error: "unauthenticated" });
+      render(<ConnectionStatus />);
+
+      const alert = screen.getByRole("alert");
+      expect(alert).toBeDefined();
+      expect(alert.textContent).toBe(
+        "Authentication required. Enter the daemon token (config.toml `[server].token`) in Settings."
+      );
+    });
+
+    it("displays store error guidance when store error is unsupported_daemon and no local error", () => {
+      useConnectionStore.setState({ error: "unsupported_daemon" });
+      render(<ConnectionStatus />);
+
+      const alert = screen.getByRole("alert");
+      expect(alert).toBeDefined();
+      expect(alert.textContent).toBe(
+        "This daemon version is not compatible with the UI. Upgrade the daemon."
+      );
+    });
+
+    it("does not render alert when store error is timeout or unreachable", () => {
+      useConnectionStore.setState({ error: "timeout" });
+      const { rerender } = render(<ConnectionStatus />);
+      expect(screen.queryByRole("alert")).toBeNull();
+
+      useConnectionStore.setState({ error: "unreachable" });
+      rerender(<ConnectionStatus />);
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it("displays store error message after an unauthorized background auto-connect", async () => {
+      mockChatConnect.mockRejectedValueOnce(
+        new WsRequestError("unauthorized", "unauthorized")
+      );
+
+      const cancel = startAutoConnect();
+      await waitFor(() => {
+        expect(useConnectionStore.getState().error).toBe("unauthenticated");
+      });
+
+      render(<ConnectionStatus />);
+
+      const alert = screen.getByRole("alert");
+      expect(alert.textContent).toBe(
+        "Authentication required. Enter the daemon token (config.toml `[server].token`) in Settings."
+      );
+      cancel();
     });
   });
 });

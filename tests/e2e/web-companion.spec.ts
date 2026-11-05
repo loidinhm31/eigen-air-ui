@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-
+import { seedAuthToken } from "./support/seed-auth-token.js";
 const TEST_SESSION = {
   id: "web-comp-session",
   channel: "web",
@@ -36,7 +36,6 @@ async function installWebCompanionRoutes(page: Page) {
   await page.addInitScript((sessionId) => {
     localStorage.setItem("eigen-air-daemon-url", "http://127.0.0.1:18790");
     localStorage.setItem("eigen-air-session-id", sessionId);
-    localStorage.setItem("eigen-air-auth-token", "token-owner-test");
   }, TEST_SESSION.id);
 
   await page.route("**/*health", async (route) => {
@@ -129,6 +128,9 @@ async function installWebCompanionRoutes(page: Page) {
 }
 
 test.describe("Web Companion Experience (Phase 11)", () => {
+  test.beforeEach(async ({ page }) => {
+    await seedAuthToken(page, "token-owner-test");
+  });
   test("Settings companion view renders install guide, code approval and remote storage flow", async ({ page }) => {
     await installWebCompanionRoutes(page);
     await page.goto("/settings");

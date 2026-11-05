@@ -1,13 +1,13 @@
 import { expect, test } from "@playwright/test";
+import { seedAuthToken } from "./support/seed-auth-token.js";
 
+const AUTH_TOKEN = process.env.EIGEN_AIR_AUTH_TOKEN;
 test.describe("Live Vulkan Daemon E2E Scenarios", () => {
   test.beforeEach(async ({ page }) => {
+    test.skip(!AUTH_TOKEN, "EIGEN_AIR_AUTH_TOKEN required");
+    await seedAuthToken(page, AUTH_TOKEN);
     await page.addInitScript(() => {
       localStorage.setItem("eigen-air-daemon-url", "http://127.0.0.1:18790");
-      localStorage.setItem(
-        "eigen-air-auth-token",
-        "7f59e58b5014618010a76843dc864b424e02f0bcb219676bb3b57a9d5394ab0d"
-      );
       localStorage.removeItem("eigen-air-session-id");
       localStorage.removeItem("eigen-air-chat-messages");
     });

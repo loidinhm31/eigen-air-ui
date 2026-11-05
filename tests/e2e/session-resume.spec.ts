@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
-
+import { seedAuthToken } from "./support/seed-auth-token.js";
 test("restores and continues persisted sessions across reconnects", async ({ page }) => {
+  await seedAuthToken(page);
   await page.addInitScript(() => {
     if (sessionStorage.getItem("eigen-air-e2e-session-resume-init")) {
       return;

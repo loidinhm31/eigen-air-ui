@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-
+import { seedAuthToken } from "./support/seed-auth-token.js";
 const SESSION = {
   id: "e2e-skill-import-session",
   channel: "web",
@@ -38,6 +38,7 @@ const SAMPLE_PACKAGE_DETAIL = {
 };
 
 async function installSkillManagementFixtures(page: Page) {
+  await seedAuthToken(page);
   let skillsList = [SAMPLE_PACKAGE_SUMMARY];
 
   await page.addInitScript((sessionId) => {

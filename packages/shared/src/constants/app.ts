@@ -1,6 +1,3 @@
-export const DEFAULT_AUTH_TOKEN =
-  "7f59e58b5014618010a76843dc864b424e02f0bcb219676bb3b57a9d5394ab0d";
-
 export const DEFAULT_DAEMON_URL =
   typeof window !== "undefined" &&
   window.location?.hostname &&

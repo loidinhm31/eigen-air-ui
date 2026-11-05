@@ -72,4 +72,45 @@ describe("tokenStorage", () => {
     expect(localStorage.getItem(STORAGE_KEYS.AUTH_TOKEN)).toBeNull();
     expect(sessionStorage.getItem(STORAGE_KEYS.AUTH_TOKEN)).toBeNull();
   });
+  it("produces valid stored payload from synthetic seeding on empty storage", () => {
+    // Helper seeding logic simulation
+    const seedToken = "synthetic-e2e-token";
+    const existing = localStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+    if (!existing) {
+      localStorage.setItem(
+        STORAGE_KEYS.AUTH_TOKEN,
+        JSON.stringify({
+          token: seedToken,
+          retention: "forever",
+          savedAt: Date.now(),
+          expiresAt: null,
+        })
+      );
+    }
+
+    expect(getStoredAuthToken()).toBe("synthetic-e2e-token");
+    expect(getStoredTokenRetention()).toBe("forever");
+  });
+
+  it("preserves pre-existing credential during seeding without overwriting", () => {
+    saveStoredAuthToken("pre-existing-user-token", "7d");
+    expect(getStoredAuthToken()).toBe("pre-existing-user-token");
+
+    // Helper seeding logic should not overwrite existing
+    const existing = localStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+    if (!existing) {
+      localStorage.setItem(
+        STORAGE_KEYS.AUTH_TOKEN,
+        JSON.stringify({
+          token: "new-seed-token",
+          retention: "forever",
+          savedAt: Date.now(),
+          expiresAt: null,
+        })
+      );
+    }
+
+    expect(getStoredAuthToken()).toBe("pre-existing-user-token");
+    expect(getStoredTokenRetention()).toBe("7d");
+  });
 });

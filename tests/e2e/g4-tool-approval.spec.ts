@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-
+import { seedAuthToken } from "./support/seed-auth-token.js";
 const SESSION_ID = "g4-approval-session";
 const APPROVAL_ID = "44444444-4444-4444-8444-444444444444";
 const RUN_ID = "g4-run-1";
@@ -55,6 +55,7 @@ function pendingSnapshot() {
 }
 
 async function installG4Fixture(page: Page, options: G4FixtureOptions = {}) {
+  await seedAuthToken(page);
   const state: G4FixtureState = {
     phase: "empty",
     listCalls: 0,

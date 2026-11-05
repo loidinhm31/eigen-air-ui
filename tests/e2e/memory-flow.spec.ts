@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
-
+import { seedAuthToken } from "./support/seed-auth-token.js";
 test("real daemon memory lifecycle", async ({ page }) => {
+  await seedAuthToken(page);
   await page.addInitScript(() => {
     localStorage.setItem("eigen-air-daemon-url", "http://127.0.0.1:18791");
     localStorage.removeItem("eigen-air-session-id");

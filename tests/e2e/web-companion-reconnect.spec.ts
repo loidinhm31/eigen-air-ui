@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-
+import { seedAuthToken } from "./support/seed-auth-token.js";
 const SESS_1 = {
   id: "sess-device-1",
   channel: "web",
@@ -39,6 +39,10 @@ const TEST_DEVICE = {
 };
 
 test.describe("Web Companion Reconnect & Fail-Closed Fencing (Phase 11)", () => {
+  test.beforeEach(async ({ page }) => {
+    await seedAuthToken(page);
+  });
+
   test("Session switch immediately resets target and fails closed until authoritative target arrives", async ({ page }) => {
     let currentSessionId = SESS_1.id;
 

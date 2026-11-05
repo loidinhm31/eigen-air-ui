@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-
+import { seedAuthToken } from "./support/seed-auth-token.js";
 const SESSION = {
   id: "g1-e2e-session",
   channel: "web",
@@ -25,6 +25,7 @@ const HOSTILE_MARKDOWN = [
 ].join("\n");
 
 async function installDeterministicChatFixture(page: Page) {
+  await seedAuthToken(page);
   const sentChatParams: Array<Record<string, unknown>> = [];
 
   await page.addInitScript((sessionId) => {

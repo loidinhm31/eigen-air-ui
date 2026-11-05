@@ -1,8 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
-
+import { seedAuthToken } from "./support/seed-auth-token.js";
 const SESSION_ID = "session-release-a-test";
 
 async function installReleaseAFixture(page: Page) {
+  await seedAuthToken(page);
   await page.addInitScript((sessionId) => {
     localStorage.setItem("eigen-air-daemon-url", "http://127.0.0.1:18791");
     localStorage.setItem("eigen-air-session-id", sessionId);

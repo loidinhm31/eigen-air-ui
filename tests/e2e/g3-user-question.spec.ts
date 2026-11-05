@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-
+import { seedAuthToken } from "./support/seed-auth-token.js";
 const SESSION_ID = "g3-question-session";
 const QUESTION_ID = "g3-question-1";
 const RUN_ID = "g3-run-1";
@@ -84,6 +84,7 @@ function runSnapshot() {
 }
 
 async function installG3Fixture(page: Page, options: G3FixtureOptions = {}) {
+  await seedAuthToken(page);
   const state: G3FixtureState = {
     phase: options.initialPhase ?? "pending",
     listCalls: 0,

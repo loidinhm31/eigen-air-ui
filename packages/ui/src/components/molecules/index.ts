@@ -81,3 +81,8 @@ export {
   HostBindingControls,
   type HostBindingControlsProps,
 } from "./HostBindingControls.js";
+export {
+  ConnectionErrorNotice,
+  CONNECTION_ERROR_MESSAGES,
+  getConnectionErrorMessage,
+} from "./connection-error-notice.js";

@@ -23,8 +23,8 @@ import { Button } from "../atoms/Button.js";
 import { Badge } from "../atoms/Badge.js";
 import { Card, CardContent, CardHeader, CardTitle } from "../atoms/Card.js";
 import type { ServerConfig, AgentStatusResponse } from "@eigen-air-ui/shared/types";
+import { getConnectionErrorMessage } from "../molecules/connection-error-notice.js";
 import { ConnectionMetadataCards } from "./ConnectionMetadataCards.js";
-
 export interface ConnectionStatusProps {
   managedAccess?: boolean;
 }
@@ -51,7 +51,7 @@ function toSafeErrorMessage(err: unknown): string {
 }
 
 export function ConnectionStatus({ managedAccess = false }: ConnectionStatusProps) {
-  const { url, status, version, sessionId, setUrl, setSessionId } =
+  const { url, status, version, sessionId, setUrl, setSessionId, error: storeError } =
     useConnectionStore();
   const [draftUrl, setDraftUrl] = useState(url);
   const [draftToken, setDraftToken] = useState(() => (!managedAccess ? getStoredAuthToken() ?? "" : ""));
@@ -60,7 +60,7 @@ export function ConnectionStatus({ managedAccess = false }: ConnectionStatusProp
   const [error, setError] = useState<string | null>(null);
   const [config, setConfig] = useState<ServerConfig | null>(null);
   const [agentStatus, setAgentStatus] = useState<AgentStatusResponse | null>(null);
-
+  const displayedError = error ?? getConnectionErrorMessage(storeError);
   async function handleConnect() {
     setConnecting(true);
     setError(null);
@@ -228,8 +228,8 @@ export function ConnectionStatus({ managedAccess = false }: ConnectionStatusProp
             )}
           </div>
 
-          {error && (
-            <p className="text-xs text-destructive" role="alert">{error}</p>
+          {displayedError && (
+            <p className="text-xs text-destructive" role="alert">{displayedError}</p>
           )}
 
           {status === "connected" && (
