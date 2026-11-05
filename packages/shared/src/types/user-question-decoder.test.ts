@@ -9,6 +9,9 @@ import {
   decodeUserQuestionRequest,
   decodeUserQuestionSnapshot,
   decodeWsFrameJson,
+  decodeWsInbound,
+  MAX_WS_EVENT_FRAME_BYTES,
+  MAX_WS_RESPONSE_FRAME_BYTES,
 } from "./user-question-decoder.js";
 
 const metadata = {
@@ -521,5 +524,180 @@ describe("G3 user-question decoders", () => {
     expect(history.messages[2].content).toBe("Legacy fallback without correlation");
     expect(history.messages[2].id).toBe("msg-ep-sessA-0-1");
     expect(history.messages[2].run_id).toBeUndefined();
+  });
+});
+
+describe("WS inbound decoder ceilings and envelopes (Phase 03)", () => {
+  it("decodes a synthetic 117-session sessions.list response (~67 KB) that previously hung", () => {
+    const sessions = Array.from({ length: 117 }, (_, i) => ({
+      id: `sess-${i.toString().padStart(4, "0")}`,
+      title: `Long session title number ${i} testing boundary limits and pagination `.repeat(8),
+      created_at: 1_700_000_000_000 + i * 1000,
+      updated_at: 1_700_000_000_000 + i * 1000,
+    }));
+    const raw = JSON.stringify({
+      type: "res",
+      version: "v1",
+      id: "req-sessions-117",
+      ok: true,
+      data: { sessions },
+    });
+    const byteLen = new TextEncoder().encode(raw).byteLength;
+    expect(byteLen).toBeGreaterThan(64 * 1024);
+    expect(byteLen).toBeLessThan(MAX_WS_RESPONSE_FRAME_BYTES);
+
+    const inbound = decodeWsInbound(raw);
+    expect(inbound.kind).toBe("frame");
+    if (inbound.kind === "frame" && inbound.frame.type === "res") {
+      expect(inbound.frame.id).toBe("req-sessions-117");
+    }
+    const frameJson = decodeWsFrameJson(raw);
+    expect(frameJson).toBeDefined();
+    if (frameJson?.type === "res") {
+      expect(frameJson.id).toBe("req-sessions-117");
+    }
+  });
+
+  it("decodes response at exactly 8 MiB bytes and rejects 8 MiB + 1 as undecodable", () => {
+    const prefix = '{"type":"res","version":"v1","id":"req-exact-8m","ok":true,"data":"';
+    const suffix = '"}';
+    const padLen = MAX_WS_RESPONSE_FRAME_BYTES - (prefix.length + suffix.length);
+    const rawExact = prefix + "a".repeat(padLen) + suffix;
+    const exactBytes = new TextEncoder().encode(rawExact).byteLength;
+    expect(exactBytes).toBe(MAX_WS_RESPONSE_FRAME_BYTES);
+
+    const inboundExact = decodeWsInbound(rawExact);
+    expect(inboundExact.kind).toBe("frame");
+    expect(decodeWsFrameJson(rawExact)).toBeDefined();
+
+    // +1 byte exceeds response ceiling
+    const rawPlusOne = prefix + "a".repeat(padLen + 1) + suffix;
+    const plusOneBytes = new TextEncoder().encode(rawPlusOne).byteLength;
+    expect(plusOneBytes).toBe(MAX_WS_RESPONSE_FRAME_BYTES + 1);
+
+    const inboundPlusOne = decodeWsInbound(rawPlusOne);
+    expect(inboundPlusOne.kind).toBe("undecodable");
+    expect(decodeWsFrameJson(rawPlusOne)).toBeUndefined();
+  });
+
+  it("rejects string where UTF-16 length < 8 MiB but UTF-8 byte length > 8 MiB", () => {
+    const prefix = '{"type":"res","version":"v1","id":"req-multibyte","ok":true,"data":"';
+    const suffix = '"}';
+    // 'é' is 1 UTF-16 code unit (char) but 2 UTF-8 bytes.
+    // 4.5 million 'é' characters = 4.5M UTF-16 length, 9M UTF-8 bytes (> 8 MiB).
+    const charCount = 4.5 * 1024 * 1024;
+    const rawMultibyte = prefix + "é".repeat(charCount) + suffix;
+    expect(rawMultibyte.length).toBeLessThan(MAX_WS_RESPONSE_FRAME_BYTES);
+
+    const result = decodeWsInbound(rawMultibyte);
+    expect(result.kind).toBe("undecodable");
+    expect(decodeWsFrameJson(rawMultibyte)).toBeUndefined();
+  });
+
+  it("decodes event at exactly 64 KiB bytes and classifies 64 KiB + 1 as invalid_event", () => {
+    const prefix = '{"type":"event","version":"v1","event":"run.delta","payload":{"text":"';
+    const suffix = '"}}';
+    const exactPadLen = MAX_WS_EVENT_FRAME_BYTES - (prefix.length + suffix.length);
+    const rawExactEvent = prefix + "x".repeat(exactPadLen) + suffix;
+    const exactBytes = new TextEncoder().encode(rawExactEvent).byteLength;
+    expect(exactBytes).toBe(MAX_WS_EVENT_FRAME_BYTES);
+
+    const exactResult = decodeWsInbound(rawExactEvent);
+    expect(exactResult.kind).toBe("frame");
+    expect(decodeWsFrameJson(rawExactEvent)).toBeDefined();
+
+    const rawOversizedEvent = prefix + "x".repeat(exactPadLen + 1) + suffix;
+    const oversizedBytes = new TextEncoder().encode(rawOversizedEvent).byteLength;
+    expect(oversizedBytes).toBe(MAX_WS_EVENT_FRAME_BYTES + 1);
+
+    const oversizedResult = decodeWsInbound(rawOversizedEvent);
+    expect(oversizedResult.kind).toBe("invalid_event");
+    if (oversizedResult.kind === "invalid_event") {
+      expect(oversizedResult.event).toBe("run.delta");
+    }
+    expect(decodeWsFrameJson(rawOversizedEvent)).toBeUndefined();
+  });
+
+  it("decodes daemon error envelope with code, message, request_id, and details", () => {
+    const raw = JSON.stringify({
+      type: "res",
+      version: "v1",
+      id: "req-err-1",
+      ok: false,
+      error: {
+        code: "invalid_cursor",
+        message: "Invalid cursor token",
+        request_id: "req-err-1",
+        details: { expected: "base64url", received: "???" },
+      },
+    });
+    const inbound = decodeWsInbound(raw);
+    expect(inbound.kind).toBe("frame");
+    if (inbound.kind === "frame" && inbound.frame.type === "res") {
+      expect(inbound.frame.ok).toBe(false);
+      expect(inbound.frame.error?.code).toBe("invalid_cursor");
+      expect(inbound.frame.error?.message).toBe("Invalid cursor token");
+    }
+    expect(decodeWsFrameJson(raw)).toBeDefined();
+  });
+
+  it("returns invalid_response when res has valid id but invalid envelope or unexpected keys", () => {
+    const rawWithExtraKey = JSON.stringify({
+      type: "res",
+      version: "v1",
+      id: "req-extra-key",
+      ok: false,
+      error: {
+        code: "bad",
+        message: "Bad",
+        unknown_key_here: true,
+      },
+    });
+    const result = decodeWsInbound(rawWithExtraKey);
+    expect(result).toEqual({ kind: "invalid_response", id: "req-extra-key" });
+    expect(decodeWsFrameJson(rawWithExtraKey)).toBeUndefined();
+  });
+
+  it("returns undecodable when res lacks trustworthy id", () => {
+    const rawNoId = JSON.stringify({
+      type: "res",
+      version: "v1",
+      ok: true,
+      data: {},
+    });
+    expect(decodeWsInbound(rawNoId)).toEqual({ kind: "undecodable" });
+
+    const rawEmptyId = JSON.stringify({
+      type: "res",
+      version: "v1",
+      id: "",
+      ok: true,
+    });
+    expect(decodeWsInbound(rawEmptyId)).toEqual({ kind: "undecodable" });
+
+    const rawHugeId = JSON.stringify({
+      type: "res",
+      version: "v1",
+      id: "a".repeat(257),
+      ok: true,
+    });
+    expect(decodeWsInbound(rawHugeId)).toEqual({ kind: "undecodable" });
+  });
+
+  it("returns unsupported for record with unknown type for forward compatibility", () => {
+    const rawUnknown = JSON.stringify({
+      type: "custom_future_type",
+      version: "v2",
+      payload: { foo: "bar" },
+    });
+    expect(decodeWsInbound(rawUnknown)).toEqual({ kind: "unsupported" });
+    expect(decodeWsFrameJson(rawUnknown)).toBeUndefined();
+  });
+
+  it("returns undecodable for non-string or non-JSON payloads", () => {
+    expect(decodeWsInbound(null)).toEqual({ kind: "undecodable" });
+    expect(decodeWsInbound(12345)).toEqual({ kind: "undecodable" });
+    expect(decodeWsInbound("not-json")).toEqual({ kind: "undecodable" });
+    expect(decodeWsInbound("")).toEqual({ kind: "undecodable" });
   });
 });

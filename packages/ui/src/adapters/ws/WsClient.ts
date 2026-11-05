@@ -6,12 +6,17 @@ import {
   decodeToolApprovalEvent,
   decodeInferenceOperationProgressEvent,
   decodeRunInferenceProgressEvent,
-  decodeWsFrameJson,
+  decodeWsInbound,
   type WsReq,
   type WsRes,
   type WsEvent,
 } from "@eigen-air-ui/shared/types";
-import { MAX_RECONNECT_ATTEMPTS, RECONNECT_DELAY_MS } from "@eigen-air-ui/shared/constants";
+import {
+  MAX_RECONNECT_ATTEMPTS,
+  RECONNECT_DELAY_MS,
+  DEFAULT_WS_REQUEST_TIMEOUT_MS,
+} from "@eigen-air-ui/shared/constants";
+import { WsRequestError, type WsTransportErrorCode } from "./ws-request-error.js";
 
 type PendingRequest = {
   resolve: (res: WsRes) => void;
@@ -22,6 +27,11 @@ export interface WsReconnectFence {
   epoch: number;
   signal: AbortSignal;
 }
+export interface WsSendOptions {
+  fence?: WsReconnectFence;
+  timeoutMs?: number | null;
+}
+
 
 type WsConnectionStatus = "reconnecting" | "offline" | "connected";
 function createRequestId(): string {
@@ -152,6 +162,11 @@ export class WsClient {
         this.ws.close();
       }
       this.ws = null;
+      const oldPending = Array.from(this.pending.values());
+      this.pending.clear();
+      for (const pending of oldPending) {
+        pending.reject(new WsRequestError("connection_replaced", "WS connection replaced"));
+      }
     }
     return new Promise((resolve, reject) => {
       let opened = false;
@@ -160,7 +175,7 @@ export class WsClient {
         // Detach so onclose doesn't cascade into the reconnect loop.
         if (this.ws === ws) this.ws = null;
         ws.close();
-        reject(new Error(`WS connect timed out after ${timeoutMs}ms`));
+        reject(new WsRequestError("timeout", `WS connect timed out after ${timeoutMs}ms`));
       }, timeoutMs);
 
       const ws = new WebSocket(this.url);
@@ -183,7 +198,7 @@ export class WsClient {
           // Detach from this.ws so the subsequent onclose doesn't trigger the
           // auto-reconnect loop for an explicit connect() failure.
           if (this.ws === ws) this.ws = null;
-          reject(new Error("WS connection failed"));
+          reject(new WsRequestError("connection_closed", "WS connection failed"));
           return;
         }
         // Established sockets must enter the same recovery path as close. Some
@@ -216,6 +231,31 @@ export class WsClient {
     };
   }
 
+  private notifyProtocolError() {
+    for (const handler of [...this.protocolErrorHandlers]) {
+      try {
+        handler();
+      } catch {
+        // Isolated by design.
+      }
+    }
+  }
+
+  private failConnection(code: WsTransportErrorCode) {
+    const oldPending = Array.from(this.pending.values());
+    this.pending.clear();
+    for (const pending of oldPending) {
+      pending.reject(new WsRequestError(code, `WS connection failed: ${code}`));
+    }
+    if (this.ws) {
+      try {
+        this.ws.close(4002, "protocol_desync");
+      } catch {
+        // ws might already be closed or closing
+      }
+    }
+  }
+
   /**
    * Fired for a malformed image hint, and for any undecodable frame (which may have been a hint:
    * hints are refetch signals, so a lost one must trigger the same snapshot refetch).
@@ -245,26 +285,62 @@ export class WsClient {
   }
 
   private handleMessage(raw: string) {
-    const frame = decodeWsFrameJson(raw);
-    if (!frame) {
-      this.emitInvalidImageHint();
-      this.protocolErrorHandlers.forEach((handler) => handler());
-      return;
-    }
-    if (frame.type === "res") {
-      const pending = this.pending.get(frame.id);
-      if (pending) {
-        this.pending.delete(frame.id);
-        pending.resolve(frame);
+    const inbound = decodeWsInbound(raw);
+    switch (inbound.kind) {
+      case "frame": {
+        const frame = inbound.frame;
+        if (frame.type === "res") {
+          const pending = this.pending.get(frame.id);
+          if (pending) {
+            this.pending.delete(frame.id);
+            pending.resolve(frame);
+          }
+        } else if (frame.type === "event") {
+          const event = decodeInboundWsEvent(frame);
+          if (event) {
+            this.eventHandlers.forEach((h) => {
+              try {
+                h(event);
+              } catch {
+                // Isolated
+              }
+            });
+          } else if (isImageHintEventName(frame.event)) {
+            this.emitInvalidImageHint();
+          } else {
+            this.notifyProtocolError();
+          }
+        }
+        break;
       }
-    } else if (frame.type === "event") {
-      const event = decodeInboundWsEvent(frame);
-      if (event) {
-        this.eventHandlers.forEach((h) => h(event));
-      } else if (isImageHintEventName(frame.event)) {
+      case "invalid_response": {
+        const pending = this.pending.get(inbound.id);
+        if (pending) {
+          this.pending.delete(inbound.id);
+          pending.reject(
+            new WsRequestError("invalid_response", "WS invalid response envelope")
+          );
+        }
+        this.notifyProtocolError();
+        break;
+      }
+      case "invalid_event": {
+        if (inbound.event && isImageHintEventName(inbound.event)) {
+          this.emitInvalidImageHint();
+        } else {
+          this.notifyProtocolError();
+        }
+        break;
+      }
+      case "unsupported": {
+        this.notifyProtocolError();
+        break;
+      }
+      case "undecodable": {
         this.emitInvalidImageHint();
-      } else {
-        this.protocolErrorHandlers.forEach((handler) => handler());
+        this.notifyProtocolError();
+        this.failConnection("protocol_desync");
+        break;
       }
     }
   }
@@ -274,10 +350,11 @@ export class WsClient {
     this.reconnectAbort = undefined;
     this.reconnectInFlight = false;
     // Reject all in-flight requests so callers don't hang.
-    for (const [, pending] of this.pending) {
-      pending.reject(new Error("WS connection closed"));
-    }
+    const oldPending = Array.from(this.pending.values());
     this.pending.clear();
+    for (const pending of oldPending) {
+      pending.reject(new WsRequestError("connection_closed", "WS connection closed"));
+    }
 
     this.scheduleReconnect();
   }
@@ -347,45 +424,93 @@ export class WsClient {
   send<P, D = unknown>(
     method: string,
     params: P,
-    fence?: WsReconnectFence
+    options?: WsSendOptions
   ): Promise<WsRes<D>> {
     return new Promise((resolve, reject) => {
+      const fence = options?.fence;
       if (fence && (fence.signal.aborted || fence.epoch !== this.lifecycleEpoch)) {
-        reject(new Error("WS request superseded"));
+        reject(new WsRequestError("superseded", "WS request superseded", method));
         return;
       }
       if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-        reject(new Error("WS not connected"));
+        reject(new WsRequestError("not_connected", "WS not connected", method));
         return;
       }
-      const id = createRequestId();
-      const req: WsReq<P> = { type: "req", version: "v1", id, method, params };
-      let cleanup = () => {};
+
+      let id: string;
+      try {
+        id = createRequestId();
+      } catch (err) {
+        reject(err instanceof Error ? err : new Error(String(err)));
+        return;
+      }
+
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      let abortListener: (() => void) | null = null;
+
+      const settle = (cb: () => void) => {
+        if (settled) return;
+        settled = true;
+        if (timer !== null) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        if (abortListener !== null && fence) {
+          fence.signal.removeEventListener("abort", abortListener);
+          abortListener = null;
+        }
+        this.pending.delete(id);
+        cb();
+      };
+
       const pending: PendingRequest = {
-        resolve: (response) => {
-          cleanup();
-          resolve(response as WsRes<D>);
-        },
-        reject: (error) => {
-          cleanup();
-          reject(error);
-        },
+        resolve: (response) => settle(() => resolve(response as WsRes<D>)),
+        reject: (error) => settle(() => reject(error)),
       };
       this.pending.set(id, pending);
+
+      const timeoutMs =
+        options?.timeoutMs !== undefined ? options.timeoutMs : DEFAULT_WS_REQUEST_TIMEOUT_MS;
+      if (timeoutMs !== null) {
+        if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+          pending.reject(
+            new WsRequestError(
+              "timeout",
+              `Invalid timeoutMs: ${timeoutMs}; must be a positive number or null`,
+              method
+            )
+          );
+          return;
+        }
+        timer = setTimeout(() => {
+          pending.reject(
+            new WsRequestError(
+              "timeout",
+              `${method} timed out after ${timeoutMs}ms; outcome unknown`,
+              method
+            )
+          );
+        }, timeoutMs);
+      }
+
       if (fence) {
-        const onAbort = () => {
-          if (this.pending.get(id) !== pending) return;
-          this.pending.delete(id);
-          pending.reject(new Error("WS request aborted"));
+        abortListener = () => {
+          pending.reject(new WsRequestError("aborted", "WS request aborted", method));
         };
-        cleanup = () => fence.signal.removeEventListener("abort", onAbort);
-        fence.signal.addEventListener("abort", onAbort, { once: true });
+        fence.signal.addEventListener("abort", abortListener, { once: true });
         if (fence.signal.aborted) {
-          onAbort();
+          abortListener();
           return;
         }
       }
-      this.ws.send(JSON.stringify(req));
+
+      try {
+        const req: WsReq<P> = { type: "req", version: "v1", id, method, params };
+        this.ws.send(JSON.stringify(req));
+      } catch (err) {
+        pending.reject(err instanceof Error ? err : new Error(String(err)));
+      }
     });
   }
 
@@ -412,10 +537,11 @@ export class WsClient {
       this.ws.close();
       this.ws = null;
     }
-    for (const [, pending] of this.pending) {
-      pending.reject(new Error("WS disconnected"));
-    }
+    const oldPending = Array.from(this.pending.values());
     this.pending.clear();
+    for (const pending of oldPending) {
+      pending.reject(new WsRequestError("disconnected", "WS disconnected"));
+    }
     this.notifyStatus("offline");
   }
 

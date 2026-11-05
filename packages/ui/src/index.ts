@@ -84,6 +84,9 @@ export type {
 export { HttpArtifactAdapter } from "./adapters/http/HttpArtifactAdapter.js";
 export { WsChatAdapter } from "./adapters/ws/WsChatAdapter.js";
 export { WsClient } from "./adapters/ws/WsClient.js";
+export type { WsSendOptions, WsReconnectFence } from "./adapters/ws/WsClient.js";
+export { WsRequestError, isWsRequestError } from "./adapters/ws/ws-request-error.js";
+export type { WsTransportErrorCode } from "./adapters/ws/ws-request-error.js";
 export { HttpRunAdapter } from "./adapters/http/HttpRunAdapter.js";
 export type {
   RunAccessContext,

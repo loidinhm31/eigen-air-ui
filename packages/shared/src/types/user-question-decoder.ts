@@ -17,7 +17,15 @@ import type { ChatHistoryResponse, WsEvent, WsFrame, WsRes } from "./ws.js";
 import { decodeTaskProgressSnapshot } from "./task-progress-decoder.js";
 import { decodeToolApprovalEvent } from "./tool-approval-decoder.js";
 
-const MAX_WS_FRAME_BYTES = 64 * 1024;
+export const MAX_WS_EVENT_FRAME_BYTES = 64 * 1024;
+export const MAX_WS_RESPONSE_FRAME_BYTES = 8 * 1024 * 1024;
+
+export type WsInboundDecodeResult =
+  | { kind: "frame"; frame: WsFrame }
+  | { kind: "invalid_response"; id: string }
+  | { kind: "invalid_event"; event?: string }
+  | { kind: "unsupported" }
+  | { kind: "undecodable" };
 const MAX_ID_BYTES = 512;
 const MAX_PROMPT_BYTES = 2048;
 const MAX_HELP_BYTES = 512;
@@ -763,35 +771,91 @@ function decodeResponse(value: unknown): WsRes {
   if (value.error !== undefined) {
     if (
       !isRecord(value.error) ||
-      !hasOnlyKeys(value.error, ["code", "message"]) ||
+      !hasOnlyKeys(value.error, ["code", "message", "request_id", "details"]) ||
       !isNonEmptyString(value.error.code, 128) ||
-      !isNonEmptyString(value.error.message, MAX_ERROR_TEXT_BYTES)
+      !isNonEmptyString(value.error.message, MAX_ERROR_TEXT_BYTES) ||
+      (value.error.request_id !== undefined && !isNonEmptyString(value.error.request_id, 256))
     )
       fail();
   }
-  if (value.data !== undefined && JSON.stringify(value.data).length > MAX_WS_FRAME_BYTES) fail();
   return value as unknown as WsRes;
 }
 
 export function decodeWsFrame(value: unknown): WsFrame | undefined {
   if (!isRecord(value) || typeof value.type !== "string") return undefined;
-  if (value.type === "res") return decodeResponse(value) as WsRes;
+  if (value.type === "res") {
+    try {
+      return decodeResponse(value) as WsRes;
+    } catch {
+      return undefined;
+    }
+  }
   if (value.type !== "event") return undefined;
-  if (value.event === "user_question.updated") return decodeUserQuestionEvent(value);
-  if (value.event === "tool_approval.updated") return decodeToolApprovalEvent(value);
+  if (value.event === "user_question.updated") {
+    try {
+      return decodeUserQuestionEvent(value);
+    } catch {
+      return undefined;
+    }
+  }
+  if (value.event === "tool_approval.updated") {
+    try {
+      return decodeToolApprovalEvent(value);
+    } catch {
+      return undefined;
+    }
+  }
   if (value.event === "task_progress.updated") return value as unknown as WsEvent;
   if (typeof value.event !== "string" || !isRecord(value.payload)) return undefined;
   return value as unknown as WsEvent;
 }
 
-export function decodeWsFrameJson(raw: unknown): WsFrame | undefined {
-  if (typeof raw !== "string") return undefined;
-  if (utf8Bytes(raw) > MAX_WS_FRAME_BYTES) return undefined;
+export function decodeWsInbound(raw: unknown): WsInboundDecodeResult {
+  if (typeof raw !== "string") return { kind: "undecodable" };
+  const rawBytes = utf8Bytes(raw);
+  if (rawBytes > MAX_WS_RESPONSE_FRAME_BYTES) return { kind: "undecodable" };
+
+  let parsed: unknown;
   try {
-    return decodeWsFrame(JSON.parse(raw));
+    parsed = JSON.parse(raw);
   } catch {
-    return undefined;
+    return { kind: "undecodable" };
   }
+
+  if (!isRecord(parsed) || typeof parsed.type !== "string") {
+    return { kind: "undecodable" };
+  }
+
+  if (parsed.type === "res") {
+    if (!isNonEmptyString(parsed.id, 256)) {
+      return { kind: "undecodable" };
+    }
+    try {
+      const frame = decodeResponse(parsed);
+      return { kind: "frame", frame };
+    } catch {
+      return { kind: "invalid_response", id: parsed.id };
+    }
+  }
+
+  if (parsed.type === "event") {
+    const eventName = typeof parsed.event === "string" ? parsed.event : undefined;
+    if (rawBytes > MAX_WS_EVENT_FRAME_BYTES) {
+      return { kind: "invalid_event", event: eventName };
+    }
+    const frame = decodeWsFrame(parsed);
+    if (!frame) {
+      return { kind: "invalid_event", event: eventName };
+    }
+    return { kind: "frame", frame };
+  }
+
+  return { kind: "unsupported" };
+}
+
+export function decodeWsFrameJson(raw: unknown): WsFrame | undefined {
+  const result = decodeWsInbound(raw);
+  return result.kind === "frame" ? result.frame : undefined;
 }
 
 export function decodeChatSendResponse(

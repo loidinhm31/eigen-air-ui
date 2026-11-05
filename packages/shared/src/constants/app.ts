@@ -51,3 +51,4 @@ export const WS_METHODS = {
 
 export const MAX_RECONNECT_ATTEMPTS = 5;
 export const RECONNECT_DELAY_MS = 2000;
+export const DEFAULT_WS_REQUEST_TIMEOUT_MS = 30_000;

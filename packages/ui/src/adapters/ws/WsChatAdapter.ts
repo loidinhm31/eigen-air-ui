@@ -1,4 +1,5 @@
-import { WsClient, type WsReconnectFence } from "./WsClient.js";
+import { WsClient, type WsReconnectFence, type WsSendOptions } from "./WsClient.js";
+import { WsRequestError } from "./ws-request-error.js";
 import type {
   DebugRequestOptions,
   ImageHintCallback,
@@ -268,6 +269,22 @@ export class WsChatAdapter implements IChatService, ISessionService {
     }
   }
 
+  private async call<P, D>(
+    method: string,
+    params: P,
+    options?: WsSendOptions
+  ): Promise<D> {
+    const res = await this.client.send<P, D>(method, params, options);
+    if (!res.ok) {
+      throw new WsRequestError(
+        res.error?.code ?? "request_failed",
+        res.error?.message ?? `${method} failed`,
+        method
+      );
+    }
+    return res.data!;
+  }
+
   private assertReconnectFence(fence?: WsReconnectFence): void {
     if (fence?.signal.aborted) throw new Error("reconnect superseded");
   }
@@ -286,13 +303,11 @@ export class WsChatAdapter implements IChatService, ISessionService {
     } else if (this.token === undefined && this.accessProvider) {
       this.token = this.accessProvider().authToken;
     }
-    const res = await this.client.send<{ token?: string }, ConnectResponse>(
+    return this.call<{ token?: string }, ConnectResponse>(
       WS_METHODS.CONNECT,
       this.token ? { token: this.token } : {},
-      fence
+      { fence }
     );
-    if (!res.ok) throw new Error(res.error?.message ?? "connect failed");
-    return res.data!;
   }
 
   private async resolveSelectedSession(
@@ -356,12 +371,12 @@ export class WsChatAdapter implements IChatService, ISessionService {
     this.client.onEvent(handler);
     try {
       const params = buildChatSendParams(message, sessionId, options);
-      const res = await this.client.send<ChatSendParams, ChatSendResponse>(
+      const data = await this.call<ChatSendParams, ChatSendResponse>(
         WS_METHODS.CHAT_SEND,
-        params
+        params,
+        { timeoutMs: null }
       );
-      if (!res.ok) throw new Error(res.error?.message ?? "chat.send failed");
-      const result = decodeChatSendResponse(res.data);
+      const result = decodeChatSendResponse(data);
       if ("status" in result && result.status === "waiting_for_input") {
         waitingForInput = true;
         waitingQuestionId = result.question_id;
@@ -388,27 +403,25 @@ export class WsChatAdapter implements IChatService, ISessionService {
       ...(sessionId ? { session_id: sessionId } : {}),
       ...(debug ? { debug } : {}),
     };
-    const res = await this.client.send<ChatHistoryParams, ChatHistoryResponse>(
+    const data = await this.call<ChatHistoryParams, ChatHistoryResponse>(
       WS_METHODS.CHAT_HISTORY,
       params
     );
-    if (!res.ok) throw new Error(res.error?.message ?? "chat.history failed");
-    return decodeChatHistoryResponse(res.data);
+    return decodeChatHistoryResponse(data);
   }
 
   async abort(): Promise<void> {
     const params: ChatAbortParams = this.activeRunId ? { run_id: this.activeRunId } : {};
-    await this.client.send<ChatAbortParams>(WS_METHODS.CHAT_ABORT, params);
+    await this.call<ChatAbortParams, unknown>(WS_METHODS.CHAT_ABORT, params);
   }
 
   async listSessions(fence?: WsReconnectFence): Promise<SessionsListResponse["sessions"]> {
-    const res = await this.client.send<object, SessionsListResponse>(
+    const data = await this.call<object, SessionsListResponse>(
       WS_METHODS.SESSIONS_LIST,
       {},
-      fence
+      { fence }
     );
-    if (!res.ok) throw new Error(res.error?.message ?? "sessions.list failed");
-    return res.data!.sessions;
+    return data.sessions;
   }
 
   async createSession(
@@ -427,22 +440,19 @@ export class WsChatAdapter implements IChatService, ISessionService {
     const params: SessionsCreateParams = target
       ? { inference_target: target, execution_target: target }
       : {};
-    const res = await this.client.send<SessionsCreateParams, SessionsCreateResponse>(
+    return this.call<SessionsCreateParams, SessionsCreateResponse>(
       WS_METHODS.SESSIONS_CREATE,
       params,
-      fence
+      { fence }
     );
-    if (!res.ok) throw new Error(res.error?.message ?? "sessions.create failed");
-    return res.data!;
   }
 
   async deleteSession(id: string): Promise<boolean> {
-    const res = await this.client.send<SessionsDeleteParams, SessionsDeleteResponse>(
+    const data = await this.call<SessionsDeleteParams, SessionsDeleteResponse>(
       WS_METHODS.SESSIONS_DELETE,
       { id }
     );
-    if (!res.ok) throw new Error(res.error?.message ?? "sessions.delete failed");
-    return res.data!.deleted;
+    return data.deleted;
   }
 
   disconnect() {

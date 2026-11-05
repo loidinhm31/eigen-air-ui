@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WsEvent } from "@eigen-air-ui/shared/types";
 import { RECONNECT_DELAY_MS } from "@eigen-air-ui/shared/constants";
 import { decodeInboundWsEvent, WsClient } from "./WsClient.js";
+import { isWsRequestError } from "./ws-request-error.js";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -323,7 +324,7 @@ describe("WsClient lifecycle", () => {
     let authRequestResolved = false;
     client.onReconnect(async (fence) => {
       reconnectFence = fence;
-      await client.send("connect", {}, fence);
+      await client.send("connect", {}, { fence });
       authRequestResolved = true;
     });
 
@@ -481,6 +482,465 @@ describe("WsClient image hints", () => {
       }),
     });
     expect(events).toEqual(["image_job.updated", "run.delta"]);
+    client.disconnect();
+  });
+});
+
+describe("WsClient request deadlines and settlement (Phase 03)", () => {
+  class TestSocket {
+    static readonly OPEN = 1;
+    static readonly CLOSED = 3;
+    readyState = 0;
+    sent: string[] = [];
+    closedWithCode?: number;
+    closedWithReason?: string;
+    onopen: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    onclose: (() => void) | null = null;
+    onmessage: ((event: { data: string }) => void) | null = null;
+
+    open() {
+      this.readyState = TestSocket.OPEN;
+      this.onopen?.();
+    }
+    close(code?: number, reason?: string) {
+      this.readyState = TestSocket.CLOSED;
+      this.closedWithCode = code;
+      this.closedWithReason = reason;
+      this.onclose?.();
+    }
+    send(data: string) {
+      this.sent.push(data);
+    }
+  }
+
+  it("times out pending request and ignores late response", async () => {
+    vi.useFakeTimers();
+    let socket: TestSocket | undefined;
+    vi.stubGlobal("WebSocket", class extends TestSocket {
+      constructor() {
+        super();
+        socket = this;
+      }
+    });
+
+    const client = new WsClient("ws://daemon");
+    const connectPromise = client.connect();
+    socket?.open();
+    await connectPromise;
+
+    const requestPromise = client.send("test.method", { foo: "bar" }, { timeoutMs: 1000 });
+    const timerBaseline = vi.getTimerCount();
+    expect(timerBaseline).toBeGreaterThan(0);
+
+    const req = JSON.parse(socket!.sent[0] ?? "{}") as { id: string };
+    expect(req.id).toBeDefined();
+
+    vi.advanceTimersByTime(1000);
+    await expect(requestPromise).rejects.toSatisfy((err: unknown) => {
+      return (
+        isWsRequestError(err, "timeout") &&
+        err.message === "test.method timed out after 1000ms; outcome unknown" &&
+        err.method === "test.method"
+      );
+    });
+
+    // Late response arriving after timeout should be ignored cleanly
+    expect(() => {
+      socket?.onmessage?.({
+        data: JSON.stringify({ type: "res", version: "v1", id: req.id, ok: true, data: "late" }),
+      });
+    }).not.toThrow();
+
+    client.disconnect();
+  });
+
+  it("survives 10 minutes when timeoutMs is null and then resolves", async () => {
+    vi.useFakeTimers();
+    let socket: TestSocket | undefined;
+    vi.stubGlobal("WebSocket", class extends TestSocket {
+      constructor() {
+        super();
+        socket = this;
+      }
+    });
+
+    const client = new WsClient("ws://daemon");
+    const connectPromise = client.connect();
+    socket?.open();
+    await connectPromise;
+
+    const requestPromise = client.send("chat.send", { text: "hello" }, { timeoutMs: null });
+    const req = JSON.parse(socket!.sent[0] ?? "{}") as { id: string };
+
+    // Advance 10 minutes (600,000 ms)
+    vi.advanceTimersByTime(10 * 60 * 1000);
+
+    // Still pending, now deliver response
+    socket?.onmessage?.({
+      data: JSON.stringify({
+        type: "res",
+        version: "v1",
+        id: req.id,
+        ok: true,
+        data: { status: "completed", content: "done" },
+      }),
+    });
+
+    await expect(requestPromise).resolves.toMatchObject({
+      ok: true,
+      data: { status: "completed", content: "done" },
+    });
+
+    client.disconnect();
+  });
+
+  it("rejects only matching request on invalid_response without affecting peers", async () => {
+    let socket: TestSocket | undefined;
+    vi.stubGlobal("WebSocket", class extends TestSocket {
+      constructor() {
+        super();
+        socket = this;
+      }
+    });
+
+    const client = new WsClient("ws://daemon");
+    const connectPromise = client.connect();
+    socket?.open();
+    await connectPromise;
+
+    const req1Promise = client.send("rpc.one", {});
+    const req2Promise = client.send("rpc.two", {});
+
+    const req1 = JSON.parse(socket!.sent[0] ?? "{}") as { id: string };
+    const req2 = JSON.parse(socket!.sent[1] ?? "{}") as { id: string };
+
+    // Deliver invalid response envelope for req1 (extra key in error)
+    socket?.onmessage?.({
+      data: JSON.stringify({
+        type: "res",
+        version: "v1",
+        id: req1.id,
+        ok: false,
+        error: { code: "err", message: "fail", forbidden_extra: true },
+      }),
+    });
+
+    await expect(req1Promise).rejects.toSatisfy((err: unknown) => {
+      return isWsRequestError(err, "invalid_response");
+    });
+
+    // req2 is still alive and resolves normally
+    socket?.onmessage?.({
+      data: JSON.stringify({
+        type: "res",
+        version: "v1",
+        id: req2.id,
+        ok: true,
+        data: "success",
+      }),
+    });
+
+    await expect(req2Promise).resolves.toMatchObject({ ok: true, data: "success" });
+    client.disconnect();
+  });
+
+  it("rejects all pending on undecodable frame, closes socket with 4002, and schedules reconnect", async () => {
+    vi.useFakeTimers();
+    const sockets: TestSocket[] = [];
+    vi.stubGlobal("WebSocket", class extends TestSocket {
+      constructor() {
+        super();
+        sockets.push(this);
+      }
+    });
+
+    const client = new WsClient("ws://daemon");
+    const connectPromise = client.connect();
+    sockets[0]?.open();
+    await connectPromise;
+
+    const req1Promise = client.send("rpc.one", {});
+    const req2Promise = client.send("rpc.two", {});
+
+    // Deliver undecodable frame
+    sockets[0]?.onmessage?.({ data: "not a valid json frame at all" });
+
+    await expect(req1Promise).rejects.toSatisfy((err: unknown) => {
+      return isWsRequestError(err, "protocol_desync");
+    });
+    await expect(req2Promise).rejects.toSatisfy((err: unknown) => {
+      return isWsRequestError(err, "protocol_desync");
+    });
+
+    expect(sockets[0]?.closedWithCode).toBe(4002);
+    expect(sockets[0]?.closedWithReason).toBe("protocol_desync");
+
+    // Advance by reconnect delay -> second socket created
+    vi.advanceTimersByTime(RECONNECT_DELAY_MS);
+    expect(sockets.length).toBe(2);
+
+    client.disconnect();
+  });
+
+  it("does not reject pending requests on invalid_event or unsupported frames", async () => {
+    let socket: TestSocket | undefined;
+    vi.stubGlobal("WebSocket", class extends TestSocket {
+      constructor() {
+        super();
+        socket = this;
+      }
+    });
+
+    const client = new WsClient("ws://daemon");
+    const connectPromise = client.connect();
+    socket?.open();
+    await connectPromise;
+
+    const reqPromise = client.send("rpc.query", {});
+    const req = JSON.parse(socket!.sent[0] ?? "{}") as { id: string };
+
+    // Deliver unsupported frame
+    socket?.onmessage?.({
+      data: JSON.stringify({ type: "unknown_custom_type", version: "v9" }),
+    });
+
+    // Deliver invalid event (oversized or malformed)
+    socket?.onmessage?.({
+      data: JSON.stringify({
+        type: "event",
+        event: "user_question.updated",
+        payload: { invalid_key_structure: true },
+      }),
+    });
+
+    // reqPromise should still be pending and resolve
+    socket?.onmessage?.({
+      data: JSON.stringify({
+        type: "res",
+        version: "v1",
+        id: req.id,
+        ok: true,
+        data: "all good",
+      }),
+    });
+
+    await expect(reqPromise).resolves.toMatchObject({ ok: true, data: "all good" });
+    client.disconnect();
+  });
+
+  it("rejects pending requests with connection_replaced when socket is replaced in open()", async () => {
+    const sockets: TestSocket[] = [];
+    vi.stubGlobal("WebSocket", class extends TestSocket {
+      constructor() {
+        super();
+        sockets.push(this);
+      }
+    });
+
+    const client = new WsClient("ws://daemon");
+    const connect1 = client.connect();
+    sockets[0]?.open();
+    await connect1;
+
+    const reqPromise = client.send("rpc.first", {});
+
+    // Reconnecting before response arrives
+    const connect2 = client.connect();
+    sockets[1]?.open();
+    await connect2;
+
+    await expect(reqPromise).rejects.toSatisfy((err: unknown) => {
+      return isWsRequestError(err, "connection_replaced");
+    });
+
+    client.disconnect();
+  });
+
+  it("cleans up timer count when fence aborts", async () => {
+    vi.useFakeTimers();
+    let socket: TestSocket | undefined;
+    vi.stubGlobal("WebSocket", class extends TestSocket {
+      constructor() {
+        super();
+        socket = this;
+      }
+    });
+
+    const client = new WsClient("ws://daemon");
+    const connectPromise = client.connect();
+    socket?.open();
+    await connectPromise;
+
+    const initialTimers = vi.getTimerCount();
+    const abortController = new AbortController();
+    const reqPromise = client.send("rpc.fenced", {}, {
+      fence: { signal: abortController.signal, epoch: 1 },
+      timeoutMs: 10_000,
+    });
+
+    expect(vi.getTimerCount()).toBe(initialTimers + 1);
+
+    abortController.abort();
+    await expect(reqPromise).rejects.toSatisfy((err: unknown) => {
+      return isWsRequestError(err, "aborted");
+    });
+
+    expect(vi.getTimerCount()).toBe(initialTimers);
+    client.disconnect();
+  });
+
+  it("cleans up timer count and rejects if ws.send throws synchronously", async () => {
+    vi.useFakeTimers();
+    let socket: TestSocket | undefined;
+    vi.stubGlobal("WebSocket", class extends TestSocket {
+      constructor() {
+        super();
+        socket = this;
+      }
+      override send() {
+        throw new Error("Network write failure");
+      }
+    });
+
+    const client = new WsClient("ws://daemon");
+    const connectPromise = client.connect();
+    socket?.open();
+    await connectPromise;
+
+    const initialTimers = vi.getTimerCount();
+    await expect(
+      client.send("rpc.fail", {}, { timeoutMs: 5000 })
+    ).rejects.toThrow("Network write failure");
+
+    expect(vi.getTimerCount()).toBe(initialTimers);
+    client.disconnect();
+  });
+
+  it("settles protocol_desync even if a protocol error handler throws", async () => {
+    let socket: TestSocket | undefined;
+    vi.stubGlobal("WebSocket", class extends TestSocket {
+      constructor() {
+        super();
+        socket = this;
+      }
+    });
+
+    const client = new WsClient("ws://daemon");
+    client.onProtocolError(() => {
+      throw new Error("subscriber exploded");
+    });
+
+    const connectPromise = client.connect();
+    socket?.open();
+    await connectPromise;
+
+    const reqPromise = client.send("rpc.resilient", {});
+    expect(() => {
+      socket?.onmessage?.({ data: "not-json" });
+    }).not.toThrow();
+
+    await expect(reqPromise).rejects.toSatisfy((err: unknown) => {
+      return isWsRequestError(err, "protocol_desync");
+    });
+    client.disconnect();
+  });
+
+  it("enforces default 30-second deadline when options are omitted", async () => {
+    vi.useFakeTimers();
+    let socket: TestSocket | undefined;
+    vi.stubGlobal("WebSocket", class extends TestSocket {
+      constructor() {
+        super();
+        socket = this;
+      }
+    });
+
+    const client = new WsClient("ws://daemon");
+    const connectPromise = client.connect();
+    socket?.open();
+    await connectPromise;
+
+    const reqPromise = client.send("rpc.default_timeout", {});
+    // Advance 29.9s -> still pending
+    vi.advanceTimersByTime(29_900);
+    let settled = false;
+    reqPromise.catch(() => { settled = true; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    // Advance remaining 100ms -> times out at 30,000ms
+    vi.advanceTimersByTime(100);
+    await expect(reqPromise).rejects.toSatisfy((err: unknown) => {
+      return (
+        isWsRequestError(err, "timeout") &&
+        err.message === "rpc.default_timeout timed out after 30000ms; outcome unknown"
+      );
+    });
+    client.disconnect();
+  });
+
+  it("rejects non-positive or non-finite timeoutMs immediately with WsRequestError", async () => {
+    let socket: TestSocket | undefined;
+    vi.stubGlobal("WebSocket", class extends TestSocket {
+      constructor() {
+        super();
+        socket = this;
+      }
+    });
+
+    const client = new WsClient("ws://daemon");
+    const connectPromise = client.connect();
+    socket?.open();
+    await connectPromise;
+
+    await expect(
+      client.send("rpc.zero", {}, { timeoutMs: 0 })
+    ).rejects.toSatisfy((err: unknown) => isWsRequestError(err, "timeout"));
+
+    await expect(
+      client.send("rpc.negative", {}, { timeoutMs: -100 })
+    ).rejects.toSatisfy((err: unknown) => isWsRequestError(err, "timeout"));
+
+    await expect(
+      client.send("rpc.nan", {}, { timeoutMs: Number.NaN })
+    ).rejects.toSatisfy((err: unknown) => isWsRequestError(err, "timeout"));
+
+    client.disconnect();
+  });
+
+  it("cleans up timers and abort listeners on successful settlement", async () => {
+    vi.useFakeTimers();
+    let socket: TestSocket | undefined;
+    vi.stubGlobal("WebSocket", class extends TestSocket {
+      constructor() {
+        super();
+        socket = this;
+      }
+    });
+
+    const client = new WsClient("ws://daemon");
+    const connectPromise = client.connect();
+    socket?.open();
+    await connectPromise;
+
+    const baselineTimers = vi.getTimerCount();
+    const abortController = new AbortController();
+    const reqPromise = client.send("rpc.success", {}, {
+      fence: { signal: abortController.signal, epoch: 1 },
+      timeoutMs: 15_000,
+    });
+
+    expect(vi.getTimerCount()).toBe(baselineTimers + 1);
+
+    const req = JSON.parse(socket!.sent[0] ?? "{}") as { id: string };
+    socket?.onmessage?.({
+      data: JSON.stringify({ type: "res", version: "v1", id: req.id, ok: true, data: "done" }),
+    });
+
+    await expect(reqPromise).resolves.toMatchObject({ ok: true, data: "done" });
+    expect(vi.getTimerCount()).toBe(baselineTimers);
+
     client.disconnect();
   });
 });

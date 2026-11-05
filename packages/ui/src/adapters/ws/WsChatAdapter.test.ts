@@ -4,7 +4,7 @@ const wsHarness = vi.hoisted(() => {
   const harness = {
     nextResponse: undefined as unknown,
     responses: [] as unknown[],
-    sent: [] as Array<{ method: string; params: unknown; fence?: unknown }>,
+    sent: [] as Array<{ method: string; params: unknown; options?: unknown }>,
     disconnectedCount: 0,
     connectedCount: 0,
     reconnectHandler: undefined as ((fence?: unknown) => Promise<void>) | undefined,
@@ -54,8 +54,8 @@ const wsHarness = vi.hoisted(() => {
       harness.connectedCount++;
     }
 
-    async send(method: string, params: unknown, fence?: unknown) {
-      harness.sent.push({ method, params, fence });
+    async send(method: string, params: unknown, options?: unknown) {
+      harness.sent.push({ method, params, options });
       if (harness.responses.length > 0) {
         return harness.responses.shift();
       }
@@ -76,6 +76,7 @@ import {
   buildDebugRequest,
   projectRunCorrelation,
 } from "./WsChatAdapter.js";
+import { isWsRequestError } from "./ws-request-error.js";
 import { useConnectionStore } from "../../stores/connectionStore.js";
 import { useInferenceStore } from "../../stores/inferenceStore.js";
 
@@ -274,7 +275,7 @@ describe("WsChatAdapter auth and connection lifecycle", () => {
     expect(wsHarness.harness.sent[0]).toEqual({
       method: "connect",
       params: { token: "ws-sentinel-token" },
-      fence: undefined,
+      options: { fence: undefined },
     });
     expect(wsHarness.harness.client?.url).toBe("ws://localhost:18790/ws");
     expect(wsHarness.harness.client?.url).not.toContain("ws-sentinel-token");
@@ -307,7 +308,7 @@ describe("WsChatAdapter auth and connection lifecycle", () => {
     expect(wsHarness.harness.sent[0]).toEqual({
       method: "connect",
       params: {},
-      fence: undefined,
+      options: { fence: undefined },
     });
   });
 
@@ -340,7 +341,7 @@ describe("WsChatAdapter auth and connection lifecycle", () => {
     expect(wsHarness.harness.sent[0]).toEqual({
       method: "connect",
       params: { token: "explicit-override-token" },
-      fence: undefined,
+      options: { fence: undefined },
     });
   });
 
@@ -404,7 +405,7 @@ describe("WsChatAdapter auth and connection lifecycle", () => {
     expect(wsHarness.harness.sent[0]).toEqual({
       method: "connect",
       params: { token: "token-beta" },
-      fence: { signal: { aborted: false } },
+      options: { fence: { signal: { aborted: false } } },
     });
   });
 });
@@ -561,7 +562,7 @@ describe("WsChatAdapter image hints", () => {
         inference_target: target,
         execution_target: target,
       },
-      fence: undefined,
+      options: { fence: undefined },
     });
     wsHarness.harness.reset();
   });
@@ -657,5 +658,56 @@ describe("WsChatAdapter reconnect gap reconciliation", () => {
       useInferenceStore.setState(originalState);
       wsHarness.harness.reset();
     }
+  });
+});
+
+describe("WsChatAdapter typed error mapping and RPC options (Phase 03)", () => {
+  it("throws WsRequestError with server code and method on ok:false response", async () => {
+    wsHarness.harness.reset();
+    const adapter = new WsChatAdapter("ws://localhost:18790/ws");
+    wsHarness.harness.nextResponse = {
+      ok: false,
+      error: { code: "unauthorized", message: "Bearer token invalid" },
+    };
+
+    await expect(adapter.connect("bad-token")).rejects.toSatisfy((err: unknown) => {
+      return (
+        isWsRequestError(err, "unauthorized") &&
+        err.message === "Bearer token invalid" &&
+        err.method === "connect"
+      );
+    });
+  });
+
+  it("sends chat.send with timeoutMs: null so it carries no deadline", async () => {
+    wsHarness.harness.reset();
+    const adapter = new WsChatAdapter("ws://localhost:18790/ws");
+    wsHarness.harness.nextResponse = {
+      ok: true,
+      data: {
+        content: "done",
+        tool_calls_made: 0,
+      },
+    };
+
+    await adapter.sendMessage("hello", "sess-1", () => {});
+    expect(wsHarness.harness.sent[0]).toEqual({
+      method: "chat.send",
+      params: { message: "hello", session_id: "sess-1", stream: true },
+      options: { timeoutMs: null },
+    });
+  });
+
+  it("routes abort through call helper and throws WsRequestError on failure", async () => {
+    wsHarness.harness.reset();
+    const adapter = new WsChatAdapter("ws://localhost:18790/ws");
+    wsHarness.harness.nextResponse = {
+      ok: false,
+      error: { code: "run_not_found", message: "No active run" },
+    };
+
+    await expect(adapter.abort()).rejects.toSatisfy((err: unknown) => {
+      return isWsRequestError(err, "run_not_found") && err.method === "chat.abort";
+    });
   });
 });
