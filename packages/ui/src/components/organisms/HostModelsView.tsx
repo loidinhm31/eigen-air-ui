@@ -33,6 +33,9 @@ export function HostModelsView({ hostId: propHostId, onHostChange, className = "
     purgeHostCache,
     persistedMutations,
     retryPendingMutation,
+    dismissedOperations,
+    dismissHostOperation,
+    clearFinishedHostOperations,
   } = useInferenceStore();
   const hostList = Object.values(hosts);
   const defaultHostId = propHostId || (hostList.length > 0 ? hostList[0].host_id : "");
@@ -101,10 +104,26 @@ export function HostModelsView({ hostId: propHostId, onHostChange, className = "
           };
         })
     : [];
-  const operations =
+  const isOperationDismissed = (opId: string, revision?: number) => {
+    if (!dismissedOperations) return false;
+    const dismissedRev = dismissedOperations[opId];
+    if (dismissedRev === undefined) return false;
+    return (revision ?? 0) <= dismissedRev;
+  };
+  const rawOperations =
     operationsFromStore.length > 0
       ? operationsFromStore
       : (effectiveHostId && hostOperations[effectiveHostId]) || [];
+  const operations = rawOperations.filter(
+    (op) => !isOperationDismissed(op.operation_id, op.revision)
+  );
+  const hasFinishedOperations = operations.some(
+    (op) =>
+      op.state === "completed" ||
+      op.state === "failed" ||
+      op.state === "cancelled" ||
+      op.state === "indeterminate"
+  );
   const hasActiveOperations = operations.some(
     (op) => op.state === "running" || op.state === "queued" || op.state === "cancelling"
   );
@@ -382,15 +401,30 @@ export function HostModelsView({ hostId: propHostId, onHostChange, className = "
       {/* Active Operations Progress Region */}
       {operations.length > 0 && (
         <div className="space-y-2.5" data-testid="active-operations-region">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Host Operations ({operations.length})
-          </h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Host Operations ({operations.length})
+            </h3>
+            {hasFinishedOperations && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => clearFinishedHostOperations(effectiveHostId)}
+                className="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+                data-testid="clear-finished-operations-button"
+              >
+                Clear finished
+              </Button>
+            )}
+          </div>
           <div className="grid gap-2">
             {operations.map((op) => (
               <HostOperationProgressCard
                 key={op.operation_id}
                 operation={op}
                 onCancel={handleCancel}
+                onDismiss={dismissHostOperation}
                 isCancelling={cancellingOpId === op.operation_id}
               />
             ))}

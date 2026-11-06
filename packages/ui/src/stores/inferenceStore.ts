@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { AUTHORITATIVE_CATALOG_DIGESTS } from "@eigen-air-ui/shared/types";
+import { safeRandomUUID } from "@eigen-air-ui/shared/utils";
 import type {
   ApproveRecoveryRequest,
   AppSourceRef,
@@ -83,6 +84,7 @@ export interface InferenceStoreState {
   installations: Record<string, InstallationStatus>;
   activeInstallationId: string | null;
   persistedMutations: Record<string, PersistedMutation>;
+  dismissedOperations: Record<string, number>;
 
   loadingHosts: boolean;
   hostsError: string | null;
@@ -112,7 +114,8 @@ export interface InferenceStoreState {
   purgeHostCache: (hostId: string, payload?: { session_id?: string; mutation_id?: string }) => Promise<void>;
   approveCredentialRecovery: (requestId: string, body?: ApproveRecoveryRequest) => Promise<void>;
   denyCredentialRecovery: (requestId: string, expectedRevision?: number) => Promise<void>;
-
+  dismissHostOperation: (operationId: string) => void;
+  clearFinishedHostOperations: (hostId: string) => void;
   applyHostUpdatedEvent: (payload: InferenceHostUpdatedPayload) => void;
   applyBindingUpdatedEvent: (payload: InferenceBindingUpdatedPayload) => void;
   applyPoolUpdatedEvent: (payload: InferencePoolUpdatedPayload) => void;
@@ -586,6 +589,7 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
     installations: {},
     activeInstallationId: loadPersistedInstallationId(),
     persistedMutations: loadPersistedMutations(),
+    dismissedOperations: {},
 
     loadingHosts: false,
     hostsError: null,
@@ -622,6 +626,7 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
         installations: {},
         activeInstallationId: loadPersistedInstallationId(),
         persistedMutations: loadPersistedMutations(),
+        dismissedOperations: {},
         loadingHosts: false,
         hostsError: null,
         loadingPools: false,
@@ -1035,7 +1040,7 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
     },
 
     mutateBinding: async (hostId: string, poolId: string, expectedRevision?: number) => {
-      const mutationId = `${Date.now()}-${crypto.randomUUID()}`;
+      const mutationId = `${Date.now()}-${safeRandomUUID()}`;
       const binding = await getInferenceService().mutateBinding(hostId, {
         pool_id: poolId,
         expected_revision: expectedRevision,
@@ -1071,7 +1076,7 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
       req: HostOperationRequest
     ) => {
       const startKey = get().accessKey;
-      const mutationId = req.mutation_id || `${Date.now()}-${crypto.randomUUID()}`;
+      const mutationId = req.mutation_id || `${Date.now()}-${safeRandomUUID()}`;
       const now = Date.now();
       const TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -1175,6 +1180,47 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
       await get().fetchHosts();
     },
 
+    dismissHostOperation: (operationId: string) => {
+      const op = get().operations[operationId];
+      const hostOps = Object.values(get().hostOperations).flat();
+      const hostOp = hostOps.find((o) => o.operation_id === operationId);
+      const currentRevision = op?.revision ?? hostOp?.revision ?? 0;
+      const isOpActive =
+        op?.status === "active" ||
+        hostOp?.state === "running" ||
+        hostOp?.state === "queued" ||
+        hostOp?.state === "cancelling";
+      if (isOpActive) {
+        return;
+      }
+      set((state) => ({
+        dismissedOperations: {
+          ...state.dismissedOperations,
+          [operationId]: currentRevision,
+        },
+      }));
+    },
+
+    clearFinishedHostOperations: (hostId: string) => {
+      if (!hostId) return;
+      const list = get().hostOperations[hostId] ?? [];
+      const isTerminal = (s?: string) =>
+        s === "completed" || s === "failed" || s === "cancelled" || s === "indeterminate";
+      const newlyDismissed: Record<string, number> = {};
+      for (const item of list) {
+        if (isTerminal(item.state)) {
+          newlyDismissed[item.operation_id] = item.revision ?? 0;
+        }
+      }
+      if (Object.keys(newlyDismissed).length === 0) return;
+      set((state) => ({
+        dismissedOperations: {
+          ...state.dismissedOperations,
+          ...newlyDismissed,
+        },
+      }));
+    },
+
     purgeHostCache: async (
       hostId: string,
       payload?: { session_id?: string; mutation_id?: string }
@@ -1190,6 +1236,7 @@ export const useInferenceStore = create<InferenceStoreState>((set, get) => {
       await Promise.allSettled([
         get().fetchHostCaches(hostId),
         get().fetchHostModels(hostId),
+        get().fetchHostOperations(hostId),
       ]);
     },
 

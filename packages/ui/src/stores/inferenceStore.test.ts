@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   AppSourceRef,
   CanonicalOperationSnapshot,
@@ -28,6 +28,8 @@ const mockInferenceService = {
   listCredentialRecoveries: vi.fn().mockResolvedValue([]),
   approveCredentialRecovery: vi.fn(),
   denyCredentialRecovery: vi.fn(),
+  mutateBinding: vi.fn(),
+  purgeHostCache: vi.fn(),
 } as unknown as IInferenceService;
 setInferenceService(mockInferenceService);
 describe("inferenceStore", () => {
@@ -38,6 +40,10 @@ describe("inferenceStore", () => {
     setServiceAccessContext({ identityKey: "test-user-1" });
     useInferenceStore.getState().invalidateAccess();
   });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
 
   describe("monotonic operation revision fences", () => {
     it("accepts higher revisions and ignores stale or older revisions for the same operation", () => {
@@ -1700,6 +1706,150 @@ describe("inferenceStore", () => {
       expect(live["fresh-41"]).toBeDefined();
       expect(live["expired-1"]).toBeUndefined();
       expect(live["terminal-1"]).toBeUndefined();
+    });
+
+    it("mutateBinding() succeeds when crypto.randomUUID is undefined (Tailscale HTTP context)", async () => {
+      vi.stubGlobal("crypto", {
+        randomUUID: undefined,
+        getRandomValues: (buf: Uint8Array) => buf.fill(0x55),
+      });
+      const mockBinding = {
+        host_id: "h1",
+        pool_id: "p1",
+        revision: 2,
+        state: "bound" as const,
+        changed_at_ms: Date.now(),
+      };
+      mockInferenceService.mutateBinding = vi.fn().mockResolvedValue(mockBinding);
+      const store = useInferenceStore.getState();
+
+      const binding = await store.mutateBinding("h1", "p1", 1);
+      expect(binding).toEqual(mockBinding);
+      expect(mockInferenceService.mutateBinding).toHaveBeenCalledOnce();
+      const mutateBindingMock = vi.mocked(mockInferenceService.mutateBinding);
+      const callArgs = mutateBindingMock.mock.calls[0];
+      expect(callArgs[0]).toBe("h1");
+      expect(callArgs[1].pool_id).toBe("p1");
+      expect(callArgs[1].expected_revision).toBe(1);
+      expect(callArgs[1].mutation_id).toMatch(/^\d+-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    });
+
+    it("dispatchModelOperation() generates mutationId when crypto.randomUUID is undefined and matches persisted entry", async () => {
+      vi.stubGlobal("crypto", {
+        randomUUID: undefined,
+        getRandomValues: (buf: Uint8Array) => buf.fill(0x66),
+      });
+      mockInferenceService.dispatchModelOperation = vi.fn().mockResolvedValue({ operation_id: "op-test-fallback" });
+      const store = useInferenceStore.getState();
+
+      await store.dispatchModelOperation("h1", "gemma-4", { kind: "load" });
+
+      expect(mockInferenceService.dispatchModelOperation).toHaveBeenCalledOnce();
+      const dispatchModelOperationMock = vi.mocked(mockInferenceService.dispatchModelOperation);
+      const sentReq = dispatchModelOperationMock.mock.calls[0][2];
+      const mutationId = sentReq.mutation_id!;
+      expect(mutationId).toMatch(/^\d+-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+
+      const persisted = useInferenceStore.getState().persistedMutations[mutationId];
+      expect(persisted).toBeDefined();
+      expect(persisted.mutationId).toBe(mutationId);
+      expect(persisted.operationId).toBe("op-test-fallback");
+      expect(persisted.status).toBe("dispatched");
+    });
+
+    it("dismissHostOperation() records dismissed revision and ignores active operations", () => {
+      useInferenceStore.setState({
+        operations: {
+          "op-term": {
+            operation_id: "op-term",
+            execution_target_kind: "server",
+            status: "completed",
+            revision: 3,
+            artifact_id: "gemma",
+            stage: "load_context",
+            started_at_ms: 1000,
+            updated_at_ms: 2000,
+            counters: {},
+          },
+          "op-active": {
+            operation_id: "op-active",
+            execution_target_kind: "server",
+            status: "active",
+            revision: 2,
+            artifact_id: "gemma",
+            stage: "download",
+            started_at_ms: 1000,
+            updated_at_ms: 2000,
+            counters: {},
+          },
+        },
+        hostOperations: {
+          "h1": [
+            {
+              operation_id: "op-term",
+              host_id: "h1",
+              artifact_id: "gemma",
+              kind: "load",
+              state: "completed",
+              revision: 3,
+              counters: {},
+            },
+            {
+              operation_id: "op-active",
+              host_id: "h1",
+              artifact_id: "gemma",
+              kind: "download",
+              state: "running",
+              revision: 2,
+              counters: {},
+            },
+          ],
+        },
+        dismissedOperations: {},
+      });
+
+      // Attempt to dismiss active operation -> rejected/no-op
+      useInferenceStore.getState().dismissHostOperation("op-active");
+      expect(useInferenceStore.getState().dismissedOperations["op-active"]).toBeUndefined();
+
+      // Dismiss terminal operation -> recorded with revision 3
+      useInferenceStore.getState().dismissHostOperation("op-term");
+      expect(useInferenceStore.getState().dismissedOperations["op-term"]).toBe(3);
+    });
+
+    it("clearFinishedHostOperations() dismisses all terminal operations for specified host only", () => {
+      useInferenceStore.setState({
+        hostOperations: {
+          "h1": [
+            { operation_id: "op-h1-done", host_id: "h1", artifact_id: "gemma", kind: "load", state: "completed", revision: 2, counters: {} },
+            { operation_id: "op-h1-failed", host_id: "h1", artifact_id: "gemma", kind: "download", state: "failed", revision: 1, counters: {} },
+            { operation_id: "op-h1-active", host_id: "h1", artifact_id: "gemma", kind: "download", state: "running", revision: 4, counters: {} },
+          ],
+          "h2": [
+            { operation_id: "op-h2-done", host_id: "h2", artifact_id: "gemma", kind: "load", state: "completed", revision: 5, counters: {} },
+          ],
+        },
+        dismissedOperations: {},
+      });
+
+      useInferenceStore.getState().clearFinishedHostOperations("h1");
+      const dismissed = useInferenceStore.getState().dismissedOperations;
+      expect(dismissed["op-h1-done"]).toBe(2);
+      expect(dismissed["op-h1-failed"]).toBe(1);
+      expect(dismissed["op-h1-active"]).toBeUndefined();
+      expect(dismissed["op-h2-done"]).toBeUndefined(); // untouched other host
+    });
+
+    it("purgeHostCache() refreshes fetchHostOperations along with caches and models", async () => {
+      mockInferenceService.purgeHostCache = vi.fn().mockResolvedValue({ status: "pending_purge" });
+      mockInferenceService.listHostOperations = vi.fn().mockResolvedValue([]);
+      mockInferenceService.listHostModels = vi.fn().mockResolvedValue([]);
+
+      await useInferenceStore.getState().purgeHostCache("h1", { session_id: "session-123" });
+
+      expect(mockInferenceService.purgeHostCache).toHaveBeenCalledWith("h1", { session_id: "session-123", mutation_id: undefined });
+      expect(mockInferenceService.listHostOperations).toHaveBeenCalledWith("h1");
+      expect(mockInferenceService.listHostModels).toHaveBeenCalledWith("h1");
     });
   });
 });

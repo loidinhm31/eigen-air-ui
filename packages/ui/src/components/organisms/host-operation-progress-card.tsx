@@ -4,11 +4,12 @@ import type { OperationSnapshot } from "@eigen-air-ui/shared/types";
 import { Badge } from "../atoms/Badge.js";
 import { Button } from "../atoms/Button.js";
 import { Spinner } from "../atoms/Spinner.js";
-import { Activity, Clock, XCircle } from "lucide-react";
+import { Activity, Clock, X, XCircle } from "lucide-react";
 
 export interface HostOperationProgressCardProps {
   operation: OperationSnapshot;
   onCancel?: (operationId: string) => Promise<void>;
+  onDismiss?: (operationId: string) => void;
   isCancelling?: boolean;
 }
 
@@ -26,6 +27,7 @@ function formatUnits(val?: number, unit?: string): string {
 export function HostOperationProgressCard({
   operation,
   onCancel,
+  onDismiss,
   isCancelling = false,
 }: HostOperationProgressCardProps) {
   const {
@@ -70,12 +72,12 @@ export function HostOperationProgressCard({
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <Activity className="h-4 w-4 text-primary animate-pulse" />
+          <Activity className={`h-4 w-4 text-primary ${isActive ? "animate-pulse" : ""}`} />
           <span className="font-semibold text-foreground truncate">{artifact_id}</span>
           <Badge variant="outline" className="text-[10px] uppercase font-mono">
             {kind}
           </Badge>
-          {stage && (
+          {stage && stage.toLowerCase() !== state.toLowerCase() && (
             <Badge variant="outline" className="text-[10px] uppercase text-muted-foreground">
               {stage.replace("_", " ")}
             </Badge>
@@ -108,13 +110,29 @@ export function HostOperationProgressCard({
               {state === "cancelling" ? "Cancelling..." : "Cancel"}
             </Button>
           )}
+          {!isActive && onDismiss && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => onDismiss(operation_id)}
+              className="min-h-[44px] px-2 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50"
+              data-testid={`dismiss-operation-${operation_id}`}
+              aria-label={`Dismiss operation ${operation_id}`}
+            >
+              <X className="h-3.5 w-3.5 mr-1" />
+              Dismiss
+            </Button>
+          )}
         </div>
       </div>
 
       {percent !== null && (
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
           <div
-            className="h-full bg-primary transition-all duration-300"
+            className={`h-full transition-all duration-300 ${
+              state === "failed" ? "bg-destructive" : state === "completed" ? "bg-emerald-500" : "bg-primary"
+            }`}
             style={{ width: `${percent}%` }}
           />
         </div>
@@ -126,15 +144,29 @@ export function HostOperationProgressCard({
             ? `${formatUnits(counters.completed_units, counters.unit)} / ${formatUnits(counters.total_units, counters.unit)} (${percent}%)`
             : counters.completed_units !== undefined
               ? `${formatUnits(counters.completed_units, counters.unit)} completed`
-              : "In progress"}
+              : isActive
+                ? state === "queued"
+                  ? "Queued"
+                  : state === "cancelling"
+                    ? "Cancelling..."
+                    : "In progress"
+                : state === "completed"
+                  ? "Completed"
+                  : state === "failed"
+                    ? "Failed"
+                    : state === "cancelled"
+                      ? "Cancelled"
+                      : state === "indeterminate"
+                        ? "Outcome unknown"
+                        : state}
         </span>
         <div className="flex items-center gap-3">
-          {counters.tokens_per_second !== undefined && (
+          {isActive && counters.tokens_per_second !== undefined && (
             <span className="font-medium text-emerald-400">
               {counters.tokens_per_second.toFixed(1)} tok/s
             </span>
           )}
-          {counters.estimated_remaining_seconds !== undefined && (
+          {isActive && counters.estimated_remaining_seconds !== undefined && (
             <span>ETA: {Math.round(counters.estimated_remaining_seconds)}s</span>
           )}
         </div>

@@ -501,6 +501,90 @@ describe("HostModelsView", () => {
     expect(screen.queryByTestId("cancel-operation-op-indeterminate")).toBeNull();
   });
 
+  it("allows dismissing individual terminal operations and clearing all finished operations", async () => {
+    const user = userEvent.setup();
+    useInferenceStore.setState({
+      hosts: {
+        "host-term": {
+          host_id: "host-term",
+          installation_id: "inst-1",
+          label: "Term Host",
+          platform: "linux_x86_64",
+          agent_version: "0.2.0",
+          last_seen_at_ms: Date.now(),
+          is_connected: true,
+          lease_valid: true,
+          lifecycle_revision: 1,
+          applied_binding_revision: 0,
+          recovery: {
+            desired_revision: 1,
+            reconciled_revision: 1,
+            auto_load_model: false,
+            auto_prepare_kv: false,
+            model_ready: false,
+            cache_ready: false,
+            model_action: "none",
+            cache_action: "none",
+          },
+        },
+      },
+      hostModels: {
+        "host-term": [],
+      },
+      hostOperations: {
+        "host-term": [
+          {
+            operation_id: "op-failed-1",
+            host_id: "host-term",
+            artifact_id: "gemma-4",
+            kind: "download",
+            state: "failed",
+            revision: 2,
+            started_at_ms: Date.now() - 5000,
+            completed_at_ms: Date.now(),
+            counters: {},
+            error_message: "Host operation failed",
+          },
+          {
+            operation_id: "op-completed-1",
+            host_id: "host-term",
+            artifact_id: "qwen-3.5",
+            kind: "purge",
+            state: "completed",
+            revision: 3,
+            started_at_ms: Date.now() - 10000,
+            completed_at_ms: Date.now() - 2000,
+            counters: {},
+          },
+        ],
+      },
+      dismissedOperations: {},
+      fetchHostModels: vi.fn().mockResolvedValue([]),
+      fetchHostOperations: vi.fn().mockResolvedValue([]),
+    });
+
+    render(<HostModelsView hostId="host-term" />);
+
+    // Both operations visible
+    expect(screen.getByTestId("operation-progress-op-failed-1")).toBeTruthy();
+    expect(screen.getByTestId("operation-progress-op-completed-1")).toBeTruthy();
+
+    // Dismiss individual card
+    const dismissFailedBtn = screen.getByTestId("dismiss-operation-op-failed-1");
+    await user.click(dismissFailedBtn);
+
+    // Failed operation is dismissed and hidden
+    expect(screen.queryByTestId("operation-progress-op-failed-1")).toBeNull();
+    expect(screen.getByTestId("operation-progress-op-completed-1")).toBeTruthy();
+
+    // Clear finished button dismisses remaining finished operations
+    const clearFinishedBtn = screen.getByTestId("clear-finished-operations-button");
+    await user.click(clearFinishedBtn);
+
+    expect(screen.queryByTestId("operation-progress-op-completed-1")).toBeNull();
+    expect(screen.queryByTestId("active-operations-region")).toBeNull();
+  });
+
   it("UI-06: fresh recommendations govern multi-deploy dispatch and failed refresh never authorizes from stale cache", async () => {
     const user = userEvent.setup();
     const dispatchModelOperationMock = vi.fn().mockResolvedValue("op-multi-fresh-1");

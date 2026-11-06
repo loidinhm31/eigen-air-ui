@@ -346,6 +346,66 @@ describe("HttpInferenceAdapter", () => {
       expect(headers.get("x-mutation-id")).toBeDefined();
       expect(fetchMock.mock.calls[0][0]).toContain("mutation_id=");
     });
+    it("unbindHost() succeeds when crypto.randomUUID is undefined (Tailscale HTTP context)", async () => {
+      vi.stubGlobal("crypto", {
+        randomUUID: undefined,
+        getRandomValues: (buf: Uint8Array) => buf.fill(0x33),
+      });
+      const fetchMock = vi.fn().mockResolvedValue({
+        status: 200,
+        ok: true,
+        json: async () => ({ status: "draining", revision: 5 }),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const adapter = new HttpInferenceAdapter("http://daemon:18790");
+      const res = await adapter.unbindHost("h1", 2);
+      expect(res.status).toBe("draining");
+      const headers = fetchMock.mock.calls[0][1].headers as Headers;
+      const headerMutationId = headers.get("x-mutation-id");
+      expect(headerMutationId).toMatch(/^\d+-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+      // Must match query parameter exactly
+      expect(fetchMock.mock.calls[0][0]).toBe(
+        `http://daemon:18790/v1/inference/hosts/h1/binding?mutation_id=${encodeURIComponent(headerMutationId!)}&expected_revision=2`
+      );
+    });
+
+    it("purgeHostCache() generates fallback mutationId when crypto.randomUUID is undefined", async () => {
+      vi.stubGlobal("crypto", {
+        randomUUID: undefined,
+        getRandomValues: (buf: Uint8Array) => buf.fill(0x44),
+      });
+      const fetchMock = vi.fn().mockResolvedValue({
+        status: 200,
+        ok: true,
+        json: async () => ({ status: "purged", operation_id: "op-purge-1" }),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const adapter = new HttpInferenceAdapter("http://daemon:18790");
+      const res = await adapter.purgeHostCache("h1", { session_id: "sess-abc" });
+      expect(res.status).toBe("purged");
+      expect(res.operation_id).toBe("op-purge-1");
+      expect(fetchMock.mock.calls[0][0]).toBe("http://daemon:18790/v1/inference/hosts/h1/cache/purge");
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+      expect(body.session_id).toBe("sess-abc");
+      expect(body.mutation_id).toMatch(/^\d+-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    });
+
+    it("purgeHostCache() preserves explicit caller-provided mutation_id", async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        status: 200,
+        ok: true,
+        json: async () => ({ status: "purged" }),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const adapter = new HttpInferenceAdapter("http://daemon:18790");
+      await adapter.purgeHostCache("h1", { session_id: "sess-xyz", mutation_id: "explicit-mut-99" });
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+      expect(body.mutation_id).toBe("explicit-mut-99");
+    });
+
 
     it("credential recovery approve and deny endpoints", async () => {
       const mockView = {

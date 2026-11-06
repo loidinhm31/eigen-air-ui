@@ -42,6 +42,7 @@ import {
   decodeStorageRootDescriptor,
   decodeStorageSelectionResponse,
 } from "@eigen-air-ui/shared/types";
+import { safeRandomUUID } from "@eigen-air-ui/shared/utils";
 import type {
   DownloadAttachmentResult,
   IInferenceService,
@@ -351,7 +352,7 @@ export class HttpInferenceAdapter implements IInferenceService {
     hostId: string,
     expectedRevision?: number
   ): Promise<{ status: string; revision: number }> {
-    const mutationId = `${Date.now()}-${crypto.randomUUID()}`;
+    const mutationId = `${Date.now()}-${safeRandomUUID()}`;
     const headers: Record<string, string> = {
       "x-mutation-id": mutationId,
     };
@@ -474,7 +475,7 @@ export class HttpInferenceAdapter implements IInferenceService {
     hostId: string,
     payload: { session_id?: string; mutation_id?: string } = {}
   ): Promise<{ status: string; operation_id?: string }> {
-    const mutationId = payload.mutation_id || `${Date.now()}-${crypto.randomUUID()}`;
+    const mutationId = payload.mutation_id || `${Date.now()}-${safeRandomUUID()}`;
     const raw = await this.request<{ status?: string; operation_id?: string }>(
       `/v1/inference/hosts/${encodeURIComponent(hostId)}/cache/purge`,
       {
